@@ -14,14 +14,14 @@ try {
   await until(() => states.get(rooms[0].sessionId)?.players.every(p => p.ready) ?? false); rooms[0].send('start', { practice: false });
   await until(() => states.get(rooms[0].sessionId)?.phase === 'active');
   const oldId = rooms[1].sessionId, token = rooms[1].reconnectionToken;
-  rooms[1].reconnection.enabled = false; rooms[1].connection.close(4000);
+  rooms[1].reconnection.enabled = false; rooms[1].connection.close(1000);
   await until(() => states.get(rooms[0].sessionId)?.players.find(p => p.id === oldId)?.connected === false);
   rooms[1] = await clients[1].reconnect(token); sub(rooms[1]);
   await until(() => states.get(rooms[0].sessionId)?.players.find(p => p.id === oldId)?.connected === true);
   assert.equal(rooms[1].sessionId, oldId); assert.equal(states.get(rooms[0].sessionId)!.players.find(p => p.id === oldId)!.hp, 100);
   console.log('PASS: dropped player reconnects with the same identity and life');
   const expiredToken = rooms[2].reconnectionToken; const expiredId = rooms[2].sessionId;
-  rooms[2].reconnection.enabled = false; rooms[2].connection.close(4000);
+  rooms[2].reconnection.enabled = false; rooms[2].connection.close(1000);
   await until(() => states.get(rooms[0].sessionId)?.players.find(p => p.id === expiredId)?.alive === false, 23000);
   await assert.rejects(clients[2].reconnect(expiredToken));
   assert.equal(states.get(rooms[0].sessionId)!.phase, 'active');
