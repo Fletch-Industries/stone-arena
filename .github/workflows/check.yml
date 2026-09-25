@@ -22,3 +22,4 @@ jobs:
             sleep 1
           done
           npx tsx tests/room-lifecycle.ts
+          npx tsx tests/multiplayer.ts

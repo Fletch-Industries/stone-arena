@@ -1,0 +1,17 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Locomotion preview</title><style>body{margin:0;font:16px sans-serif;background:#172228;color:white}canvas{display:block}nav{position:fixed;top:16px;left:16px;background:#172228dd;padding:12px;z-index:2}button{padding:10px;margin:3px}output{display:block;padding:8px}</style></head><body><canvas id="world"></canvas><nav>Development preview · actual game renderer<br><button>Idle</button><button>Walk</button><button>Run</button><button>Jump</button><button>Attack</button><button>Knockback</button><button>Pause</button><output></output></nav><script type="module">
+import { ArenaScene } from '/client/scene.ts';
+import { Simulation } from '/server/simulation.ts';
+import { idleInput, DT } from '/shared/game.ts';
+const scene = new ArenaScene(document.querySelector('canvas')); scene.settings('low',90,false);
+const sim = new Simulation(); const view=sim.add('view','Viewer'), actor=sim.add('actor','Animation'); sim.practice=true; sim.phase='active';
+let mode='Idle', ticks=0, paused=false,eventId=0;
+function reset(){ Object.assign(view,{x:-5,z:3,y:0,yaw:0}); Object.assign(actor,{x:-5,z:-1,y:0,vy:0,vx:0,vz:0,grounded:true,yaw:Math.PI/2,hp:100,hurtTime:0,alive:true,cooldown:0});ticks=0; }
+reset();
+for(const button of document.querySelectorAll('button'))button.onclick=()=>{if(button.textContent==='Pause'){paused=!paused;button.textContent=paused?'Resume':'Pause';}else if(button.textContent==='Resume'){paused=false;button.textContent='Pause';}else{mode=button.textContent;paused=false;document.querySelector('button:last-of-type').textContent='Pause';reset();}};
+let previous=performance.now(),acc=0;
+function frame(now){let dt=Math.min(.05,(now-previous)/1000);previous=now;acc+=dt;
+while(acc>=DT){acc-=DT;if(!paused){ticks++;if(mode==='Jump'&&ticks===15){paused=true;document.querySelector('button:last-of-type').textContent='Resume';}const phase=ticks%120;sim.input(actor.id,{...idleInput(),seq:sim.tick+1,yaw:phase<60?Math.PI/2:-Math.PI/2,z:mode==='Walk'||mode==='Run'?1:0,sprint:mode==='Run',jump:mode==='Jump'&&phase===1,attack:mode==='Attack'});sim.step();if(mode==='Knockback'&&ticks%150===1){actor.hp=100;actor.hurtTime=0;sim.damage(actor,view,10);}if(ticks%300===0)reset();}}
+const snap=sim.snapshot();for(const e of snap.events)if(e.id>eventId){scene.event(e);eventId=e.id;}
+scene.render(dt,snap,view,view,0,-.05,false,false);document.querySelector('output').textContent=`${mode} · ${actor.grounded?'Grounded':actor.vy>0?'Rising':'Falling'} · ${actor.moveSpeed.toFixed(2)} blocks/s · ${scene.fps} FPS`;requestAnimationFrame(frame);}
+requestAnimationFrame(frame);
+</script></body></html>

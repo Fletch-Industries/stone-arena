@@ -7,6 +7,18 @@ one life each, no match timer. The last survivor wins. Includes private invitati
 solo practice, sword/axe/bow/crossbow/shield combat, spectating, results, rematches,
 and a 15-second reconnect window.
 
+## Combat and movement
+
+Movement and combat follow modern Java Edition conventions: sword knockback,
+stronger sprint hits, falling criticals, charged attacks, sword sweeps, shield
+blocking, and bow/crossbow projectiles. Players have animated walking, running,
+jumping, landing and weapon swings. Wait for the attack-strength bar to fill for
+full damage; fast clicks deal weaker hits. Holding Attack repeats at full recovery.
+
+The [mechanics reference](docs/minecraft-mechanics.md) records the researched rules,
+sources, exact kit values, and deliberate arena adaptations. The arena remains
+one-life, without healing or hunger; its browser physics is not an exact replica.
+
 ## Run locally
 
 Requires Node.js 22 or newer.
@@ -23,11 +35,11 @@ invite link. Everyone readies up, then the host starts. For local multi-browser
 testing, open the link in a second tab and use another nickname. Network friends
 need a reachable deployed URL rather than your localhost link.
 
-WASD moves, mouse aims, Shift sprints, Space jumps, 1–4 or wheel switches weapons,
+WASD moves, mouse aims, Ctrl/Shift or double-tap W sprints, Space jumps, 1–4 or wheel switches weapons,
 left mouse attacks, right mouse blocks, Tab shows scores, Escape opens settings.
 Hold the bow to draw and release to fire. Click the crossbow once to load and again
 to fire. If mouse capture is unavailable (for example in an embedded browser),
-hold Alt and drag to look; the other controls remain the same. Axe hits disable shields briefly. No healing or respawns during a round.
+hold Alt and drag to look; the other controls remain the same. Blocked axe hits disable shields for five seconds. No healing or respawns during a round.
 
 On phones and tablets, use the left thumbstick to move and swipe the right side
 to aim. Hold Attack for melee or bow charge; release the bow to fire. Tap Attack
