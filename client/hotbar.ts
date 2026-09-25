@@ -1,0 +1,22 @@
+import { WEAPONS, type Player, type Weapon } from '../shared/game.js';
+
+// Original, grid-aligned icons; no external textures or fonts to download.
+const tools: Record<Weapon, string> = {
+  sword: '<path fill="#26383b" d="M22 2h8v8h-4v4h-4v4h-4v4h-4v4H6v-8h4v-4h4v-4h4V6h4z"/><path fill="#aee7df" d="M24 4h4v4h-4v4h-4v4h-4v4h-4v-4h4v-4h4V8h4z"/><path fill="#e5fff0" d="M24 4h4v2h-4v4h-4v4h-4v4h-2v-2h2v-4h4V8h4z"/><path fill="#866038" d="M4 24h4v-4h4v4H8v4H4z"/><path fill="#c8ad68" d="M4 16h4v4h4v4h4v4h-4v-4H8v-4H4z"/>',
+  axe: '<path fill="#644827" d="M8 26h4v-4h4v-4h4v-4h4V8h-4v4h-4v4h-4v4H8z"/><path fill="#c39962" d="M10 26h2v-4h4v-4h4v-4h-2v2h-4v4h-4z"/><path fill="#374749" d="M14 2h10v4h6v12h-6v-4h-4v-4h-6z"/><path fill="#b4dcd5" d="M16 4h6v4h6v8h-4v-4h-4V8h-4z"/><path fill="#eff6e3" d="M26 8h2v8h-2z"/>',
+  bow: '<path fill="#5a4025" d="M8 2h6v4h6v4h4v12h-4v4h-6v4H8v-4h4v-4h6V10h-6V6H8z"/><path fill="#ce9856" d="M10 2h4v4h6v4h4v12h-4v4h-6v4h-4v-2h4v-4h6V8h-6V4h-4z"/><path fill="#e3d9b9" d="M8 4h2v24H8z"/><path fill="#997441" d="M4 15h24v2H4z"/><path fill="#d5e6df" d="M24 12h4v2h2v4h-2v2h-4z"/>',
+  crossbow: '<path fill="#4f3c2c" d="M12 6h8v22h-8zM2 8h28v8H2z"/><path fill="#ac824e" d="M14 8h4v18h-4z"/><path fill="#bdcbc1" d="M2 8h6V4h6v4h4V4h6v4h6v4h-8V8h-4v4h-4V8h-4v4H2z"/><path fill="#e2e9d8" d="M15 2h2v18h-2z"/>',
+};
+const toolIcon = (weapon: Weapon) => `<svg viewBox="0 0 32 32" aria-hidden="true" shape-rendering="crispEdges">${tools[weapon]}</svg>`;
+const heart = 'M1 2h3V1h2v1h2V1h2v1h3v2h1v4h-2v2h-2v2H8v2H6v-2H4v-2H2V8H0V4h1z';
+export function hotbar(player: Player, selected: Weapon) {
+  const hp = Math.max(0, Math.min(100, player.hp));
+  const hearts = Array.from({ length: 10 }, (_, n) => {
+    const fill = Math.max(0, Math.min(2, Math.ceil((hp - n * 10) / 5)));
+    return `<svg class="heart" viewBox="0 0 14 15" aria-hidden="true" shape-rendering="crispEdges"><path d="${heart}" fill="#150c0d"/><path d="M2 3h3v1h4V3h3v4h-2v2H8v2H6V9H4V7H2z" fill="#482127"/>${fill ? `<svg width="${fill === 1 ? 7 : 14}" height="15" viewBox="0 0 ${fill === 1 ? 7 : 14} 15" overflow="hidden"><path d="M2 3h3v1h4V3h3v4h-2v2H8v2H6V9H4V7H2z" fill="#ec3547"/><path d="M2 3h3v2H2zM9 3h2v1H9z" fill="#ff9696"/></svg>` : ''}</svg>`;
+  }).join('');
+  return `<div class="vitals"><div class="hearts ${hp <= 20 ? 'low-health' : ''}" role="img" aria-label="Health: ${Math.ceil(hp)} of 100">${hearts}</div><div class="offhand ${player.block ? 'blocking' : ''} ${player.shieldDisabled > 0 ? 'disabled' : ''}" role="img" aria-label="${player.block ? 'Blocking with shield' : player.shieldDisabled > 0 ? 'Shield disabled' : 'Shield ready'}"><svg viewBox="0 0 16 18" aria-hidden="true" shape-rendering="crispEdges"><path d="M1 1h14v11h-2v2h-2v2H5v-2H3v-2H1z" fill="#343738"/><path d="M3 3h10v8h-2v2H9v2H7v-2H5v-2H3z" fill="#a87d47"/><path d="M7 3h2v12H7z" fill="#d2cbb2"/></svg><span>${player.block ? 'BLOCKING' : player.shieldDisabled > 0 ? 'DISABLED' : 'SHIELD'}</span></div></div><div class="selected-tool">${selected[0].toUpperCase() + selected.slice(1)}</div><div class="slots" role="group" aria-label="Tool hotbar">${Array.from({ length: 9 }, (_, i) => {
+    const w = WEAPONS[i];
+    return w ? `<button class="slot interactive ${selected === w ? 'selected' : ''}" data-action="weapon" data-weapon="${w}" aria-label="Equip ${w}" aria-pressed="${selected === w}" title="${i + 1} · ${w}"><small>${i + 1}</small>${toolIcon(w)}${w === 'bow' || w === 'crossbow' ? `<span class="item-count" aria-label="${player.ammo} arrows">${player.ammo}</span>` : ''}</button>` : '<div class="slot empty" aria-hidden="true"></div>';
+  }).join('')}</div>`;
+}

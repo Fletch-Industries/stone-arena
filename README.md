@@ -34,6 +34,9 @@ to aim. Hold Attack for melee or bow charge; release the bow to fire. Tap Attack
 to load/fire a crossbow. Hold Shield, tap Jump, toggle Sprint, and tap a weapon to
 equip it. Menu and Scores are in the top right. Landscape is recommended; portrait
 is supported. Small screens default to low graphics with a one-pixel render ratio.
+The camera defaults to 120° FOV (adjustable from 60° to 120° in Settings).
+The classic tool hotbar shows ten full/half hearts, four selectable tools, arrow
+counts, and shield status. Empty slots collapse on very narrow landscape screens.
 The touch surfaces preserve multiple pointer captures across HUD refreshes and
 clear held controls when interrupted. No installation or account is needed.
 
