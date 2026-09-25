@@ -2,6 +2,7 @@ import { Client, type Room } from '@colyseus/sdk';
 import { ArenaScene } from './scene.js';
 import { COLORS, DT, VERSION, WEAPONS, idleInput, move, type Body, type Input, type Player, type Snapshot, type Weapon } from '../shared/game.js';
 import './style.css';
+import { TouchControls } from './touch.js';
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
 const canvas = document.querySelector<HTMLCanvasElement>('#world')!;
@@ -18,10 +19,21 @@ let room: Room | undefined, snapshot: Snapshot | undefined, local: Body | undefi
 let yaw = 0, pitch = 0, weapon: Weapon = 'sword', seq = 0, accumulator = 0;
 let pending: Input[] = [], lastPhase = '', lastRound = 0, eventId = 0, ping = 0, notice = '', error = '', busy = false;
 let modal: 'settings' | 'controls' | '' = '', scoreboard = false, disconnected = false, lastHud = 0, nickname = '';
-let mouseAttack = false, mouseBlock = false, expectedUnlock = false, dragLook = false;
+let mouseAttack = false, mouseBlock = false, expectedUnlock = false, dragLook = false, attackQueued = false;
 let resultsEnteredAt = 0;
 const keys = new Set<string>();
-const settings = { sensitivity: 1, volume: .35, quality: 'medium', fov: 78, reduced: false };
+const mobileQuery = matchMedia('(pointer: coarse), (max-width: 900px)');
+let mobile = mobileQuery.matches, touchPlaying = false;
+const settings = { sensitivity: 1, volume: .35, quality: mobile ? 'low' : 'medium', fov: 78, reduced: matchMedia('(prefers-reduced-motion: reduce)').matches };
+const touch = new TouchControls({
+  aim: (x, y) => { if (touchPlaying) { yaw -= x * .005 * settings.sensitivity; yaw = Math.atan2(Math.sin(yaw), Math.cos(yaw)); pitch = Math.max(-1.5, Math.min(1.5, pitch - y * .005 * settings.sensitivity)); } },
+  attack: down => { mouseAttack = down; if (down) attackQueued = true; },
+  block: down => { mouseBlock = down; },
+  menu: () => { releasePointer(); modal = 'settings'; renderUI(); },
+  scores: () => { releasePointer(); scoreboard = true; renderUI(); },
+});
+document.body.classList.toggle('mobile', mobile);
+mobileQuery.addEventListener('change', () => { mobile = mobileQuery.matches; document.body.classList.toggle('mobile', mobile); releasePointer(); renderUI(); });
 try { Object.assign(settings, JSON.parse(localStorage.getItem('stone-settings') ?? '{}')); nickname = localStorage.getItem('stone-name') ?? ''; } catch { /* private browser storage may be unavailable */ }
 let audio: AudioContext | undefined;
 function sound(frequency = 220, duration = .08, type: OscillatorType = 'triangle') {
@@ -31,17 +43,17 @@ function sound(frequency = 220, duration = .08, type: OscillatorType = 'triangle
 function enableAudio() { audio ??= new AudioContext(); void audio.resume(); }
 let scene: ArenaScene;
 try { scene = new ArenaScene(canvas); scene.settings(settings.quality, settings.fov, settings.reduced); }
-catch { app.innerHTML = '<div class="overlay interactive"><div class="panel"><h2>Graphics unavailable</h2><p>Stone Arena needs WebGL 2. Enable hardware acceleration and try a current desktop browser.</p></div></div>'; throw new Error('WebGL 2 unavailable'); }
+catch { app.innerHTML = '<div class="overlay interactive"><div class="panel"><h2>Graphics unavailable</h2><p>Stone Arena needs WebGL 2. Enable hardware acceleration and try a current browser.</p></div></div>'; throw new Error('WebGL 2 unavailable'); }
 const api = await fetch(new URL('config.json', location.href)).then(r => r.ok ? r.json() : Promise.reject()).then(c => c.api as string).catch(() => '/arena-api');
 const endpoint = new URL(api, location.origin).href;
 const client = new Client(endpoint);
 const me = () => snapshot?.players.find(p => p.id === room?.sessionId);
 const locked = () => document.pointerLockElement === canvas;
-const controlling = () => locked() || dragLook;
-function resetControls() { keys.clear(); mouseAttack = false; mouseBlock = false; }
-function releasePointer() { dragLook = false; expectedUnlock = true; document.exitPointerLock(); resetControls(); }
+const controlling = () => locked() || dragLook || touchPlaying;
+function resetControls() { keys.clear(); mouseAttack = false; mouseBlock = false; attackQueued = false; touch.reset(); }
+function releasePointer() { touchPlaying = false; dragLook = false; expectedUnlock = true; document.exitPointerLock(); resetControls(); }
 async function lockPointer() {
-  enableAudio(); modal = ''; renderUI();
+  enableAudio(); modal = ''; scoreboard = false; if (mobile) { touchPlaying = true; notice = ''; renderUI(); return; } renderUI();
   try { await canvas.requestPointerLock(); dragLook = false; notice = ''; } catch { dragLook = true; notice = 'Hold Alt and drag to look · WASD to move · Escape for menu'; } renderUI();
 }
 function storeSession() { try { if (room) sessionStorage.setItem('stone-session', JSON.stringify({ token: room.reconnectionToken, code: room.roomId })); } catch { /* optional */ } }
@@ -97,6 +109,7 @@ function scores() {
 let lastHTML = '';
 function renderUI() {
   const p = me(), s = snapshot; let html = '';
+  touch.show(mobile && touchPlaying && !!p?.alive && s?.phase === 'active' && !modal && !scoreboard && !disconnected);
   if (!room || !s) {
     const code = new URLSearchParams(location.search).get('room') ?? '';
     html = `<section class="screen interactive">${brand}<div class="hero"><div class="eyebrow"><i class="dot"></i> Last player standing</div><h1>STONE<br><span>ARENA.</span></h1><p class="lead">Five enter. One survives.<br>Grab your gear. Bring your friends. Hold your ground.</p><div class="traits"><span><b>05</b> Players max</span><span><b>01</b> Life each</span><span><b>∞</b> No time limit</span></div><div class="form"><label class="label" for="nickname">Your arena name</label><input class="input" id="nickname" maxlength="24" placeholder="Enter your nickname" value="${escape(nickname)}" autocomplete="nickname"><button class="btn gold wide" data-action="create" ${busy ? 'disabled' : ''}>${busy ? 'Connecting…' : 'Create a private arena &nbsp; ↗'}</button><div class="row join-row"><input class="input" id="code" placeholder="Room code" aria-label="Room code" maxlength="20" value="${escape(code)}"><button class="btn" data-action="join" ${busy ? 'disabled' : ''}>Join room</button></div><button class="text-btn" data-action="controls">How to play &nbsp; →</button><div class="error" role="status">${escape(error)}</div></div></div><div class="scene-label"><b>The Stone Courtyard</b>Free-for-all · Original arena</div>${footer()}</section>`;
@@ -104,22 +117,26 @@ function renderUI() {
     html = `<section class="screen interactive">${brand}<div class="lobby"><div class="eyebrow"><i class="dot"></i> Private arena</div><h2>Gather your contenders.</h2><p>Share the link. Ready up. Only one walks out.</p><div class="panel"><div class="row" style="justify-content:space-between"><div><span class="label">Room code</span><span class="room-code">${room.roomId}</span></div><button class="btn" data-action="invite">Copy invite</button></div><div class="players">${Array.from({ length: 5 }, (_, n) => { const q = s.players[n]; return q ? `<div class="player-row"><i class="avatar" style="background:${COLORS[q.color]}"></i><span class="name">${escape(q.name)} ${q.id === s.host ? '<span class="tag">Host</span>' : ''}</span><span class="tag ${q.ready ? 'ready' : ''}">${!q.connected ? 'Reconnecting' : q.ready ? 'Ready' : 'Not ready'}</span></div>` : '<div class="player-row"><i class="avatar" style="background:#26343b"></i><span class="name" style="color:#7c8c91">Waiting for player…</span><span class="tag">Open</span></div>'; }).join('')}</div><div class="room-actions"><button class="btn ${p?.ready ? '' : 'gold'}" data-action="ready">${p?.ready ? 'Unready' : 'Ready up'}</button>${s.host === room.sessionId ? `<button class="btn gold" data-action="start" ${!s.players.every(q => q.ready && q.connected) ? 'disabled' : ''}>${s.players.length === 1 ? 'Practice solo' : 'Start round'}</button>` : ''}</div><p class="help">${s.players.length === 1 ? 'Invite a friend for a competitive round. Solo practice lets you explore the arena and weapons.' : 'Everyone gets one life. Eliminated players spectate. The final survivor wins.'}</p></div><div class="row"><button class="text-btn" data-action="controls">Controls</button><button class="text-btn" data-action="settings">Settings</button><button class="text-btn" data-action="leave">Leave room</button></div></div>${footer()}</section>`;
   } else {
     const alive = s.players.filter(q => q.alive).length;
-    html = `<div class="hud"><div class="topbar"><div class="badge"><strong>${alive}</strong> ${s.practice ? 'Practice' : 'remaining'} <span style="color:#8fa2a5"> / ${s.players.length}</span></div><div class="net">STONE ARENA · ROUND ${s.round}<br>${ping} ms · ${scene.fps} FPS<br><kbd>ESC</kbd> Menu &nbsp; <kbd>TAB</kbd> Scoreboard</div></div><div class="feed">${s.events.filter(e => e.type === 'kill').slice(-4).map(e => `<div>${escape(e.text ?? '')}</div>`).join('')}</div>${p?.alive ? `<div class="crosshair"></div><div class="bottom"><div class="vitals"><b>♥ ${Math.ceil(p.hp)}</b><div class="health-track"><div class="health-fill" style="width:${p.hp}%"></div></div><span>${p.ammo} ARROWS</span><span>${p.block ? '◈ BLOCKING' : p.shieldDisabled > 0 ? 'SHIELD DISABLED' : '◈ SHIELD'}</span></div><div class="slots">${WEAPONS.map((w, i) => `<div class="slot ${weapon === w ? 'selected' : ''}"><small>${i + 1}</small>${icon(w)}${w[0].toUpperCase() + w.slice(1)}</div>`).join('')}</div><div class="charge"><i style="width:${Math.min(100, (p.charge || p.cooldown) * 100)}%"></i></div><div class="combat-hint">${weapon === 'bow' ? 'Hold left mouse to draw · release to shoot' : weapon === 'crossbow' ? p.loaded ? 'Loaded · click to fire' : p.charge ? 'Loading…' : 'Click to load · click again to fire' : 'Left mouse to attack'} &nbsp; · &nbsp; Right mouse to block${dragLook ? ' · Alt + drag to look' : ''}</div></div>` : `<div class="spectate interactive"><span class="eyebrow" style="justify-content:center;margin:0">Eliminated · Spectating</span><p>${escape(s.players.filter(q => q.alive)[scene.spectator % Math.max(1, alive)]?.name ?? 'Round finished')}</p><button class="btn" data-action="spectate">Next player →</button></div>`}</div>`;
+    html = `<div class="hud"><div class="topbar"><div class="badge"><strong>${alive}</strong> ${s.practice ? 'Practice' : 'remaining'} <span style="color:#8fa2a5"> / ${s.players.length}</span></div><div class="net">STONE ARENA · ROUND ${s.round}<br>${ping} ms · ${scene.fps} FPS<br>${mobile ? 'Touch controls · landscape recommended' : '<kbd>ESC</kbd> Menu &nbsp; <kbd>TAB</kbd> Scoreboard'}</div></div><div class="feed">${s.events.filter(e => e.type === 'kill').slice(-4).map(e => `<div>${escape(e.text ?? '')}</div>`).join('')}</div>${p?.alive ? `<div class="crosshair"></div><div class="bottom"><div class="vitals"><b>♥ ${Math.ceil(p.hp)}</b><div class="health-track"><div class="health-fill" style="width:${p.hp}%"></div></div><span>${p.ammo} ARROWS</span><span>${p.block ? '◈ BLOCKING' : p.shieldDisabled > 0 ? 'SHIELD DISABLED' : '◈ SHIELD'}</span></div><div class="slots">${WEAPONS.map((w, i) => `<button class="slot interactive ${weapon === w ? 'selected' : ''}" data-action="weapon" data-weapon="${w}" aria-label="Equip ${w}" aria-pressed="${weapon === w}"><small>${i + 1}</small>${icon(w)}${w[0].toUpperCase() + w.slice(1)}</button>`).join('')}</div><div class="charge"><i style="width:${Math.min(100, (p.charge || p.cooldown) * 100)}%"></i></div><div class="combat-hint">${mobile ? weapon === 'bow' ? 'Hold Attack to draw · release to shoot' : weapon === 'crossbow' ? p.loaded ? 'Loaded · tap Attack to fire' : p.charge ? 'Loading…' : 'Tap Attack to load' : 'Hold Attack to swing · Shield to block' : weapon === 'bow' ? 'Hold left mouse to draw · release to shoot' : weapon === 'crossbow' ? p.loaded ? 'Loaded · click to fire' : p.charge ? 'Loading…' : 'Click to load · click again to fire' : 'Left mouse to attack'}${mobile ? '' : ' · Right mouse to block'}${dragLook ? ' · Alt + drag to look' : ''}</div></div>` : `<div class="spectate interactive"><span class="eyebrow" style="justify-content:center;margin:0">Eliminated · Spectating</span><p>${escape(s.players.filter(q => q.alive)[scene.spectator % Math.max(1, alive)]?.name ?? 'Round finished')}</p><button class="btn" data-action="spectate">Next player →</button></div>`}</div>`;
     if (s.phase === 'countdown') html += `<div class="center-message"><div class="eyebrow" style="justify-content:center">One life. Make it count.</div><div class="count">${Math.ceil(s.countdown)}</div></div>`;
-    if (s.phase === 'active' && p?.alive && !controlling() && !modal && !disconnected) html += '<div class="center-message interactive"><button class="btn gold" data-action="play">Click to enter the arena</button><p>WASD to move · Mouse to aim</p></div>';
+    if (s.phase === 'active' && p?.alive && !controlling() && !modal && !scoreboard && !disconnected) html += `<div class="center-message interactive"><button class="btn gold" data-action="play">${mobile ? 'Tap' : 'Click'} to enter the arena</button><p>${mobile ? 'Left stick to move · Swipe right side to aim' : 'WASD to move · Mouse to aim'}</p></div>`;
     if (s.phase === 'results') html += `<div class="overlay interactive"><div class="panel results"><div class="eyebrow">${s.winner ? 'Last player standing' : 'No survivors'}</div><h2>${escape(s.result)}</h2><p>One life. Every decision mattered.</p>${scores()}${s.host === room.sessionId ? `<button class="btn gold wide" data-action="lobby" ${performance.now() - resultsEnteredAt < 3100 ? 'disabled' : ''}>${performance.now() - resultsEnteredAt < 3100 ? 'Next round in ' + Math.ceil((3100 - (performance.now() - resultsEnteredAt)) / 1000) + '…' : 'Back to lobby · Rematch'}</button>` : '<p class="help">Waiting for the host to return to the lobby.</p>'}<button class="text-btn" data-action="leave">Leave arena</button></div></div>`;
-    if (scoreboard && s.phase !== 'results') html += `<div class="overlay"><div class="panel results"><h2>Round ${s.round}</h2>${scores()}<p class="help">Survival decides the winner. Release Tab to return.</p></div></div>`;
+    if (scoreboard && s.phase !== 'results') html += `<div class="overlay interactive"><div class="panel results"><h2>Round ${s.round}</h2>${scores()}<p class="help">Survival decides the winner.</p><button class="btn gold" data-action="close-scores">Return to game</button></div></div>`;
   }
   if (notice) html += `<div class="notice" role="status">${escape(notice)}</div>`;
   if (modal) {
     html += `<div class="overlay interactive"><div class="panel"><div class="eyebrow">Stone Arena</div><h2>${modal === 'settings' ? 'Your settings' : 'Hold your ground.'}</h2>`;
-    if (modal === 'settings') html += `<div class="settings-grid"><label class="setting">Mouse sensitivity<input data-setting="sensitivity" type="range" min="0.2" max="2.5" step="0.1" value="${settings.sensitivity}"></label><label class="setting">Sound volume<input data-setting="volume" type="range" min="0" max="1" step="0.05" value="${settings.volume}"></label><label class="setting">Field of view<input data-setting="fov" type="range" min="60" max="105" step="1" value="${settings.fov}"></label><label class="setting">Graphics<select data-setting="quality">${['low', 'medium', 'high'].map(q => `<option ${q === settings.quality ? 'selected' : ''}>${q}</option>`).join('')}</select></label><label class="setting">Reduced camera motion<input type="checkbox" data-setting="reduced" ${settings.reduced ? 'checked' : ''}></label></div><p class="help">The round continues while the menu is open.</p>`;
-    else html += '<p>Up to five players. One life each. The final survivor wins. After elimination, watch your friends finish the round.</p><div class="controls"><span><kbd>W A S D</kbd> Move</span><span><kbd>MOUSE</kbd> Aim</span><span><kbd>SPACE</kbd> Jump</span><span><kbd>SHIFT</kbd> Sprint</span><span><kbd>LMB</kbd> Attack / draw</span><span><kbd>RMB</kbd> Shield</span><span><kbd>1 – 4</kbd> Change weapon</span><span><kbd>TAB</kbd> Scoreboard</span></div><p class="help">The axe breaks shield guards briefly. Bows charge while held. Crossbows take one click to load and another to fire. No healing, no respawns, no time limit.</p>';
+    if (modal === 'settings') html += `<div class="settings-grid"><label class="setting">Aim sensitivity<input data-setting="sensitivity" type="range" min="0.2" max="2.5" step="0.1" value="${settings.sensitivity}"></label><label class="setting">Sound volume<input data-setting="volume" type="range" min="0" max="1" step="0.05" value="${settings.volume}"></label><label class="setting">Field of view<input data-setting="fov" type="range" min="60" max="105" step="1" value="${settings.fov}"></label><label class="setting">Graphics<select data-setting="quality">${['low', 'medium', 'high'].map(q => `<option ${q === settings.quality ? 'selected' : ''}>${q}</option>`).join('')}</select></label><label class="setting">Reduced camera motion<input type="checkbox" data-setting="reduced" ${settings.reduced ? 'checked' : ''}></label></div><p class="help">The round continues while the menu is open.</p>`;
+    else html += '<p class="mobile-instructions">Touch: left thumbstick to move, swipe the right side to aim. Hold Attack to swing or draw a bow; release to shoot. Tap twice to load and fire a crossbow. Hold Shield, tap Jump, toggle Sprint, and tap the weapon bar to equip.</p><p>Up to five players. One life each. The final survivor wins. After elimination, watch your friends finish the round.</p><div class="controls"><span><kbd>W A S D</kbd> Move</span><span><kbd>MOUSE</kbd> Aim</span><span><kbd>SPACE</kbd> Jump</span><span><kbd>SHIFT</kbd> Sprint</span><span><kbd>LMB</kbd> Attack / draw</span><span><kbd>RMB</kbd> Shield</span><span><kbd>1 – 4</kbd> Change weapon</span><span><kbd>TAB</kbd> Scoreboard</span></div><p class="help">The axe breaks shield guards briefly. Bows charge while held. Crossbows take one click to load and another to fire. No healing, no respawns, no time limit.</p>';
     html += `<button class="btn gold wide" data-action="close">${snapshot?.phase === 'active' && me()?.alive ? 'Resume game' : 'Got it'}</button>${room ? `<div class="row">${snapshot?.practice ? '<button class="text-btn" data-action="lobby">Return to lobby</button>' : ''}<button class="text-btn" data-action="leave">Leave room</button></div>` : ''}</div></div>`;
   }
   // Preserve focused inputs and slider drags; HUD remains independently render-driven.
   if (html !== lastHTML && !(document.activeElement instanceof HTMLInputElement && document.activeElement.type === 'range')) { app.innerHTML = html; lastHTML = html; }
 }
+app.addEventListener('pointerdown', e => {
+  const target = (e.target as HTMLElement).closest<HTMLElement>('[data-weapon]');
+  if (target && WEAPONS.includes(target.dataset.weapon as Weapon)) { e.preventDefault(); weapon = target.dataset.weapon as Weapon; mouseAttack = false; attackQueued = false; renderUI(); }
+});
 app.addEventListener('input', e => { const t = e.target as HTMLInputElement; if (t.id === 'nickname') nickname = t.value; });
 app.addEventListener('change', e => {
   const t = e.target as HTMLInputElement; const k = t.dataset.setting;
@@ -128,8 +145,10 @@ app.addEventListener('change', e => {
   scene.settings(settings.quality, settings.fov, settings.reduced); try { localStorage.setItem('stone-settings', JSON.stringify(settings)); } catch { /* optional */ }
 });
 app.addEventListener('click', async e => {
-  const action = (e.target as HTMLElement).closest<HTMLElement>('[data-action]')?.dataset.action; if (!action) return;
+  const target = (e.target as HTMLElement).closest<HTMLElement>('[data-action]'); const action = target?.dataset.action; if (!action) return;
   if (action === 'create' || action === 'join') { const code = document.querySelector<HTMLInputElement>('#code')?.value ?? ''; void connect(action, code); }
+  if (action === 'weapon' && WEAPONS.includes(target?.dataset.weapon as Weapon)) { weapon = target!.dataset.weapon as Weapon; mouseAttack = false; attackQueued = false; renderUI(); }
+  if (action === 'close-scores') { scoreboard = false; if (me()?.alive && snapshot?.phase === 'active') void lockPointer(); else renderUI(); }
   if (action === 'ready') room?.send('ready');
   if (action === 'start') { room?.send('start', { practice: snapshot?.players.length === 1 }); void lockPointer(); }
   if (action === 'lobby') room?.send('lobby');
@@ -144,13 +163,13 @@ document.addEventListener('keydown', e => {
   if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
   if (['Tab', 'Space'].includes(e.code)) e.preventDefault();
   if (e.code === 'Tab') scoreboard = true;
-  if (e.code === 'Escape' && room && !locked()) { dragLook = false; resetControls(); modal = modal ? '' : 'settings'; renderUI(); }
+  if (e.code === 'Escape' && room && !locked()) { releasePointer(); modal = modal ? '' : 'settings'; renderUI(); }
   if (controlling()) { keys.add(e.code); if (dragLook && e.altKey) mouseAttack = false; const n = Number(e.key); if (n >= 1 && n <= 4) weapon = WEAPONS[n - 1]; }
   renderUI();
 });
 document.addEventListener('keyup', e => { keys.delete(e.code); if (e.code === 'Tab') { scoreboard = false; renderUI(); } });
 document.addEventListener('mousemove', e => { if ((locked() || (dragLook && e.altKey && (e.buttons & 1))) && me()?.alive) { yaw -= e.movementX * .002 * settings.sensitivity; yaw = Math.atan2(Math.sin(yaw), Math.cos(yaw)); pitch = Math.max(-1.5, Math.min(1.5, pitch - e.movementY * .002 * settings.sensitivity)); } });
-document.addEventListener('mousedown', e => { if (controlling()) { if (e.button === 0 && !(dragLook && e.altKey)) mouseAttack = true; if (e.button === 2) mouseBlock = true; } });
+document.addEventListener('mousedown', e => { if (controlling() && !mobile && !(e.target as HTMLElement).closest('button, input, select, .overlay')) { if (e.button === 0 && !(dragLook && e.altKey)) { mouseAttack = true; attackQueued = true; } if (e.button === 2) mouseBlock = true; } });
 document.addEventListener('mouseup', e => { if (e.button === 0) mouseAttack = false; if (e.button === 2) mouseBlock = false; });
 document.addEventListener('contextmenu', e => e.preventDefault());
 document.addEventListener('wheel', e => { if (controlling()) weapon = WEAPONS[(WEAPONS.indexOf(weapon) + (e.deltaY > 0 ? 1 : 3)) % 4]; }, { passive: true });
@@ -165,11 +184,11 @@ function frame(now: number) {
   while (accumulator >= DT) {
     accumulator -= DT;
     if (room && snapshot?.phase === 'active' && p?.alive && !disconnected && local) {
-      const i: Input = { ...idleInput(), seq: ++seq, x: Number(keys.has('KeyD')) - Number(keys.has('KeyA')), z: Number(keys.has('KeyW')) - Number(keys.has('KeyS')), yaw, pitch, jump: keys.has('Space'), sprint: keys.has('ShiftLeft') || keys.has('ShiftRight'), attack: mouseAttack, block: mouseBlock, weapon };
-      move(local, i, DT, (p.charge ?? 0) > 0); pending.push(i); if (pending.length > 120) pending.shift(); room.send('input', i);
+      const i: Input = { ...idleInput(), seq: ++seq, x: Math.max(-1, Math.min(1, Number(keys.has('KeyD')) - Number(keys.has('KeyA')) + touch.x)), z: Math.max(-1, Math.min(1, Number(keys.has('KeyW')) - Number(keys.has('KeyS')) + touch.z)), yaw, pitch, jump: keys.has('Space') || touch.jump || touch.jumpQueued, sprint: keys.has('ShiftLeft') || keys.has('ShiftRight') || touch.sprint, attack: mouseAttack || attackQueued, block: mouseBlock, weapon };
+      move(local, i, DT, (p.charge ?? 0) > 0); pending.push(i); if (pending.length > 120) pending.shift(); room.send('input', i); attackQueued = false; touch.jumpQueued = false;
     }
   }
-  scene.render(dt, snapshot, p, local, yaw, pitch, locked(), keys.size > 0);
+  scene.render(dt, snapshot, p, local, yaw, pitch, controlling(), keys.size > 0 || Math.hypot(touch.x, touch.z) > .1);
   requestAnimationFrame(frame);
 }
 renderUI(); requestAnimationFrame(frame);

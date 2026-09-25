@@ -1,5 +1,7 @@
 # Stone Arena
 
+Play at **https://moriah.fletchindustries.com/**.
+
 A browser-based, first-person arena from Fletch Industries. Two to five players,
 one life each, no match timer. The last survivor wins. Includes private invitations,
 solo practice, sword/axe/bow/crossbow/shield combat, spectating, results, rematches,
@@ -27,6 +29,14 @@ Hold the bow to draw and release to fire. Click the crossbow once to load and ag
 to fire. If mouse capture is unavailable (for example in an embedded browser),
 hold Alt and drag to look; the other controls remain the same. Axe hits disable shields briefly. No healing or respawns during a round.
 
+On phones and tablets, use the left thumbstick to move and swipe the right side
+to aim. Hold Attack for melee or bow charge; release the bow to fire. Tap Attack
+to load/fire a crossbow. Hold Shield, tap Jump, toggle Sprint, and tap a weapon to
+equip it. Menu and Scores are in the top right. Landscape is recommended; portrait
+is supported. Small screens default to low graphics with a one-pixel render ratio.
+The touch surfaces preserve multiple pointer captures across HUD refreshes and
+clear held controls when interrupted. No installation or account is needed.
+
 ## Build and verify
 
 ```sh
@@ -53,6 +63,7 @@ endpoint. Reconnection tests intentionally disconnect their own test participant
   health/config routes, reconnect reservations, origin checks, capacity/backpressure.
 - `client/scene.ts`: Three.js renderer with instanced stone walls, procedural
   textures, original block avatars/weapons, and pooled projectile meshes.
+- `client/touch.ts`: independent joystick, look, and action pointer captures.
 - `client/main.ts`: lobby/HUD, input prediction and reconciliation, remote movement
   smoothing, audio, settings, spectator and reconnect UX.
 
@@ -92,6 +103,7 @@ in the owner's private operational dossier, not this repository.
 
 Automated tests establish the rules, real multiplayer protocol behavior, and
 reconnection handling. A browser playtest is still needed on each target browser
-and physical device to establish input feel and the frame-rate budget. Mobile touch
-controls are not implemented. Same-tick final deaths are a draw. Passive opponents
+and physical device to establish input feel and the frame-rate budget. Desktop and
+phone-sized portrait/landscape browser previews have been checked; physical iOS
+and Android multitouch hardware have not been tested. Same-tick final deaths are a draw. Passive opponents
 can prolong a round because there is deliberately no timer or shrinking boundary.

@@ -2,6 +2,7 @@ import { BOXES, DT, EYE, HEIGHT, SPAWNS, direction, idleInput, move, segmentBox,
 
 export class Simulation {
   players = new Map<string, Player>(); inputs = new Map<string, Input>();
+  attackPress = new Set<string>(); attackRelease = new Set<string>();
   lastInput = new Map<string, number>(); lastAttack = new Map<string, boolean>();
   damageHistory = new Map<string, Map<string, number>>();
   arrows: Arrow[] = []; events: GameEvent[] = []; phase: Phase = 'waiting';
@@ -17,13 +18,13 @@ export class Simulation {
   }
   positionPlayers() { let n = 0; for (const p of this.players.values()) { const s = SPAWNS[(n++ + this.round * 2) % SPAWNS.length]; p.x = s[0]; p.z = s[1]; p.y = 0; p.vy = 0; p.yaw = Math.atan2(p.x, p.z); } }
   event(e: Omit<GameEvent, 'id'>) { this.events.push({ ...e, id: ++this.nextEvent }); this.events = this.events.slice(-24); }
-  input(id: string, i: Input) { const p = this.players.get(id); if (p && i.seq > p.ack && i.seq > (this.inputs.get(id)?.seq ?? -1)) { this.inputs.set(id, i); this.lastInput.set(id, this.tick); } }
+  input(id: string, i: Input) { const p = this.players.get(id); if (p && i.seq > p.ack && i.seq > (this.inputs.get(id)?.seq ?? -1)) { const previous = this.inputs.get(id); if (i.attack && !previous?.attack) this.attackPress.add(id); if (!i.attack && previous?.attack) this.attackRelease.add(id); this.inputs.set(id, i); this.lastInput.set(id, this.tick); } }
   start(id: string, practice = false) {
     const ps = [...this.players.values()];
     if (id !== this.host || this.phase !== 'waiting' || !ps.every(p => p.connected && p.ready) || (practice ? ps.length !== 1 : ps.length < 2)) return false;
     this.practice = practice; this.round++; this.phase = 'countdown'; this.countdown = 5; this.result = ''; this.winner = ''; this.arrows = []; this.events = []; this.damageHistory.clear();
     for (const p of ps) { Object.assign(p, { hp: 100, alive: true, weapon: 'sword', block: false, ammo: 20, kills: 0, damage: 0, assists: 0, cooldown: 0, charge: 0, loaded: false, shieldDisabled: 0, eliminatedAt: 0, ack: 0 }); this.inputs.set(p.id, idleInput()); this.lastAttack.set(p.id, false); }
-    this.history = []; this.positionPlayers(); return true;
+    this.history = []; this.attackPress.clear(); this.attackRelease.clear(); this.positionPlayers(); return true;
   }
   disconnect(id: string) { const p = this.players.get(id); if (p) { p.connected = false; p.ready = false; this.inputs.set(id, idleInput()); this.lastAttack.set(id, false); } this.transferHost(); }
   transferHost() { if (!this.players.get(this.host)?.connected) this.host = [...this.players.values()].find(p => p.connected)?.id ?? ''; }
@@ -98,7 +99,7 @@ export class Simulation {
       p.cooldown = Math.max(0, p.cooldown - DT); p.shieldDisabled = Math.max(0, p.shieldDisabled - DT);
       p.block = i.block && p.shieldDisabled <= 0;
       move(p, { ...i, block: p.block }, DT, p.charge > 0);
-      const pressed = i.attack && !this.lastAttack.get(p.id), released = !i.attack && !!this.lastAttack.get(p.id);
+      const pressed = !stale && (this.attackPress.has(p.id) || (i.attack && !this.lastAttack.get(p.id))), released = this.attackRelease.has(p.id) || (!i.attack && !!this.lastAttack.get(p.id));
       if (i.block) p.charge = 0;
       else if (p.weapon === 'bow') {
         if (i.attack && p.cooldown <= 0 && p.ammo > 0) p.charge = Math.min(1, p.charge + DT);
@@ -106,9 +107,10 @@ export class Simulation {
       } else if (p.weapon === 'crossbow') {
         if (p.charge > 0) { p.charge += DT; if (p.charge >= 1.2) { p.loaded = true; p.charge = 0; } }
         if (pressed && p.cooldown <= 0 && p.ammo > 0) { if (p.loaded) { attacks.push(() => this.shoot(p, 1)); p.loaded = false; } else if (p.charge === 0) p.charge = DT; }
-      } else if (i.attack && p.cooldown <= 0) attacks.push(() => this.melee(p));
+      } else if ((i.attack || pressed) && p.cooldown <= 0) attacks.push(() => this.melee(p));
       this.lastAttack.set(p.id, i.attack);
     }
+    this.attackPress.clear(); this.attackRelease.clear();
     for (const attack of attacks) attack();
     this.arrows = this.arrows.filter(a => {
       a.age += DT; const old = { x: a.x, y: a.y, z: a.z }; a.x += a.vx * DT; a.y += a.vy * DT; a.z += a.vz * DT; a.vy -= 8 * DT;

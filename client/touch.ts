@@ -1,0 +1,34 @@
+/** Stable pointer-capture surfaces, separate from the frequently refreshed HUD. */
+export class TouchControls {
+  x = 0; z = 0; jump = false; jumpQueued = false; sprint = false;
+  private root = document.createElement('div');
+  private resets: (() => void)[] = [];
+  constructor(actions: { aim: (x: number, y: number) => void; attack: (down: boolean) => void; block: (down: boolean) => void; menu: () => void; scores: () => void }) {
+    this.root.className = 'touch-controls'; this.root.hidden = true;
+    this.root.innerHTML = '<div class="touch-look" aria-label="Drag to aim"><span>DRAG TO AIM</span></div><div class="touch-stick" aria-label="Movement joystick"><i></i><span>MOVE</span></div><div class="touch-actions"><button class="touch-button touch-sprint" aria-label="Toggle sprint" aria-pressed="false">Sprint</button><button class="touch-button touch-jump" aria-label="Jump">Jump ↑</button><button class="touch-button touch-shield" aria-label="Hold shield">Shield</button><button class="touch-button touch-attack" aria-label="Attack">Attack</button></div><div class="touch-menu"><button class="touch-button" aria-label="Open scoreboard">Scores</button><button class="touch-button" aria-label="Open game menu">Menu</button></div>';
+    document.body.append(this.root);
+    const find = (selector: string) => this.root.querySelector<HTMLElement>(selector)!;
+    const capture = (element: HTMLElement, start: (e: PointerEvent) => void, move: (e: PointerEvent) => void, end: () => void) => {
+      let id: number | undefined;
+      const reset = () => { if (id !== undefined) { const previous = id; id = undefined; if (element.hasPointerCapture(previous)) element.releasePointerCapture(previous); } end(); element.classList.remove('pressed'); };
+      this.resets.push(reset);
+      element.addEventListener('pointerdown', e => { e.preventDefault(); if (id !== undefined) return; id = e.pointerId; element.setPointerCapture(id); element.classList.add('pressed'); start(e); });
+      element.addEventListener('pointermove', e => { if (e.pointerId === id) { e.preventDefault(); move(e); } });
+      for (const event of ['pointerup', 'pointercancel', 'lostpointercapture']) element.addEventListener(event, e => { if ((e as PointerEvent).pointerId === id) reset(); });
+    };
+    const stick = find('.touch-stick'), thumb = stick.querySelector('i')!;
+    let cx = 0, cy = 0;
+    const moveStick = (e: PointerEvent) => { const dx = e.clientX - cx, dy = e.clientY - cy, length = Math.hypot(dx, dy), radius = 40, scale = Math.min(1, radius / Math.max(1, length)); this.x = Math.abs(dx * scale) < 4 ? 0 : dx * scale / radius; this.z = Math.abs(dy * scale) < 4 ? 0 : -dy * scale / radius; thumb.style.transform = `translate(${dx * scale}px, ${dy * scale}px)`; };
+    capture(stick, e => { const box = stick.getBoundingClientRect(); cx = box.left + box.width / 2; cy = box.top + box.height / 2; moveStick(e); }, moveStick, () => { this.x = this.z = 0; thumb.style.transform = ''; });
+    let lx = 0, ly = 0;
+    capture(find('.touch-look'), e => { lx = e.clientX; ly = e.clientY; }, e => { actions.aim(e.clientX - lx, e.clientY - ly); lx = e.clientX; ly = e.clientY; }, () => {});
+    capture(find('.touch-attack'), () => actions.attack(true), () => {}, () => actions.attack(false));
+    capture(find('.touch-shield'), () => actions.block(true), () => {}, () => actions.block(false));
+    capture(find('.touch-jump'), () => { this.jump = this.jumpQueued = true; }, () => {}, () => { this.jump = false; });
+    find('.touch-sprint').addEventListener('click', () => { this.sprint = !this.sprint; find('.touch-sprint').setAttribute('aria-pressed', String(this.sprint)); });
+    find('[aria-label="Open game menu"]').addEventListener('click', actions.menu);
+    find('[aria-label="Open scoreboard"]').addEventListener('click', actions.scores);
+  }
+  reset() { for (const reset of this.resets) reset(); this.jumpQueued = false; this.sprint = false; this.root.querySelector('.touch-sprint')!.setAttribute('aria-pressed', 'false'); }
+  show(visible: boolean) { if (this.root.hidden === !visible) return; this.root.hidden = !visible; if (!visible) this.reset(); }
+}
