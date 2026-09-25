@@ -18,7 +18,8 @@ let room: Room | undefined, snapshot: Snapshot | undefined, local: Body | undefi
 let yaw = 0, pitch = 0, weapon: Weapon = 'sword', seq = 0, accumulator = 0;
 let pending: Input[] = [], lastPhase = '', lastRound = 0, eventId = 0, ping = 0, notice = '', error = '', busy = false;
 let modal: 'settings' | 'controls' | '' = '', scoreboard = false, disconnected = false, lastHud = 0, nickname = '';
-let mouseAttack = false, mouseBlock = false, expectedUnlock = false;
+let mouseAttack = false, mouseBlock = false, expectedUnlock = false, dragLook = false;
+let resultsEnteredAt = 0;
 const keys = new Set<string>();
 const settings = { sensitivity: 1, volume: .35, quality: 'medium', fov: 78, reduced: false };
 try { Object.assign(settings, JSON.parse(localStorage.getItem('stone-settings') ?? '{}')); nickname = localStorage.getItem('stone-name') ?? ''; } catch { /* private browser storage may be unavailable */ }
@@ -36,11 +37,12 @@ const endpoint = new URL(api, location.origin).href;
 const client = new Client(endpoint);
 const me = () => snapshot?.players.find(p => p.id === room?.sessionId);
 const locked = () => document.pointerLockElement === canvas;
+const controlling = () => locked() || dragLook;
 function resetControls() { keys.clear(); mouseAttack = false; mouseBlock = false; }
-function releasePointer() { expectedUnlock = true; document.exitPointerLock(); resetControls(); }
+function releasePointer() { dragLook = false; expectedUnlock = true; document.exitPointerLock(); resetControls(); }
 async function lockPointer() {
   enableAudio(); modal = ''; renderUI();
-  try { await canvas.requestPointerLock(); } catch { notice = 'Click the arena to capture the mouse. Escape releases it.'; renderUI(); }
+  try { await canvas.requestPointerLock(); dragLook = false; notice = ''; } catch { dragLook = true; notice = 'Hold Alt and drag to look · WASD to move · Escape for menu'; } renderUI();
 }
 function storeSession() { try { if (room) sessionStorage.setItem('stone-session', JSON.stringify({ token: room.reconnectionToken, code: room.roomId })); } catch { /* optional */ } }
 async function connect(action: 'create' | 'join' | 'reconnect', code = '') {
@@ -72,6 +74,7 @@ async function connect(action: 'create' | 'join' | 'reconnect', code = '') {
       }
       if (s.phase !== lastPhase || s.round !== lastRound) {
         if (s.phase === 'results' || s.phase === 'waiting') releasePointer();
+        if (s.phase === 'results') resultsEnteredAt = performance.now();
         modal = ''; notice = ''; lastPhase = s.phase; lastRound = s.round; renderUI();
       }
       if (performance.now() - lastHud > 90) { renderUI(); lastHud = performance.now(); }
@@ -103,8 +106,8 @@ function renderUI() {
     const alive = s.players.filter(q => q.alive).length;
     html = `<div class="hud"><div class="topbar"><div class="badge"><strong>${alive}</strong> ${s.practice ? 'Practice' : 'remaining'} <span style="color:#8fa2a5"> / ${s.players.length}</span></div><div class="net">STONE ARENA · ROUND ${s.round}<br>${ping} ms · ${scene.fps} FPS<br><kbd>ESC</kbd> Menu &nbsp; <kbd>TAB</kbd> Scoreboard</div></div><div class="feed">${s.events.filter(e => e.type === 'kill').slice(-4).map(e => `<div>${escape(e.text ?? '')}</div>`).join('')}</div>${p?.alive ? `<div class="crosshair"></div><div class="bottom"><div class="vitals"><b>♥ ${Math.ceil(p.hp)}</b><div class="health-track"><div class="health-fill" style="width:${p.hp}%"></div></div><span>${p.ammo} ARROWS</span><span>${p.block ? '◈ BLOCKING' : p.shieldDisabled > 0 ? 'SHIELD DISABLED' : '◈ SHIELD'}</span></div><div class="slots">${WEAPONS.map((w, i) => `<div class="slot ${weapon === w ? 'selected' : ''}"><small>${i + 1}</small>${icon(w)}${w[0].toUpperCase() + w.slice(1)}</div>`).join('')}</div><div class="charge"><i style="width:${Math.min(100, (p.charge || p.cooldown) * 100)}%"></i></div><div class="combat-hint">${weapon === 'bow' ? 'Hold left mouse to draw · release to shoot' : weapon === 'crossbow' ? p.loaded ? 'Loaded · click to fire' : p.charge ? 'Loading…' : 'Click to load · click again to fire' : 'Left mouse to attack'} &nbsp; · &nbsp; Right mouse to block</div></div>` : `<div class="spectate interactive"><span class="eyebrow" style="justify-content:center;margin:0">Eliminated · Spectating</span><p>${escape(s.players.filter(q => q.alive)[scene.spectator % Math.max(1, alive)]?.name ?? 'Round finished')}</p><button class="btn" data-action="spectate">Next player →</button></div>`}</div>`;
     if (s.phase === 'countdown') html += `<div class="center-message"><div class="eyebrow" style="justify-content:center">One life. Make it count.</div><div class="count">${Math.ceil(s.countdown)}</div></div>`;
-    if (s.phase === 'active' && p?.alive && !locked() && !modal && !disconnected) html += '<div class="center-message interactive"><button class="btn gold" data-action="play">Click to enter the arena</button><p>WASD to move · Mouse to aim</p></div>';
-    if (s.phase === 'results') html += `<div class="overlay interactive"><div class="panel results"><div class="eyebrow">${s.winner ? 'Last player standing' : 'No survivors'}</div><h2>${escape(s.result)}</h2><p>One life. Every decision mattered.</p>${scores()}${s.host === room.sessionId ? '<button class="btn gold wide" data-action="lobby">Back to lobby · Rematch</button>' : '<p class="help">Waiting for the host to return to the lobby.</p>'}<button class="text-btn" data-action="leave">Leave arena</button></div></div>`;
+    if (s.phase === 'active' && p?.alive && !controlling() && !modal && !disconnected) html += '<div class="center-message interactive"><button class="btn gold" data-action="play">Click to enter the arena</button><p>WASD to move · Mouse to aim</p></div>';
+    if (s.phase === 'results') html += `<div class="overlay interactive"><div class="panel results"><div class="eyebrow">${s.winner ? 'Last player standing' : 'No survivors'}</div><h2>${escape(s.result)}</h2><p>One life. Every decision mattered.</p>${scores()}${s.host === room.sessionId ? `<button class="btn gold wide" data-action="lobby" ${performance.now() - resultsEnteredAt < 3100 ? 'disabled' : ''}>${performance.now() - resultsEnteredAt < 3100 ? 'Next round in ' + Math.ceil((3100 - (performance.now() - resultsEnteredAt)) / 1000) + '…' : 'Back to lobby · Rematch'}</button>` : '<p class="help">Waiting for the host to return to the lobby.</p>'}<button class="text-btn" data-action="leave">Leave arena</button></div></div>`;
     if (scoreboard && s.phase !== 'results') html += `<div class="overlay"><div class="panel results"><h2>Round ${s.round}</h2>${scores()}<p class="help">Survival decides the winner. Release Tab to return.</p></div></div>`;
   }
   if (notice) html += `<div class="notice" role="status">${escape(notice)}</div>`;
@@ -141,16 +144,16 @@ document.addEventListener('keydown', e => {
   if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
   if (['Tab', 'Space'].includes(e.code)) e.preventDefault();
   if (e.code === 'Tab') scoreboard = true;
-  if (e.code === 'Escape' && room && !locked()) { modal = modal ? '' : 'settings'; renderUI(); }
-  if (locked()) { keys.add(e.code); const n = Number(e.key); if (n >= 1 && n <= 4) weapon = WEAPONS[n - 1]; }
+  if (e.code === 'Escape' && room && !locked()) { dragLook = false; resetControls(); modal = modal ? '' : 'settings'; renderUI(); }
+  if (controlling()) { keys.add(e.code); if (dragLook && e.altKey) mouseAttack = false; const n = Number(e.key); if (n >= 1 && n <= 4) weapon = WEAPONS[n - 1]; }
   renderUI();
 });
 document.addEventListener('keyup', e => { keys.delete(e.code); if (e.code === 'Tab') { scoreboard = false; renderUI(); } });
-document.addEventListener('mousemove', e => { if (locked() && me()?.alive) { yaw -= e.movementX * .002 * settings.sensitivity; yaw = Math.atan2(Math.sin(yaw), Math.cos(yaw)); pitch = Math.max(-1.5, Math.min(1.5, pitch - e.movementY * .002 * settings.sensitivity)); } });
-document.addEventListener('mousedown', e => { if (locked()) { if (e.button === 0) mouseAttack = true; if (e.button === 2) mouseBlock = true; } });
+document.addEventListener('mousemove', e => { if ((locked() || (dragLook && e.altKey && (e.buttons & 1))) && me()?.alive) { yaw -= e.movementX * .002 * settings.sensitivity; yaw = Math.atan2(Math.sin(yaw), Math.cos(yaw)); pitch = Math.max(-1.5, Math.min(1.5, pitch - e.movementY * .002 * settings.sensitivity)); } });
+document.addEventListener('mousedown', e => { if (controlling()) { if (e.button === 0 && !(dragLook && e.altKey)) mouseAttack = true; if (e.button === 2) mouseBlock = true; } });
 document.addEventListener('mouseup', e => { if (e.button === 0) mouseAttack = false; if (e.button === 2) mouseBlock = false; });
 document.addEventListener('contextmenu', e => e.preventDefault());
-document.addEventListener('wheel', e => { if (locked()) weapon = WEAPONS[(WEAPONS.indexOf(weapon) + (e.deltaY > 0 ? 1 : 3)) % 4]; }, { passive: true });
+document.addEventListener('wheel', e => { if (controlling()) weapon = WEAPONS[(WEAPONS.indexOf(weapon) + (e.deltaY > 0 ? 1 : 3)) % 4]; }, { passive: true });
 document.addEventListener('pointerlockchange', () => { if (!locked()) { resetControls(); if (!expectedUnlock && snapshot?.phase === 'active' && me()?.alive) modal = 'settings'; } expectedUnlock = false; renderUI(); });
 window.addEventListener('blur', resetControls); document.addEventListener('visibilitychange', () => { if (document.hidden) resetControls(); });
 canvas.addEventListener('webglcontextlost', e => { e.preventDefault(); resetControls(); notice = 'Graphics interrupted. Reload to reconnect to your arena.'; renderUI(); });

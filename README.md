@@ -24,7 +24,8 @@ need a reachable deployed URL rather than your localhost link.
 WASD moves, mouse aims, Shift sprints, Space jumps, 1–4 or wheel switches weapons,
 left mouse attacks, right mouse blocks, Tab shows scores, Escape opens settings.
 Hold the bow to draw and release to fire. Click the crossbow once to load and again
-to fire. Axe hits disable shields briefly. No healing or respawns during a round.
+to fire. If mouse capture is unavailable (for example in an embedded browser),
+hold Alt and drag to look; the other controls remain the same. Axe hits disable shields briefly. No healing or respawns during a round.
 
 ## Build and verify
 
