@@ -106,7 +106,7 @@ function scores() {
   const ps = [...(snapshot?.players ?? [])].sort((a, b) => Number(b.alive) - Number(a.alive) || b.eliminatedAt - a.eliminatedAt);
   return `<table class="score-table"><thead><tr><th>Player</th><th>Status</th><th>Kills</th><th>Assists</th><th>Damage</th></tr></thead><tbody>${ps.map(p => `<tr class="${p.id === snapshot?.winner ? 'winner' : ''}"><td><span style="color:${COLORS[p.color]}">■</span> ${escape(p.name)}</td><td>${p.alive ? 'Alive' : 'Out'}</td><td>${p.kills}</td><td>${p.assists}</td><td>${Math.round(p.damage)}</td></tr>`).join('')}</tbody></table>`;
 }
-let lastHTML = '';
+let lastHTML = '', lastModal = '';
 function renderUI() {
   const p = me(), s = snapshot; let html = '';
   touch.show(mobile && touchPlaying && !!p?.alive && s?.phase === 'active' && !modal && !scoreboard && !disconnected);
@@ -131,7 +131,13 @@ function renderUI() {
     html += `<button class="btn gold wide" data-action="close">${snapshot?.phase === 'active' && me()?.alive ? 'Resume game' : 'Got it'}</button>${room ? `<div class="row">${snapshot?.practice ? '<button class="text-btn" data-action="lobby">Return to lobby</button>' : ''}<button class="text-btn" data-action="leave">Leave room</button></div>` : ''}</div></div>`;
   }
   // Preserve focused inputs and slider drags; HUD remains independently render-driven.
-  if (html !== lastHTML && !(document.activeElement instanceof HTMLInputElement && document.activeElement.type === 'range')) { app.innerHTML = html; lastHTML = html; }
+  const preserveModal = !!modal && modal === lastModal && !!app.querySelector('.overlay');
+  if (html !== lastHTML && !preserveModal && !(document.activeElement instanceof HTMLInputElement && document.activeElement.type === 'range')) {
+    const scroll = app.querySelector('.overlay')?.scrollTop ?? 0;
+    app.innerHTML = html; lastHTML = html;
+    const overlay = app.querySelector('.overlay'); if (overlay) overlay.scrollTop = scroll;
+  }
+  lastModal = modal;
 }
 app.addEventListener('pointerdown', e => {
   const target = (e.target as HTMLElement).closest<HTMLElement>('[data-weapon]');
@@ -161,8 +167,8 @@ app.addEventListener('click', async e => {
 });
 document.addEventListener('keydown', e => {
   if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
-  if (['Tab', 'Space'].includes(e.code)) e.preventDefault();
-  if (e.code === 'Tab') scoreboard = true;
+  if (controlling() && !modal && ['Tab', 'Space'].includes(e.code)) e.preventDefault();
+  if (e.code === 'Tab' && controlling() && !modal) scoreboard = true;
   if (e.code === 'Escape' && room && !locked()) { releasePointer(); modal = modal ? '' : 'settings'; renderUI(); }
   if (controlling()) { keys.add(e.code); if (dragLook && e.altKey) mouseAttack = false; const n = Number(e.key); if (n >= 1 && n <= 4) weapon = WEAPONS[n - 1]; }
   renderUI();
