@@ -46,6 +46,7 @@ npm start
 # With a server running:
 npx tsx tests/multiplayer.ts
 npx tsx tests/reconnect.ts
+npx tsx tests/room-lifecycle.ts
 TEST_ROUNDS=10 npx tsx tests/multiplayer.ts
 ```
 
@@ -107,3 +108,20 @@ and physical device to establish input feel and the frame-rate budget. Desktop a
 phone-sized portrait/landscape browser previews have been checked; physical iOS
 and Android multitouch hardware have not been tested. Same-tick final deaths are a draw. Passive opponents
 can prolong a round because there is deliberately no timer or shrinking boundary.
+
+## Room lifecycle regression checks
+
+`tests/room-lifecycle.ts` checks repeated ready messages, duplicate seat rejection,
+solo practice, reconnect without a second player, explicit leave/recreate, silent
+client expiry, and empty-room disposal against a running server. Run it without
+other tests creating or deleting rooms because it checks room-count conservation.
+Each browser tab keeps one seat identity; normal refresh reuses its reconnect token.
+An explicit leave clears that token and waits for teardown before another join.
+Disconnected seats have a 15-second reconnect reservation. A connected socket that
+stops sending application heartbeats/controls is removed after 30 seconds. Empty
+rooms dispose automatically; a live lobby has a 30-minute lifetime.
+
+For mobile compatibility, open `/tests/mobile-preview.html` on the Vite development
+server. This renders the actual app in a 390×844 iframe with Pointer Lock APIs
+unavailable. Create, ready, solo practice, leave, rejoin, and reload must all work
+without browser exceptions. These test fixtures are excluded from production builds.

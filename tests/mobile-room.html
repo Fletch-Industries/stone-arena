@@ -1,0 +1,6 @@
+<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Mobile room compatibility regression</title></head><body><canvas id="world" aria-label="3D stone arena"></canvas><div id="app"></div><script type="module">
+// Model mobile browsers without Pointer Lock. Exercise the real application and server.
+Object.defineProperty(document, 'exitPointerLock', {value: undefined, configurable: true});
+Object.defineProperty(HTMLCanvasElement.prototype, 'requestPointerLock', {value: undefined, configurable: true});
+await import('/client/main.ts');
+</script></body></html>

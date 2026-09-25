@@ -1,6 +1,7 @@
 import { BOXES, DT, EYE, HEIGHT, SPAWNS, direction, idleInput, move, segmentBox, wallHit, type Arrow, type GameEvent, type Input, type Player, type Snapshot, type Phase } from '../shared/game.js';
 
 export class Simulation {
+  departed = new Set<string>();
   players = new Map<string, Player>(); inputs = new Map<string, Input>();
   attackPress = new Set<string>(); attackRelease = new Set<string>();
   lastInput = new Map<string, number>(); lastAttack = new Map<string, boolean>();
@@ -28,6 +29,11 @@ export class Simulation {
   }
   disconnect(id: string) { const p = this.players.get(id); if (p) { p.connected = false; p.ready = false; this.inputs.set(id, idleInput()); this.lastAttack.set(id, false); } this.transferHost(); }
   transferHost() { if (!this.players.get(this.host)?.connected) this.host = [...this.players.values()].find(p => p.connected)?.id ?? ''; }
+  removePlayer(id: string) {
+    this.departed.delete(id); this.players.delete(id); this.inputs.delete(id); this.lastInput.delete(id); this.lastAttack.delete(id);
+    this.attackPress.delete(id); this.attackRelease.delete(id); this.rewindTicks.delete(id); this.damageHistory.delete(id);
+    for (const damage of this.damageHistory.values()) damage.delete(id);
+  }
   leave(id: string) {
     const p = this.players.get(id); if (!p) return;
     if (this.phase === 'active' && p.alive) {
@@ -35,15 +41,15 @@ export class Simulation {
       const actor = recent && this.players.get(recent[0]);
       if (actor) this.damage(p, actor, 1000); else { p.hp = 0; p.alive = false; p.eliminatedAt = this.tick; this.event({ type: 'kill', target: id, text: `${p.name} forfeited` }); }
     }
-    p.connected = false; p.ready = false;
-    if (this.phase === 'waiting' || this.phase === 'countdown') { this.players.delete(id); this.inputs.delete(id); }
+    p.connected = false; p.ready = false; this.departed.add(id);
+    if (this.phase === 'waiting' || this.phase === 'countdown') this.removePlayer(id);
     this.transferHost(); this.checkWinner();
   }
   lobby(id: string) {
     if (id !== this.host || (this.phase !== 'results' && !this.practice)) return;
     if (this.phase === 'results' && this.tick - this.resultTime < 180) return;
     this.phase = 'waiting'; this.practice = false; this.arrows = [];
-    for (const [key, p] of this.players) { if (!p.connected) { this.players.delete(key); this.inputs.delete(key); } else { p.ready = false; p.alive = true; p.hp = 100; } }
+    for (const [key, p] of this.players) { if (this.departed.has(key)) this.removePlayer(key); else { p.ready = false; p.alive = true; p.hp = 100; } }
     this.positionPlayers();
   }
   checkWinner() {
