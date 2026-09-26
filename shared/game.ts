@@ -1,4 +1,4 @@
-export const VERSION = 3;
+export const VERSION = 4;
 // Round progression is an arena rule, not Minecraft's XP/armor formula.
 export const ARMOR_TIERS = [
   { level: 1, xp: 0, name: 'Unarmored', reduction: 0 },
@@ -6,6 +6,7 @@ export const ARMOR_TIERS = [
   { level: 3, xp: 150, name: 'Enchanted armor', reduction: .35 },
 ] as const;
 export const armorTier = (xp: number) => xp >= 150 ? ARMOR_TIERS[2] : xp >= 50 ? ARMOR_TIERS[1] : ARMOR_TIERS[0];
+export const APPLE = { count: 2, heal: 40, seconds: 1.6 } as const;
 export const DT = 1 / 60;
 export const RADIUS = .34;
 export const HEIGHT = 1.8;
@@ -19,8 +20,8 @@ export const MELEE = { sword: { damage: 35, recovery: .625 }, axe: { damage: 45,
 export const meleeRecovery = (weapon: Weapon) => weapon === 'axe' ? MELEE.axe.recovery : MELEE.sword.recovery;
 export const attackStrength = (p: Pick<Player, 'weapon' | 'cooldown'>) => Math.max(0, Math.min(1, 1 - p.cooldown / meleeRecovery(p.weapon)));
 export const LIMIT = 15.65;
-export type Weapon = 'sword' | 'axe' | 'bow' | 'crossbow';
-export const WEAPONS: Weapon[] = ['sword', 'axe', 'bow', 'crossbow'];
+export type Weapon = 'sword' | 'axe' | 'bow' | 'crossbow' | 'apple';
+export const WEAPONS: Weapon[] = ['sword', 'axe', 'bow', 'crossbow', 'apple'];
 export const COLORS = ['#f3b85b', '#6adbc8', '#a8a0ff', '#f58f9c', '#8ece6b'];
 export type Phase = 'waiting' | 'countdown' | 'active' | 'results';
 export interface Box { x: number; z: number; w: number; d: number; h: number }
@@ -36,12 +37,12 @@ export const idleInput = (): Input => ({ seq: 0, x: 0, z: 0, yaw: 0, pitch: 0, j
 export interface Body { x: number; y: number; z: number; vy: number; grounded: boolean; vx?: number; vz?: number; sprinting?: boolean; sprintLocked?: boolean }
 export interface Player extends Body {
   id: string; name: string; color: number; yaw: number; pitch: number; hp: number; alive: boolean;
-  connected: boolean; ready: boolean; weapon: Weapon; block: boolean; ammo: number;
+  connected: boolean; ready: boolean; weapon: Weapon; block: boolean; ammo: number; apples: number;
   kills: number; damage: number; assists: number; wins: number; ack: number; xp: number;
   hurtTime: number; lastDamage: number; shieldRaise: number; swingWait: number; moveSpeed: number; cooldown: number; charge: number; loaded: boolean; shieldDisabled: number; eliminatedAt: number;
 }
 export interface Arrow { id: number; owner: string; x: number; y: number; z: number; vx: number; vy: number; vz: number; damage: number; age: number; critical?: boolean }
-export interface GameEvent { id: number; type: 'hit' | 'kill' | 'shot' | 'swing' | 'start' | 'result' | 'level'; actor?: string; target?: string; text?: string; blocked?: boolean; critical?: boolean; sprintHit?: boolean; sweep?: boolean }
+export interface GameEvent { id: number; type: 'hit' | 'kill' | 'shot' | 'swing' | 'start' | 'result' | 'level' | 'heal'; actor?: string; target?: string; text?: string; blocked?: boolean; critical?: boolean; sprintHit?: boolean; sweep?: boolean }
 export interface Snapshot { tick: number; phase: Phase; countdown: number; result: string; winner: string; round: number; host: string; practice: boolean; players: Player[]; arrows: Arrow[]; events: GameEvent[] }
 export function validInput(a: unknown): a is Input {
   if (!a || typeof a !== 'object') return false;

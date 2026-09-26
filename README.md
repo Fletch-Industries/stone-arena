@@ -41,7 +41,7 @@ full damage; fast clicks deal weaker hits. Holding Attack repeats at full recove
 
 The [mechanics reference](docs/minecraft-mechanics.md) records the researched rules,
 sources, exact kit values, and deliberate arena adaptations. The arena remains
-one-life, without healing or hunger; its browser physics is not an exact replica.
+one-life, with limited golden-apple healing and no hunger; its browser physics is not an exact replica.
 
 ## Armor and progression
 
@@ -80,11 +80,11 @@ invite link. Everyone readies up, then the host starts. For local multi-browser
 testing, open the link in a second tab and use another nickname. Network friends
 need a reachable deployed URL rather than your localhost link.
 
-WASD moves, mouse aims, Ctrl/Shift or double-tap W sprints, Space jumps, 1–4 or wheel switches weapons,
+WASD moves, mouse aims, Ctrl/Shift or double-tap W sprints, Space jumps, 1–5 or wheel selects weapons or apples,
 left mouse attacks, right mouse blocks, Tab shows scores, Escape opens settings.
 Hold the bow to draw and release to fire. Click the crossbow once to load and again
 to fire. If mouse capture is unavailable (for example in an embedded browser),
-hold Alt and drag to look; the other controls remain the same. Blocked axe hits disable shields for five seconds. No healing or respawns during a round.
+hold Alt and drag to look; the other controls remain the same. Blocked axe hits disable shields for five seconds. No respawns during a round.
 
 On phones and tablets, use the left thumbstick to move and swipe the right side
 to aim. Hold Attack for melee or bow charge; release the bow to fire. Tap Attack
@@ -92,10 +92,24 @@ to load/fire a crossbow. Hold Shield, tap Jump, toggle Sprint, and tap a weapon 
 equip it. Menu and Scores are in the top right. Landscape is recommended; portrait
 is supported. Small screens default to low graphics with a one-pixel render ratio.
 The camera defaults to 120° FOV (adjustable from 60° to 120° in Settings).
-The classic tool hotbar shows ten full/half hearts, four selectable tools, arrow
+The classic tool hotbar shows ten full/half hearts, four selectable tools, golden apples, arrow
 counts, shield status, armor level, and XP progress. Empty slots collapse on very narrow landscape screens.
 The touch surfaces preserve multiple pointer captures across HUD refreshes and
 clear held controls when interrupted. No installation or account is needed.
+
+## Golden apples and sword appearance
+
+Each player starts with **two golden apples per round**. Select **slot 5** (or tap
+the apple), then hold **left mouse** or the mobile **Eat** button for **1.6 seconds**.
+A completed bite restores up to **four hearts (40 HP)**, capped at full health.
+Eating slows movement. Releasing, switching items, blocking or disconnecting cancels
+the bite without spending an apple. Full-health players keep their apples.
+Food cannot revive an eliminated player; a fatal hit on the finishing tick wins.
+Remaining apples survive reconnects and reset for each round.
+
+This is an arena healing rule, not Minecraft's regeneration/absorption formula.
+The sword now has an original stepped purple blade, wrapped handle, shaped guard
+and animated enchanted glint. Its combat damage and recovery are unchanged.
 
 ## Camera perspectives
 
@@ -124,6 +138,7 @@ npm run build
 npm start
 # With a server running:
 npx tsx tests/multiplayer.ts
+npx tsx tests/healing-multiplayer.ts
 npx tsx tests/reconnect.ts
 npx tsx tests/room-lifecycle.ts
 TEST_ROUNDS=10 npx tsx tests/multiplayer.ts

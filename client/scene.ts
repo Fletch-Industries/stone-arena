@@ -3,6 +3,7 @@ import { BOXES, COLORS, EYE, armorTier, attackStrength, type Body, type GameEven
 import { locomotionPose } from './animation.js';
 import { TextureLibrary, type Surface } from './textures.js';
 import { FlameAtlas, armorMaterial } from './effects.js';
+import { swordBlade, appleBody } from './items.js';
 import { clipCamera, thirdPersonCamera, type Perspective } from './camera.js';
 
 export class ArenaScene {
@@ -12,6 +13,8 @@ export class ArenaScene {
   flameAtlas = new FlameAtlas(); flames: THREE.MeshBasicMaterial[] = [];
   armorTime = { value: 0 };
   armorMaterials = [armorMaterial(this.textures.get('metal'), false, this.armorTime), armorMaterial(this.textures.get('metal'), true, this.armorTime)];
+  swordGeo = swordBlade(); appleGeo = appleBody();
+  swordMaterial = armorMaterial(this.textures.get('metal'), true, this.armorTime);
   sun = new THREE.DirectionalLight('#fff0d6', 2.1);
   contactShadows = new THREE.Group(); shadowGeo = new THREE.PlaneGeometry(1, 1);
   avatarShadows = new Map<string, THREE.Mesh>();
@@ -22,6 +25,7 @@ export class ArenaScene {
   rigs = new Map<string, { head: THREE.Group; leftArm: THREE.Group; rightArm: THREE.Group; leftLeg: THREE.Group; rightLeg: THREE.Group; tool: THREE.Group; toolName: string; distance: number; speed: number; swing: number; landed: number; grounded: boolean }>();
   frames = 0; fps = 60; fpsTime = 0; spectator = 0; reduced = false; renderScale = 1;
   constructor(canvas: HTMLCanvasElement) {
+    this.swordMaterial.color.set('#a88abf');
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5)); this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping; this.renderer.toneMappingExposure = 1.05;
@@ -155,7 +159,26 @@ export class ArenaScene {
   }
   buildWeapon(group: THREE.Group, name: Weapon) {
     group.clear();
-    if (name === 'sword') { this.box(group, [.11, .28, .1], [0, 0, 0], '#72502f', 'wood'); this.box(group, [.34, .07, .12], [0, .17, 0], '#d9b773', 'metal'); this.box(group, [.13, .7, .065], [0, .55, 0], '#b5e2db', 'metal'); this.box(group, [.08, .15, .06], [0, .96, 0], '#e2f9ed', 'metal'); }
+    if (name === 'sword') {
+      const blade = new THREE.Mesh(this.swordGeo, this.swordMaterial); blade.castShadow = blade.receiveShadow = group !== this.weapon; group.add(blade);
+      this.box(group, [.10, .29, .10], [0, .02, 0], '#302138', 'wood');
+      for (const y of [-.07, .01, .09]) this.box(group, [.115, .025, .115], [0, y, 0], '#8760a5', 'metal');
+      for (const side of [-1, 1]) {
+        const guard = this.box(group, [.22, .085, .13], [side * .14, .18, 0], '#683995', 'metal'); guard.rotation.z = -side * .3;
+        this.box(group, [.095, .11, .14], [side * .25, .21, 0], '#a276c8', 'metal');
+        this.box(group, [.045, .65, .012], [-.045, .58, side * .042], '#bdacdb', 'metal');
+      }
+      this.box(group, [.16, .1, .14], [0, -.16, 0], '#8453a6', 'metal');
+    }
+    if (name === 'apple') {
+      const fruit = new THREE.Mesh(this.appleGeo, this.material('#e8bc2e')); fruit.castShadow = fruit.receiveShadow = group !== this.weapon; group.add(fruit);
+      this.box(group, [.065, .16, .08], [.015, .34, 0], '#875123', 'wood');
+      for (const side of [-1, 1]) {
+        this.box(group, [.19, .055, .016], [-.045, .2, side * .102], '#fff5a2');
+        this.box(group, [.065, .13, .016], [-.14, .12, side * .102], '#f7df6c');
+        this.box(group, [.1, .065, .016], [.095, -.02, side * .102], '#ce8d17');
+      }
+    }
     if (name === 'axe') { this.box(group, [.1, .8, .1], [0, .22, 0], '#7d5736', 'wood'); this.box(group, [.38, .29, .1], [-.12, .59, 0], '#b0d5d0', 'metal'); this.box(group, [.1, .38, .1], [-.32, .56, 0], '#e0e8d4', 'metal'); }
     if (name === 'bow') { for (let n = -2; n <= 2; n++) this.box(group, [.08, .17, .09], [.15 - Math.abs(n) * .065, n * .17 + .2, 0], '#be8a50', 'wood'); this.box(group, [.012, .78, .012], [-.03, .2, 0], '#e9dcbc'); }
     if (name === 'crossbow') { this.box(group, [.14, .15, .65], [0, .15, -.15], '#8d633f', 'wood'); this.box(group, [.65, .09, .12], [0, .17, -.38], '#b3b7a7', 'metal'); this.box(group, [.1, .29, .1], [0, -.01, .02], '#6e4b32', 'wood'); }
@@ -192,8 +215,11 @@ export class ArenaScene {
     const fov = inspecting ? 55 : this.configuredFov;
     if (this.camera.fov !== fov) { this.camera.fov = fov; this.camera.updateProjectionMatrix(); }
     if (inspecting && me) { const angle = this.reduced ? Math.PI + me.yaw : this.time * .3; this.camera.position.copy(clipCamera({ x: me.x, y: me.y + EYE, z: me.z }, { x: me.x + Math.sin(angle) * 3.8, y: me.y + 1.8, z: me.z + Math.cos(angle) * 3.8 })); this.camera.lookAt(me.x, me.y + .85, me.z); }
-    this.weapon.visible = !thirdPerson && !inspecting && !!inRound && !!me?.alive && snapshot?.phase !== 'results';
+    this.weapon.visible = !thirdPerson && !inspecting && !!inRound && !!me?.alive && snapshot?.phase !== 'results' && (me.weapon !== 'apple' || me.apples > 0 || me.block);
     if (me) { this.setWeapon(me.weapon, me.block, me.xp); this.swing = Math.max(0, this.swing - dt * 5); this.weapon.rotation.set(-this.swing * 1.2, 0, -.2 - this.swing * .8); this.weapon.position.y = -.43 - ((me.weapon === 'sword' || me.weapon === 'axe') ? (1 - attackStrength(me)) * .1 : 0) + (moving && local?.grounded && !this.reduced ? Math.sin(this.cameraDistance * 5) * .02 : 0); this.weapon.position.z = -.65 + me.charge * .035; }
+    const eating = me?.weapon === 'apple' && me.charge > 0;
+    this.weapon.position.x = eating ? .15 : .36;
+    if (eating) { this.weapon.position.y += .18 + (this.reduced ? 0 : Math.sin(this.time * 18) * .025); this.weapon.position.z += .2; this.weapon.rotation.z = -.4; }
     const ids = new Set(snapshot?.players.map(p => p.id));
     for (const [id, g] of this.avatars) if (!ids.has(id)) { this.scene.remove(g); g.traverse(o => { if (o instanceof THREE.Sprite) { o.material.map?.dispose(); o.material.dispose(); } }); this.avatars.delete(id); this.rigs.delete(id); const shadow = this.avatarShadows.get(id); if (shadow) this.contactShadows.remove(shadow); this.avatarShadows.delete(id); }
     for (const p of snapshot?.players ?? []) {
@@ -215,7 +241,9 @@ export class ArenaScene {
       rig.leftLeg.rotation.x = pose.leftLeg; rig.rightLeg.rotation.x = pose.rightLeg;
       rig.leftArm.rotation.x = p.block ? -1.1 : pose.leftArm;
       rig.swing = Math.max(0, rig.swing - dt / .3);
-      rig.rightArm.rotation.x = rig.swing > 0 ? -Math.sin(rig.swing * Math.PI) * 1.8 : p.charge > 0 || p.loaded ? -1.3 + p.pitch : pose.rightArm;
+      rig.rightArm.rotation.x = rig.swing > 0 ? -Math.sin(rig.swing * Math.PI) * 1.8 : p.weapon === 'apple' && p.charge > 0 ? 1.65 + (this.reduced ? 0 : Math.sin(this.time * 18) * .06) : p.charge > 0 || (p.weapon === 'crossbow' && p.loaded) ? -1.3 + p.pitch : pose.rightArm;
+      rig.tool.visible = p.weapon !== 'apple' || p.apples > 0;
+      rig.tool.rotation.x = p.weapon === 'apple' && p.charge > 0 ? -1.65 : 0;
       const shield = g.getObjectByName('shield')!; shield.visible = p.block;
       if (rig.toolName !== p.weapon) { rig.toolName = p.weapon; this.buildWeapon(rig.tool, p.weapon); }
       g.traverse(o => { if (o instanceof THREE.Mesh) { o.userData.baseMaterial ??= o.material; if (o.userData.armor) { const level = armorTier(p.xp).level; o.visible = level > 1; o.material = p.hurtTime > 0 ? this.material('#e77979') : this.armorMaterials[Math.max(0, level - 2)]; } else o.material = p.hurtTime > 0 ? this.material('#e77979') : o.userData.baseMaterial; } });

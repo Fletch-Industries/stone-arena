@@ -1,4 +1,4 @@
-import { ARMOR_TIERS, armorTier, MELEE, attackStrength, meleeRecovery, knockback, DT, EYE, HEIGHT, SPAWNS, direction, idleInput, move, segmentBox, wallHit, type Arrow, type GameEvent, type Input, type Player, type Snapshot, type Phase } from '../shared/game.js';
+import { APPLE, ARMOR_TIERS, armorTier, MELEE, attackStrength, meleeRecovery, knockback, DT, EYE, HEIGHT, SPAWNS, direction, idleInput, move, segmentBox, wallHit, type Arrow, type GameEvent, type Input, type Player, type Snapshot, type Phase } from '../shared/game.js';
 
 export class Simulation {
   departed = new Set<string>();
@@ -15,7 +15,7 @@ export class Simulation {
     if (this.players.size >= 5 || this.phase !== 'waiting') throw new Error('Room full or round in progress.');
     const colors = new Set([...this.players.values()].map(p => p.color));
     const color = [0, 1, 2, 3, 4].find(c => !colors.has(c))!;
-    const p: Player = { id, name, color, x: 0, y: 0, z: 0, vy: 0, grounded: true, yaw: 0, pitch: 0, hp: 100, xp: 0, alive: true, connected: true, ready: false, weapon: 'sword', block: false, ammo: 20, kills: 0, damage: 0, assists: 0, wins: 0, ack: 0, cooldown: 0, charge: 0, loaded: false, shieldDisabled: 0, hurtTime: 0, lastDamage: 0, shieldRaise: 0, swingWait: 0, moveSpeed: 0, vx: 0, vz: 0, sprinting: false, sprintLocked: false, eliminatedAt: 0 };
+    const p: Player = { id, name, color, x: 0, y: 0, z: 0, vy: 0, grounded: true, yaw: 0, pitch: 0, hp: 100, xp: 0, alive: true, connected: true, ready: false, weapon: 'sword', block: false, ammo: 20, apples: APPLE.count, kills: 0, damage: 0, assists: 0, wins: 0, ack: 0, cooldown: 0, charge: 0, loaded: false, shieldDisabled: 0, hurtTime: 0, lastDamage: 0, shieldRaise: 0, swingWait: 0, moveSpeed: 0, vx: 0, vz: 0, sprinting: false, sprintLocked: false, eliminatedAt: 0 };
     this.players.set(id, p); this.inputs.set(id, idleInput()); if (!this.host) this.host = id; this.positionPlayers(); return p;
   }
   positionPlayers() { let n = 0; for (const p of this.players.values()) { const s = SPAWNS[(n++ + this.round * 2) % SPAWNS.length]; p.x = s[0]; p.z = s[1]; p.y = 0; p.vy = 0; p.vx = p.vz = 0; p.grounded = true; p.sprinting = p.sprintLocked = false; p.yaw = Math.atan2(p.x, p.z); } }
@@ -25,10 +25,10 @@ export class Simulation {
     const ps = [...this.players.values()];
     if (id !== this.host || this.phase !== 'waiting' || !ps.every(p => p.connected && p.ready) || (practice ? ps.length !== 1 : ps.length < 2)) return false;
     this.practice = practice; this.round++; this.phase = 'countdown'; this.countdown = 5; this.result = ''; this.winner = ''; this.arrows = []; this.events = []; this.damageHistory.clear();
-    for (const p of ps) { Object.assign(p, { hp: 100, xp: 0, alive: true, weapon: 'sword', block: false, ammo: 20, kills: 0, damage: 0, assists: 0, cooldown: 0, charge: 0, loaded: false, shieldDisabled: 0, hurtTime: 0, lastDamage: 0, shieldRaise: 0, swingWait: 0, moveSpeed: 0, vx: 0, vz: 0, sprinting: false, sprintLocked: false, eliminatedAt: 0, ack: 0 }); this.inputs.set(p.id, idleInput()); this.lastAttack.set(p.id, false); }
+    for (const p of ps) { Object.assign(p, { hp: 100, xp: 0, alive: true, weapon: 'sword', block: false, ammo: 20, apples: APPLE.count, kills: 0, damage: 0, assists: 0, cooldown: 0, charge: 0, loaded: false, shieldDisabled: 0, hurtTime: 0, lastDamage: 0, shieldRaise: 0, swingWait: 0, moveSpeed: 0, vx: 0, vz: 0, sprinting: false, sprintLocked: false, eliminatedAt: 0, ack: 0 }); this.inputs.set(p.id, idleInput()); this.lastAttack.set(p.id, false); }
     this.history = []; this.attackPress.clear(); this.attackRelease.clear(); this.positionPlayers(); return true;
   }
-  disconnect(id: string) { const p = this.players.get(id); if (p) { p.connected = false; p.ready = false; this.inputs.set(id, idleInput()); this.lastAttack.set(id, false); } this.transferHost(); }
+  disconnect(id: string) { const p = this.players.get(id); if (p) { p.connected = false; p.ready = false; p.charge = 0; this.inputs.set(id, idleInput()); this.lastAttack.set(id, false); } this.transferHost(); }
   transferHost() { if (!this.players.get(this.host)?.connected) this.host = [...this.players.values()].find(p => p.connected)?.id ?? ''; }
   removePlayer(id: string) {
     this.departed.delete(id); this.players.delete(id); this.inputs.delete(id); this.lastInput.delete(id); this.lastAttack.delete(id);
@@ -50,7 +50,7 @@ export class Simulation {
     if (id !== this.host || (this.phase !== 'results' && !this.practice)) return;
     if (this.phase === 'results' && this.tick - this.resultTime < 180) return;
     this.phase = 'waiting'; this.practice = false; this.arrows = [];
-    for (const [key, p] of this.players) { if (this.departed.has(key)) this.removePlayer(key); else { p.ready = false; p.xp = 0; p.alive = true; p.hp = 100; p.hurtTime = 0; p.block = false; p.shieldRaise = 0; p.moveSpeed = 0; } }
+    for (const [key, p] of this.players) { if (this.departed.has(key)) this.removePlayer(key); else { p.ready = false; p.xp = 0; p.apples = APPLE.count; p.charge = 0; p.alive = true; p.hp = 100; p.hurtTime = 0; p.block = false; p.shieldRaise = 0; p.moveSpeed = 0; } }
     this.positionPlayers();
   }
   checkWinner() {
@@ -91,7 +91,7 @@ export class Simulation {
     if (!immune && !hit.force) knockback(target, -dx, -dz, hit.strength ?? 8);
     const history = this.damageHistory.get(target.id) ?? new Map<string, number>(); history.set(actor.id, this.tick); this.damageHistory.set(target.id, history);
     this.event({ type: 'hit', actor: actor.id, target: target.id, blocked: false, critical: hit.critical, sprintHit: hit.sprintHit, sweep: hit.sweep });
-    if (target.hp <= 0) { target.alive = false; target.block = false; target.eliminatedAt = this.tick; actor.kills++; if (!hit.force && actor.id !== target.id) this.earnXp(actor, 50); for (const [id, at] of history) if (id !== actor.id && this.tick - at <= 300) { const assister = this.players.get(id); if (assister) assister.assists++; } this.event({ type: 'kill', actor: actor.id, target: target.id, text: `${actor.name} eliminated ${target.name}` }); }
+    if (target.hp <= 0) { target.alive = false; target.block = false; target.charge = 0; target.eliminatedAt = this.tick; actor.kills++; if (!hit.force && actor.id !== target.id) this.earnXp(actor, 50); for (const [id, at] of history) if (id !== actor.id && this.tick - at <= 300) { const assister = this.players.get(id); if (assister) assister.assists++; } this.event({ type: 'kill', actor: actor.id, target: target.id, text: `${actor.name} eliminated ${target.name}` }); }
     return true;
   }
   random = Math.random;
@@ -138,6 +138,7 @@ export class Simulation {
     if (this.history.length > 8) this.history.shift();
     // Gather attacks before resolving them so attacks initiated in one tick are simultaneous.
     const attacks: (() => void)[] = [];
+    const meals: Player[] = [];
     for (const p of this.players.values()) {
       if (!p.alive) continue;
       const stale = this.tick - (this.lastInput.get(p.id) ?? -1000) > 15 || !p.connected;
@@ -153,7 +154,12 @@ export class Simulation {
       p.moveSpeed = Math.hypot(p.x - oldX, p.z - oldZ) / DT;
       const pressed = !stale && (this.attackPress.has(p.id) || (i.attack && !this.lastAttack.get(p.id))), released = this.attackRelease.has(p.id) || (!i.attack && !!this.lastAttack.get(p.id));
       if (i.block) p.charge = 0;
-      else if (p.weapon === 'bow') {
+      else if (p.weapon === 'apple') {
+        if (i.attack && p.apples > 0 && p.hp < 100) {
+          p.charge += DT;
+          if (p.charge + 1e-8 >= APPLE.seconds) { p.charge = 0; meals.push(p); }
+        } else p.charge = 0;
+      } else if (p.weapon === 'bow') {
         if (i.attack && p.cooldown <= 0 && p.ammo > 0) p.charge = Math.min(1, p.charge + DT);
         if (released) { if (p.charge >= .14 && !stale) { const amount = p.charge; attacks.push(() => this.shoot(p, amount)); } p.charge = 0; }
       } else if (p.weapon === 'crossbow') {
@@ -179,6 +185,11 @@ export class Simulation {
       return !Number.isFinite(nearest) && a.age < 4 && a.y > 0 && Math.abs(a.x) < 16 && Math.abs(a.z) < 16;
     });
     this.combatXp = undefined;
+    // Resolve food after combat: a completed bite cannot revive a same-tick death.
+    for (const p of meals) if (p.alive && p.connected && p.apples > 0 && p.hp < 100) {
+      const amount = Math.min(APPLE.heal, 100 - p.hp); p.hp += amount; p.apples--;
+      this.event({ type: 'heal', actor: p.id, text: `Golden apple restored ${Math.round(amount)} HP` });
+    }
     this.checkWinner();
   }
   snapshot(): Snapshot { return { tick: this.tick, phase: this.phase, countdown: this.countdown, result: this.result, winner: this.winner, round: this.round, host: this.host, practice: this.practice, players: [...this.players.values()].map(p => ({ ...p })), arrows: this.arrows.map(a => ({ ...a })), events: this.events }; }

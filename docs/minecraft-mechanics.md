@@ -43,7 +43,11 @@ represents ten hearts. All damage, motion and hit outcomes are server-authoritat
   knockback. Protection upgrades take effect after the current simulation tick.
   XP resets each round. The violet glint is cosmetic; Minecraft armor points,
   toughness, XP orbs and enchantment formulas are not implemented.
-- No hunger, regeneration, durability, fall damage, swimming,
+- Golden apples are another arena adaptation: two per round, 1.6-second use,
+  up to four hearts of immediate healing. No regeneration/absorption status
+  effects; fatal damage on the completion tick prevents healing. Purple sword
+  appearance is cosmetic and adds no enchantment damage.
+- No hunger, passive regeneration, durability, fall damage, swimming,
   crafting, block placement or world destruction. The one-life arena rules stand.
 - Walk/run/jump poses are original procedural animations. They are not copied
   Minecraft assets or a claim of frame-for-frame animation parity.

@@ -58,3 +58,13 @@ spectated survivor. No extra render passes or lights are added.
 cover and wall locations, and yaw/pitch using the actual renderer. Camera unit
 tests cover collision and orientation, independent of WebGL. Production excludes
 the preview fixture.
+
+## Sword and golden apple
+
+`client/items.ts` contains original extruded pixel silhouettes for a purple sword
+and golden apple. Geometry and materials are shared between first-person items
+and third-person held tools. The sword uses a stepped tip, purple guard, wrapped
+hilt and the existing inexpensive glint shader. Apple stem and highlight patches
+retain the block aesthetic. No reference images or Minecraft assets are bundled.
+Eating raises the apple to the face; reduced motion suppresses its oscillation.
+The equipment preview includes an Eat apple action and visible HP/item counts.

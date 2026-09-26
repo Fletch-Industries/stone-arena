@@ -30,6 +30,7 @@ export class TouchControls {
     find('[aria-label="Open game menu"]').addEventListener('click', actions.menu);
     find('[aria-label="Open scoreboard"]').addEventListener('click', actions.scores);
   }
+  item(apple: boolean) { const button = this.root.querySelector('.touch-attack')!; const label = apple ? 'Eat' : 'Attack'; if (button.textContent !== label) { button.textContent = label; button.setAttribute('aria-label', apple ? 'Eat golden apple' : 'Attack'); } }
   perspective(label: string) { const button = this.root.querySelector('.touch-view')!; button.setAttribute('aria-label', `Change perspective: ${label}`); button.setAttribute('title', label); }
   reset() { for (const reset of this.resets) reset(); this.jumpQueued = false; this.sprint = false; this.root.querySelector('.touch-sprint')!.setAttribute('aria-pressed', 'false'); }
   show(visible: boolean) { if (this.root.hidden === !visible) return; this.root.hidden = !visible; if (!visible) this.reset(); }
