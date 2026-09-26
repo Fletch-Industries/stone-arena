@@ -7,8 +7,8 @@ const wait = (ms: number) => new Promise(r => setTimeout(r, ms));
 async function until(fn: () => boolean, ms = 15000) { const end = Date.now() + ms; while (!fn()) { if (Date.now() > end) throw new Error('Timed out waiting for game condition'); await wait(50); } }
 const clients = Array.from({ length: 6 }, () => new Client(endpoint));
 const rooms: Room[] = []; const states = new Map<string, Snapshot>(); const seq = new Map<string, number>();
-let knockbackSeen = false;
-function subscribe(r: Room) { r.onMessage('snapshot', (s: Snapshot) => { states.set(r.sessionId, s); if (s.phase === 'active' && s.players.some(p => !p.grounded && Math.hypot(p.vx ?? 0, p.vz ?? 0) > .5)) knockbackSeen = true; }); r.onMessage('pong', () => {}); r.onMessage('latency', (n: number) => r.send('latencyAck', n)); r.onError((_c, m) => console.error(m)); r.send('sync'); }
+let knockbackSeen = false, armorSeen = false;
+function subscribe(r: Room) { r.onMessage('snapshot', (s: Snapshot) => { states.set(r.sessionId, s); if (s.players.some(p => p.xp >= 50)) armorSeen = true; if (s.phase === 'active' && s.players.some(p => !p.grounded && Math.hypot(p.vx ?? 0, p.vz ?? 0) > .5)) knockbackSeen = true; }); r.onMessage('pong', () => {}); r.onMessage('latency', (n: number) => r.send('latencyAck', n)); r.onError((_c, m) => console.error(m)); r.send('sync'); }
 // Grid navigation gives test players ordinary controls; no test-only game routes.
 function path(a: Player, b: Player) {
   const start = [Math.round(a.x), Math.round(a.z)], goal = [Math.round(b.x), Math.round(b.z)];
@@ -29,7 +29,7 @@ try {
   console.log('PASS: five clients joined; sixth rejected', rooms[0].roomId);
   await until(() => [...states.values()].length === 5 && [...states.values()].every(s => s.players.length === 5));
   for (let round = 0; round < rounds; round++) {
-    knockbackSeen = false;
+    knockbackSeen = false; armorSeen = false;
     for (const r of rooms) r.send('ready');
     await until(() => states.get(rooms[0].sessionId)!.players.every(p => p.ready)); console.log('starting', rooms[0].sessionId, states.get(rooms[0].sessionId)?.host); rooms[0].send('start', {practice:false});
     await until(() => [...states.values()].every(s => s.phase === 'active'));
@@ -49,6 +49,9 @@ try {
     clearInterval(timer); timer = undefined;
     assert.ok(knockbackSeen, 'server knockback must replicate to the ordinary clients');
     console.log('PASS: authoritative knockback replicated during combat');
+    assert.ok(armorSeen, 'earned armor must replicate to ordinary clients');
+    for (const s of states.values()) for (const p of s.players) assert.ok(Math.abs(p.xp - Math.min(150, p.damage + p.kills * 50)) < .0001, 'XP must equal actual damage plus elimination bonuses');
+    console.log('PASS: earned XP and armor upgrades replicated during combat');
     const results = [...states.values()]; assert.equal(new Set(results.map(s => s.winner)).size, 1);
     assert.ok(results[0].players.filter(p => p.alive).length <= 1);
     console.log(`PASS: round ${round + 1}, all five agree on ${results[0].result}; total kills ${results[0].players.reduce((v, p) => v + p.kills, 0)}`);

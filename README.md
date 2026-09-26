@@ -43,6 +43,27 @@ The [mechanics reference](docs/minecraft-mechanics.md) records the researched ru
 sources, exact kit values, and deliberate arena adaptations. The arena remains
 one-life, without healing or hunger; its browser physics is not an exact replica.
 
+## Armor and progression
+
+Everyone starts each round unarmored. Deal damage to earn 1 XP per actual HP
+removed, plus 50 XP per elimination. Upgrades equip automatically:
+
+| Level | XP | Equipment | Damage reduction |
+| --- | --- | --- | --- |
+| 1 | 0 | Unarmored | 0% |
+| 2 | 50 | Guard armor | 20% |
+| 3 | 150 | Enchanted armor with moving violet glint | 35% |
+
+Armor protects against melee and arrows without healing or reducing knockback.
+Blocked/immune hits and forfeits award no XP. XP survives reconnects but resets
+for the next round; no accounts or permanent advantages are required. These are
+original arena progression rules, not Minecraft's armor or experience formulas.
+
+In solo practice, open **Settings → Practice armor** to choose a tier, then
+**View your armor** to inspect it. **Return to first person** resumes normal play.
+Preview choices never carry into competitive rounds. Corner lanterns now use
+animated original pixel fire; reduced motion freezes flame and glint animation.
+
 ## Run locally
 
 Requires Node.js 22 or newer.
@@ -72,7 +93,7 @@ equip it. Menu and Scores are in the top right. Landscape is recommended; portra
 is supported. Small screens default to low graphics with a one-pixel render ratio.
 The camera defaults to 120° FOV (adjustable from 60° to 120° in Settings).
 The classic tool hotbar shows ten full/half hearts, four selectable tools, arrow
-counts, and shield status. Empty slots collapse on very narrow landscape screens.
+counts, shield status, armor level, and XP progress. Empty slots collapse on very narrow landscape screens.
 The touch surfaces preserve multiple pointer captures across HUD refreshes and
 clear held controls when interrupted. No installation or account is needed.
 

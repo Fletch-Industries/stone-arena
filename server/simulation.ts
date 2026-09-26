@@ -1,7 +1,8 @@
-import { MELEE, attackStrength, meleeRecovery, knockback, DT, EYE, HEIGHT, SPAWNS, direction, idleInput, move, segmentBox, wallHit, type Arrow, type GameEvent, type Input, type Player, type Snapshot, type Phase } from '../shared/game.js';
+import { ARMOR_TIERS, armorTier, MELEE, attackStrength, meleeRecovery, knockback, DT, EYE, HEIGHT, SPAWNS, direction, idleInput, move, segmentBox, wallHit, type Arrow, type GameEvent, type Input, type Player, type Snapshot, type Phase } from '../shared/game.js';
 
 export class Simulation {
   departed = new Set<string>();
+  combatXp: Map<string, number> | undefined;
   players = new Map<string, Player>(); inputs = new Map<string, Input>();
   attackPress = new Set<string>(); attackRelease = new Set<string>();
   lastInput = new Map<string, number>(); lastAttack = new Map<string, boolean>();
@@ -14,7 +15,7 @@ export class Simulation {
     if (this.players.size >= 5 || this.phase !== 'waiting') throw new Error('Room full or round in progress.');
     const colors = new Set([...this.players.values()].map(p => p.color));
     const color = [0, 1, 2, 3, 4].find(c => !colors.has(c))!;
-    const p: Player = { id, name, color, x: 0, y: 0, z: 0, vy: 0, grounded: true, yaw: 0, pitch: 0, hp: 100, alive: true, connected: true, ready: false, weapon: 'sword', block: false, ammo: 20, kills: 0, damage: 0, assists: 0, wins: 0, ack: 0, cooldown: 0, charge: 0, loaded: false, shieldDisabled: 0, hurtTime: 0, lastDamage: 0, shieldRaise: 0, swingWait: 0, moveSpeed: 0, vx: 0, vz: 0, sprinting: false, sprintLocked: false, eliminatedAt: 0 };
+    const p: Player = { id, name, color, x: 0, y: 0, z: 0, vy: 0, grounded: true, yaw: 0, pitch: 0, hp: 100, xp: 0, alive: true, connected: true, ready: false, weapon: 'sword', block: false, ammo: 20, kills: 0, damage: 0, assists: 0, wins: 0, ack: 0, cooldown: 0, charge: 0, loaded: false, shieldDisabled: 0, hurtTime: 0, lastDamage: 0, shieldRaise: 0, swingWait: 0, moveSpeed: 0, vx: 0, vz: 0, sprinting: false, sprintLocked: false, eliminatedAt: 0 };
     this.players.set(id, p); this.inputs.set(id, idleInput()); if (!this.host) this.host = id; this.positionPlayers(); return p;
   }
   positionPlayers() { let n = 0; for (const p of this.players.values()) { const s = SPAWNS[(n++ + this.round * 2) % SPAWNS.length]; p.x = s[0]; p.z = s[1]; p.y = 0; p.vy = 0; p.vx = p.vz = 0; p.grounded = true; p.sprinting = p.sprintLocked = false; p.yaw = Math.atan2(p.x, p.z); } }
@@ -24,7 +25,7 @@ export class Simulation {
     const ps = [...this.players.values()];
     if (id !== this.host || this.phase !== 'waiting' || !ps.every(p => p.connected && p.ready) || (practice ? ps.length !== 1 : ps.length < 2)) return false;
     this.practice = practice; this.round++; this.phase = 'countdown'; this.countdown = 5; this.result = ''; this.winner = ''; this.arrows = []; this.events = []; this.damageHistory.clear();
-    for (const p of ps) { Object.assign(p, { hp: 100, alive: true, weapon: 'sword', block: false, ammo: 20, kills: 0, damage: 0, assists: 0, cooldown: 0, charge: 0, loaded: false, shieldDisabled: 0, hurtTime: 0, lastDamage: 0, shieldRaise: 0, swingWait: 0, moveSpeed: 0, vx: 0, vz: 0, sprinting: false, sprintLocked: false, eliminatedAt: 0, ack: 0 }); this.inputs.set(p.id, idleInput()); this.lastAttack.set(p.id, false); }
+    for (const p of ps) { Object.assign(p, { hp: 100, xp: 0, alive: true, weapon: 'sword', block: false, ammo: 20, kills: 0, damage: 0, assists: 0, cooldown: 0, charge: 0, loaded: false, shieldDisabled: 0, hurtTime: 0, lastDamage: 0, shieldRaise: 0, swingWait: 0, moveSpeed: 0, vx: 0, vz: 0, sprinting: false, sprintLocked: false, eliminatedAt: 0, ack: 0 }); this.inputs.set(p.id, idleInput()); this.lastAttack.set(p.id, false); }
     this.history = []; this.attackPress.clear(); this.attackRelease.clear(); this.positionPlayers(); return true;
   }
   disconnect(id: string) { const p = this.players.get(id); if (p) { p.connected = false; p.ready = false; this.inputs.set(id, idleInput()); this.lastAttack.set(id, false); } this.transferHost(); }
@@ -49,13 +50,25 @@ export class Simulation {
     if (id !== this.host || (this.phase !== 'results' && !this.practice)) return;
     if (this.phase === 'results' && this.tick - this.resultTime < 180) return;
     this.phase = 'waiting'; this.practice = false; this.arrows = [];
-    for (const [key, p] of this.players) { if (this.departed.has(key)) this.removePlayer(key); else { p.ready = false; p.alive = true; p.hp = 100; p.hurtTime = 0; p.block = false; p.shieldRaise = 0; p.moveSpeed = 0; } }
+    for (const [key, p] of this.players) { if (this.departed.has(key)) this.removePlayer(key); else { p.ready = false; p.xp = 0; p.alive = true; p.hp = 100; p.hurtTime = 0; p.block = false; p.shieldRaise = 0; p.moveSpeed = 0; } }
     this.positionPlayers();
   }
   checkWinner() {
     if (this.phase !== 'active' || this.practice) return;
     const alive = [...this.players.values()].filter(p => p.alive);
     if (alive.length <= 1) { this.phase = 'results'; this.resultTime = this.tick; this.winner = alive[0]?.id ?? ''; this.result = alive[0] ? `${alive[0].name} wins` : 'Draw — no survivors'; if (alive[0]) alive[0].wins++; this.event({ type: 'result', actor: this.winner, text: this.result }); this.arrows = []; }
+  }
+  earnXp(player: Player, amount: number) {
+    if (this.phase !== 'active' || this.practice || amount <= 0 || !Number.isFinite(amount)) return;
+    const before = armorTier(player.xp);
+    player.xp = Math.min(150, player.xp + amount);
+    const after = armorTier(player.xp);
+    if (after.level > before.level) this.event({ type: 'level', actor: player.id, text: `Level ${after.level} · ${after.name} unlocked` });
+  }
+  previewArmor(id: string, level: unknown) {
+    const player = this.players.get(id);
+    if (!this.practice || this.phase !== 'active' || this.players.size !== 1 || !player?.alive || !player.connected || ![1, 2, 3].includes(level as number)) return false;
+    player.xp = ARMOR_TIERS[(level as number) - 1].xp; return true;
   }
   damage(target: Player, actor: Player, amount: number, axe = false, hit: { strength?: number; critical?: boolean; sprintHit?: boolean; sweep?: boolean; projectile?: boolean; source?: { x: number; z: number }; force?: boolean } = {}) {
     if (!target.alive) return false;
@@ -72,11 +85,13 @@ export class Simulation {
     if (immune) { if (amount <= target.lastDamage) return false; amount -= target.lastDamage; }
     else if (!hit.force) target.hurtTime = .5;
     target.lastDamage = original;
+    if (!hit.force) amount *= 1 - armorTier(this.combatXp?.get(target.id) ?? target.xp).reduction;
     amount = Math.min(target.hp, amount); target.hp = Math.max(0, target.hp - amount); actor.damage += amount;
+    if (!hit.force && actor.id !== target.id) this.earnXp(actor, amount);
     if (!immune && !hit.force) knockback(target, -dx, -dz, hit.strength ?? 8);
     const history = this.damageHistory.get(target.id) ?? new Map<string, number>(); history.set(actor.id, this.tick); this.damageHistory.set(target.id, history);
     this.event({ type: 'hit', actor: actor.id, target: target.id, blocked: false, critical: hit.critical, sprintHit: hit.sprintHit, sweep: hit.sweep });
-    if (target.hp <= 0) { target.alive = false; target.block = false; target.eliminatedAt = this.tick; actor.kills++; for (const [id, at] of history) if (id !== actor.id && this.tick - at <= 300) { const assister = this.players.get(id); if (assister) assister.assists++; } this.event({ type: 'kill', actor: actor.id, target: target.id, text: `${actor.name} eliminated ${target.name}` }); }
+    if (target.hp <= 0) { target.alive = false; target.block = false; target.eliminatedAt = this.tick; actor.kills++; if (!hit.force && actor.id !== target.id) this.earnXp(actor, 50); for (const [id, at] of history) if (id !== actor.id && this.tick - at <= 300) { const assister = this.players.get(id); if (assister) assister.assists++; } this.event({ type: 'kill', actor: actor.id, target: target.id, text: `${actor.name} eliminated ${target.name}` }); }
     return true;
   }
   random = Math.random;
@@ -148,6 +163,8 @@ export class Simulation {
       this.lastAttack.set(p.id, i.attack);
     }
     this.attackPress.clear(); this.attackRelease.clear();
+    // Newly earned protection starts after all attacks in this tick, independent of seat order.
+    this.combatXp = new Map([...this.players.values()].map(p => [p.id, p.xp]));
     for (const attack of attacks) attack();
     this.arrows = this.arrows.filter(a => {
       a.age += DT; const old = { x: a.x, y: a.y, z: a.z }; a.x += a.vx * DT; a.y += a.vy * DT; a.z += a.vz * DT; const drag = Math.pow(.99, DT * 20); a.vx *= drag; a.vz *= drag; a.vy = a.vy * drag - 20 * DT;
@@ -161,6 +178,7 @@ export class Simulation {
       }
       return !Number.isFinite(nearest) && a.age < 4 && a.y > 0 && Math.abs(a.x) < 16 && Math.abs(a.z) < 16;
     });
+    this.combatXp = undefined;
     this.checkWinner();
   }
   snapshot(): Snapshot { return { tick: this.tick, phase: this.phase, countdown: this.countdown, result: this.result, winner: this.winner, round: this.round, host: this.host, practice: this.practice, players: [...this.players.values()].map(p => ({ ...p })), arrows: this.arrows.map(a => ({ ...a })), events: this.events }; }

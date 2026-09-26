@@ -1,7 +1,7 @@
 # Minecraft mechanics reference
 
 Reviewed 2026-09-25. Target: modern **Java Edition** sword/axe/bow/crossbow PvP,
-unenchanted diamond melee equipment, unarmored players. This is a browser arena
+unenchanted diamond melee equipment, with original arena armor progression. This is a browser arena
 adaptation, not an exact Minecraft engine or a mixture with pre-1.9/Bedrock combat.
 One arena unit represents one block; stored HP uses a 5× scale, so 100 HP still
 represents ten hearts. All damage, motion and hit outcomes are server-authoritative.
@@ -35,7 +35,13 @@ represents ten hearts. All damage, motion and hit outcomes are server-authoritat
 - Hold-to-repeat melee and tap-to-load crossbow remain touch-friendly conveniences.
   Bow/shield share the existing Attack/Shield controls rather than Java's use-item
   mouse binding. Arrow aim has no random spread; critical damage is server-random.
-- No hunger, regeneration, armor, enchantments, durability, fall damage, swimming,
+- Armor is an arena adaptation: 1 XP per actual HP of damage and 50 per elimination.
+  At 50 XP, Guard armor reduces damage 20%; at 150 XP, Enchanted armor reduces
+  it 35%. Both apply after shield/hurt-window checks, without healing or changing
+  knockback. Protection upgrades take effect after the current simulation tick.
+  XP resets each round. The violet glint is cosmetic; Minecraft armor points,
+  toughness, XP orbs and enchantment formulas are not implemented.
+- No hunger, regeneration, durability, fall damage, swimming,
   crafting, block placement or world destruction. The one-life arena rules stand.
 - Walk/run/jump poses are original procedural animations. They are not copied
   Minecraft assets or a claim of frame-for-frame animation parity.

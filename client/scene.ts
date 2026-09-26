@@ -1,18 +1,22 @@
 import * as THREE from 'three';
-import { BOXES, COLORS, EYE, attackStrength, type Body, type GameEvent, type Player, type Snapshot, type Weapon } from '../shared/game.js';
+import { BOXES, COLORS, EYE, armorTier, attackStrength, type Body, type GameEvent, type Player, type Snapshot, type Weapon } from '../shared/game.js';
 import { locomotionPose } from './animation.js';
 import { TextureLibrary, type Surface } from './textures.js';
+import { FlameAtlas, armorMaterial } from './effects.js';
 
 export class ArenaScene {
   renderer: THREE.WebGLRenderer; scene = new THREE.Scene(); camera = new THREE.PerspectiveCamera(120, 1, .05, 130);
   avatars = new Map<string, THREE.Group>(); arrowMeshes = new Map<number, THREE.Mesh>(); weapon = new THREE.Group();
   textures = new TextureLibrary(); surfaceMaterials = new Map<string, THREE.MeshLambertMaterial>();
+  flameAtlas = new FlameAtlas(); flames: THREE.MeshBasicMaterial[] = [];
+  armorTime = { value: 0 };
+  armorMaterials = [armorMaterial(this.textures.get('metal'), false, this.armorTime), armorMaterial(this.textures.get('metal'), true, this.armorTime)];
   sun = new THREE.DirectionalLight('#fff0d6', 2.1);
   contactShadows = new THREE.Group(); shadowGeo = new THREE.PlaneGeometry(1, 1);
   avatarShadows = new Map<string, THREE.Mesh>();
   contactMaterial = new THREE.MeshBasicMaterial({ color: '#172838', transparent: true, opacity: .2, depthWrite: false });
   materials = new Map<string, THREE.MeshLambertMaterial>(); boxGeo = new THREE.BoxGeometry(1, 1, 1);
-  arrowGeo = new THREE.BoxGeometry(.055, .055, .7); lastWeapon = ''; swing = 0; time = 0; quality = 'medium';
+  arrowGeo = new THREE.BoxGeometry(.055, .055, .7); lastWeapon = ''; swing = 0; time = 0; quality = 'medium'; inspectArmor = false; configuredFov = 120;
   cameraDistance = 0; lastCamera = new THREE.Vector3(); cameraTracking = '';
   rigs = new Map<string, { head: THREE.Group; leftArm: THREE.Group; rightArm: THREE.Group; leftLeg: THREE.Group; rightLeg: THREE.Group; tool: THREE.Group; toolName: string; distance: number; speed: number; swing: number; landed: number; grounded: boolean }>();
   frames = 0; fps = 60; fpsTime = 0; spectator = 0; reduced = false; renderScale = 1;
@@ -49,9 +53,12 @@ export class ArenaScene {
     for (let x = -15; x <= 15; x += 3) for (const z of [-16.5, 16.5]) this.masonry([1.4, 1, 1.3], [x, 6.5, z]);
     for (let z = -15; z <= 15; z += 3) for (const x of [-16.5, 16.5]) this.masonry([1.3, 1, 1.4], [x, 6.5, z]);
     for (const [x, z] of [[-14, -14], [14, 14], [-14, 14], [14, -14]]) {
-      this.box(this.scene, [.24, 2.3, .24], [x, 1.15, z], '#bc9060', 'wood');
-      const lamp = this.box(this.scene, [.48, .6, .48], [x, 2.4, z], '#ffb955');
-      lamp.material = new THREE.MeshLambertMaterial({ color: '#ffc76b', emissive: '#ff981f', emissiveIntensity: 1.2 });
+      this.box(this.scene, [.24, 2.06, .24], [x, 1.03, z], '#bc9060', 'wood');
+      const flame = this.flameAtlas.material(); this.flames.push(flame);
+      const flameGeo = new THREE.PlaneGeometry(.46, .64);
+      for (const angle of [0, Math.PI / 2]) { const fire = new THREE.Mesh(flameGeo, flame); fire.position.set(x, 2.43, z); fire.rotation.y = angle; this.scene.add(fire); }
+      this.box(this.scene, [.5, .08, .5], [x, 2.1, z], '#727879', 'metal');
+      for (const [dx, dz] of [[-.23, -.23], [-.23, .23], [.23, -.23], [.23, .23]]) this.box(this.scene, [.035, .56, .035], [x + dx, 2.42, z + dz], '#64636c', 'metal');
       this.box(this.scene, [.58, .1, .58], [x, 2.75, z], '#727879', 'metal');
       this.contact(x, z, .65, .65);
     }
@@ -96,7 +103,7 @@ export class ArenaScene {
     this.contactShadows.visible = quality === 'low';
     for (const shadow of this.avatarShadows.values()) shadow.visible = quality === 'low';
     this.renderer.shadowMap.needsUpdate = true;
-    this.camera.fov = fov; this.resize();
+    this.configuredFov = fov; this.camera.fov = fov; this.resize();
   }
   makeAvatar(p: Player) {
     const g = new THREE.Group(), color = COLORS[p.color];
@@ -113,6 +120,20 @@ export class ArenaScene {
     const shield = this.box(leftArm, [.12, .67, .49], [-.15, -.34, -.1], '#d3b382', 'wood'); shield.name = 'shield';
     const tool = new THREE.Group(); tool.position.set(0, -.6, -.15); tool.scale.setScalar(.65); rightArm.add(tool);
     this.buildWeapon(tool, p.weapon);
+    // Plates follow the same head/limb pivots as walking, jumping, blocking and swings.
+    this.plate(head, [.56, .14, .53], [0, .46, 0]);
+    this.plate(head, [.07, .35, .53], [-.255, .22, 0]); this.plate(head, [.07, .35, .53], [.255, .22, 0]);
+    this.plate(head, [.44, .35, .07], [0, .22, .235]);
+    this.plate(g, [.64, .6, .38], [0, 1.08, 0]);
+    this.plate(g, [.65, .10, .39], [0, .74, 0]);
+    for (const arm of [leftArm, rightArm]) this.plate(arm, [.3, .33, .33], [0, -.14, 0]);
+    for (const leg of [leftLeg, rightLeg]) {
+      this.plate(leg, [.28, .39, .33], [0, -.21, 0]);
+      this.plate(leg, [.3, .23, .4], [0, -.58, -.03]);
+    }
+    // Cloth insignia stay readable through armor so player colors remain useful.
+    this.box(g, [.15, .28, .022], [0, 1.15, -.207], color, 'cloth');
+    this.box(g, [.15, .28, .022], [0, 1.15, .207], color, 'cloth');
     this.rigs.set(p.id, { head, leftArm, rightArm, leftLeg, rightLeg, tool, toolName: p.weapon, distance: 0, speed: 0, swing: 0, landed: 0, grounded: p.grounded });
     g.position.set(p.x, p.y, p.z);
     const c = document.createElement('canvas'); c.width = 256; c.height = 64; const ctx = c.getContext('2d')!;
@@ -120,10 +141,16 @@ export class ArenaScene {
     const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthTest: true })); label.scale.set(2, .5, 1); label.position.y = 2.3; g.add(label);
     this.scene.add(g); this.avatars.set(p.id, g); this.avatarShadows.set(p.id, this.contact(p.x, p.z, .7, .7)); return g;
   }
-  setWeapon(name: Weapon, block: boolean) {
-    const key = `${name}:${block}`; if (key === this.lastWeapon) return; this.lastWeapon = key; this.weapon.clear();
+  plate(parent: THREE.Object3D, size: number[], position: number[]) {
+    const mesh = new THREE.Mesh(this.boxGeo, this.armorMaterials[0]); mesh.scale.set(...size as [number, number, number]); mesh.position.set(...position as [number, number, number]);
+    mesh.userData.armor = true; mesh.castShadow = mesh.receiveShadow = parent !== this.weapon; parent.add(mesh); return mesh;
+  }
+  setWeapon(name: Weapon, block: boolean, xp: number) {
+    const level = armorTier(xp).level; const key = `${name}:${block}:${level}`; if (key === this.lastWeapon) return; this.lastWeapon = key; this.weapon.clear();
+    if (level > 1 && block) { const glove = this.plate(this.weapon, [.19, .22, .18], [block ? -.36 : 0, -.18, .03]); glove.material = this.armorMaterials[level - 2]; }
     if (block) { this.box(this.weapon, [.66, .78, .12], [-.36, .2, -.3], '#8a673c', 'wood'); this.box(this.weapon, [.12, .78, .14], [-.36, .2, -.32], '#b6b6a3', 'metal'); return; }
     this.buildWeapon(this.weapon, name);
+    if (level > 1) { const glove = this.plate(this.weapon, [.19, .22, .18], [0, -.18, .03]); glove.material = this.armorMaterials[level - 2]; }
   }
   buildWeapon(group: THREE.Group, name: Weapon) {
     group.clear();
@@ -136,7 +163,9 @@ export class ArenaScene {
     if (e.type === 'swing' || e.type === 'shot') { const rig = e.actor && this.rigs.get(e.actor); if (rig) rig.swing = 1; }
   }
   render(dt: number, snapshot: Snapshot | undefined, me: Player | undefined, local: Body | undefined, yaw: number, pitch: number, playing: boolean, moving: boolean) {
-    this.time += dt; this.frames++; this.fpsTime += dt;
+    this.time += dt; this.armorTime.value = this.reduced ? 0 : this.time;
+    this.flames.forEach((flame, n) => this.flameAtlas.animate(flame, this.time, n, this.reduced));
+    this.frames++; this.fpsTime += dt;
     if (this.fpsTime >= 1) { this.fps = Math.round(this.frames / this.fpsTime); this.frames = 0; this.fpsTime = 0; }
     const inRound = snapshot && snapshot.phase !== 'waiting';
     let follow = me;
@@ -150,12 +179,16 @@ export class ArenaScene {
       this.camera.position.set(pos.x, pos.y + EYE + bob, pos.z);
       this.camera.rotation.order = 'YXZ'; this.camera.rotation.set(follow.id === me?.id ? pitch : follow.pitch, follow.id === me?.id ? yaw : follow.yaw, 0);
     } else { const a = this.time * .018; this.camera.position.set(Math.sin(a + .8) * 24, 19, Math.cos(a + .8) * 24); this.camera.lookAt(0, 0, 0); }
-    this.weapon.visible = !!inRound && !!me?.alive && snapshot?.phase !== 'results';
-    if (me) { this.setWeapon(me.weapon, me.block); this.swing = Math.max(0, this.swing - dt * 5); this.weapon.rotation.set(-this.swing * 1.2, 0, -.2 - this.swing * .8); this.weapon.position.y = -.43 - ((me.weapon === 'sword' || me.weapon === 'axe') ? (1 - attackStrength(me)) * .1 : 0) + (moving && local?.grounded && !this.reduced ? Math.sin(this.cameraDistance * 5) * .02 : 0); this.weapon.position.z = -.65 + me.charge * .035; }
+    const inspecting = this.inspectArmor && !!snapshot?.practice && !!me?.alive && snapshot.phase === 'active';
+    const fov = inspecting ? 55 : this.configuredFov;
+    if (this.camera.fov !== fov) { this.camera.fov = fov; this.camera.updateProjectionMatrix(); }
+    if (inspecting && me) { const angle = this.reduced ? Math.PI - me.yaw : this.time * .3; this.camera.position.set(me.x + Math.sin(angle) * 3.8, me.y + 1.8, me.z + Math.cos(angle) * 3.8); this.camera.lookAt(me.x, me.y + .85, me.z); }
+    this.weapon.visible = !inspecting && !!inRound && !!me?.alive && snapshot?.phase !== 'results';
+    if (me) { this.setWeapon(me.weapon, me.block, me.xp); this.swing = Math.max(0, this.swing - dt * 5); this.weapon.rotation.set(-this.swing * 1.2, 0, -.2 - this.swing * .8); this.weapon.position.y = -.43 - ((me.weapon === 'sword' || me.weapon === 'axe') ? (1 - attackStrength(me)) * .1 : 0) + (moving && local?.grounded && !this.reduced ? Math.sin(this.cameraDistance * 5) * .02 : 0); this.weapon.position.z = -.65 + me.charge * .035; }
     const ids = new Set(snapshot?.players.map(p => p.id));
     for (const [id, g] of this.avatars) if (!ids.has(id)) { this.scene.remove(g); g.traverse(o => { if (o instanceof THREE.Sprite) { o.material.map?.dispose(); o.material.dispose(); } }); this.avatars.delete(id); this.rigs.delete(id); const shadow = this.avatarShadows.get(id); if (shadow) this.contactShadows.remove(shadow); this.avatarShadows.delete(id); }
     for (const p of snapshot?.players ?? []) {
-      const g = this.avatars.get(p.id) ?? this.makeAvatar(p); g.visible = p.alive && p.id !== (inRound ? follow?.id : undefined);
+      const g = this.avatars.get(p.id) ?? this.makeAvatar(p); g.visible = p.alive && (inspecting || p.id !== (inRound ? follow?.id : undefined));
       const shadow = this.avatarShadows.get(p.id)!; shadow.visible = p.alive && p.y < 1.5; shadow.position.set(p.x, .014, p.z); shadow.scale.setScalar(.7 + p.y * .15);
       const rig = this.rigs.get(p.id)!, oldX = g.position.x, oldZ = g.position.z;
       const target = new THREE.Vector3(p.x, p.y, p.z); if (g.position.distanceTo(target) > 4) g.position.copy(target); else g.position.lerp(target, 1 - Math.exp(-dt * 18));
@@ -173,7 +206,7 @@ export class ArenaScene {
       rig.rightArm.rotation.x = rig.swing > 0 ? -Math.sin(rig.swing * Math.PI) * 1.8 : p.charge > 0 || p.loaded ? -1.3 + p.pitch : pose.rightArm;
       const shield = g.getObjectByName('shield')!; shield.visible = p.block;
       if (rig.toolName !== p.weapon) { rig.toolName = p.weapon; this.buildWeapon(rig.tool, p.weapon); }
-      g.traverse(o => { if (o instanceof THREE.Mesh) { o.userData.baseMaterial ??= o.material; o.material = p.hurtTime > 0 ? this.material('#e77979') : o.userData.baseMaterial; } });
+      g.traverse(o => { if (o instanceof THREE.Mesh) { o.userData.baseMaterial ??= o.material; if (o.userData.armor) { const level = armorTier(p.xp).level; o.visible = level > 1; o.material = p.hurtTime > 0 ? this.material('#e77979') : this.armorMaterials[Math.max(0, level - 2)]; } else o.material = p.hurtTime > 0 ? this.material('#e77979') : o.userData.baseMaterial; } });
     }
     const arrowIds = new Set(snapshot?.arrows.map(a => a.id));
     for (const [id, m] of this.arrowMeshes) if (!arrowIds.has(id)) { this.scene.remove(m); this.arrowMeshes.delete(id); }
