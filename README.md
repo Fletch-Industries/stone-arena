@@ -2,7 +2,7 @@
 
 Play at **https://moriah.fletchindustries.com/**.
 
-A browser-based, first-person arena from Fletch Industries. Two to five players,
+A browser-based, first- and third-person arena from Fletch Industries. Two to five players,
 one life each, no match timer. The last survivor wins. Includes private invitations,
 solo practice, sword/axe/bow/crossbow/shield combat, spectating, results, rematches,
 and a 15-second reconnect window.
@@ -60,7 +60,7 @@ for the next round; no accounts or permanent advantages are required. These are
 original arena progression rules, not Minecraft's armor or experience formulas.
 
 In solo practice, open **Settings → Practice armor** to choose a tier, then
-**View your armor** to inspect it. **Return to first person** resumes normal play.
+**View your character · 360°** to inspect it. **Resume play** restores your selected perspective.
 Preview choices never carry into competitive rounds. Corner lanterns now use
 animated original pixel fire; reduced motion freezes flame and glint animation.
 
@@ -96,6 +96,25 @@ The classic tool hotbar shows ten full/half hearts, four selectable tools, arrow
 counts, shield status, armor level, and XP progress. Empty slots collapse on very narrow landscape screens.
 The touch surfaces preserve multiple pointer captures across HUD refreshes and
 clear held controls when interrupted. No installation or account is needed.
+
+## Camera perspectives
+
+Press **F5** or **V** to cycle **first person → third-person rear → third-person
+front**. On phones, tap **View** beside Scores and Menu. You can also choose a
+view in **Settings → Perspective**; the selection is saved on this browser.
+Some Macs require Fn + F5, so V is the convenient alternative.
+
+Move, jump, attack and block normally in all three views. Third-person attacks
+still follow your character's facing direction; the front view looks back at
+you, so it does not aim at the center of the screen. Third person hides the
+first-person tool overlay and crosshair, and shows your animated body and armor.
+The camera retracts before walls, cover and the floor, hiding your avatar when
+it gets too close to obstruct visibility. Your FOV setting applies to all play
+perspectives, including the default 120°.
+
+**Settings → View your character · 360°** orbits around your equipment in solo
+or multiplayer. The round continues during this preview. **Resume play** returns
+to your selected perspective. Reduced motion freezes this preview camera.
 
 ## Build and verify
 

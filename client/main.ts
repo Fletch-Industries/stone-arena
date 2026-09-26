@@ -6,6 +6,7 @@ import { hotbar } from './hotbar.js';
 import { exitPointerLock } from './pointer.js';
 import { TouchControls } from './touch.js';
 import { installGame } from './pwa.js';
+import { PERSPECTIVES, PERSPECTIVE_LABELS, nextPerspective, validPerspective, type Perspective } from './camera.js';
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
 const canvas = document.querySelector<HTMLCanvasElement>('#world')!;
@@ -22,13 +23,14 @@ try { seatKey = sessionStorage.getItem('stone-seat') || seatKey; sessionStorage.
 const keys = new Set<string>();
 const mobileQuery = matchMedia('(pointer: coarse), (max-width: 900px)');
 let mobile = mobileQuery.matches, touchPlaying = false;
-const settings = { sensitivity: 1, volume: .35, quality: mobile ? 'low' : 'medium', fov: 120, fovVersion: 2, reduced: matchMedia('(prefers-reduced-motion: reduce)').matches };
+const settings = { sensitivity: 1, volume: .35, quality: mobile ? 'low' : 'medium', fov: 120, fovVersion: 2, perspective: 'first' as Perspective, reduced: matchMedia('(prefers-reduced-motion: reduce)').matches };
 const touch = new TouchControls({
   aim: (x, y) => { if (touchPlaying) { yaw -= x * .005 * settings.sensitivity; yaw = Math.atan2(Math.sin(yaw), Math.cos(yaw)); pitch = Math.max(-1.5, Math.min(1.5, pitch - y * .005 * settings.sensitivity)); } },
   attack: down => { mouseAttack = down; if (down) attackQueued = true; },
   block: down => { mouseBlock = down; },
   menu: () => { releasePointer(); modal = 'settings'; renderUI(); },
   scores: () => { releasePointer(); scoreboard = true; renderUI(); },
+  perspective: () => setPerspective(nextPerspective(settings.perspective)),
 });
 document.body.classList.toggle('mobile', mobile);
 mobileQuery.addEventListener('change', () => { mobile = mobileQuery.matches; document.body.classList.toggle('mobile', mobile); releasePointer(); renderUI(); });
@@ -38,6 +40,7 @@ try {
   // Apply the requested wider FOV once for returning players; later adjustments persist.
   if (saved.fovVersion !== 2) settings.fov = 120;
   settings.fov = Math.max(60, Math.min(120, Number(settings.fov) || 120)); settings.fovVersion = 2;
+  if (!validPerspective(settings.perspective)) settings.perspective = 'first';
   localStorage.setItem('stone-settings', JSON.stringify(settings));
   nickname = localStorage.getItem('stone-name') ?? '';
 } catch { /* private browser storage may be unavailable */ }
@@ -48,7 +51,7 @@ function sound(frequency = 220, duration = .08, type: OscillatorType = 'triangle
 }
 function enableAudio() { audio ??= new AudioContext(); void audio.resume(); }
 let scene: ArenaScene;
-try { scene = new ArenaScene(canvas); scene.settings(settings.quality, settings.fov, settings.reduced); }
+try { scene = new ArenaScene(canvas); scene.settings(settings.quality, settings.fov, settings.reduced); scene.perspective = settings.perspective; touch.perspective(PERSPECTIVE_LABELS[settings.perspective]); }
 catch { app.innerHTML = '<div class="overlay interactive"><div class="panel"><h2>Graphics unavailable</h2><p>Stone Arena needs WebGL 2. Enable hardware acceleration and try a current browser.</p></div></div>'; throw new Error('WebGL 2 unavailable'); }
 const api = await fetch(new URL('config.json', location.href)).then(r => r.ok ? r.json() : Promise.reject()).then(c => c.api as string).catch(() => '/arena-api');
 const endpoint = new URL(api, location.origin).href;
@@ -62,6 +65,12 @@ async function lockPointer() {
   scene.inspectArmor = false;
   enableAudio(); modal = ''; scoreboard = false; if (mobile) { touchPlaying = true; notice = ''; renderUI(); return; } renderUI();
   try { await canvas.requestPointerLock(); dragLook = false; notice = ''; } catch { dragLook = true; notice = 'Hold Alt and drag to look · WASD to move · Escape for menu'; } renderUI();
+}
+function setPerspective(view: Perspective) {
+  settings.perspective = view; scene.perspective = view; scene.inspectArmor = false;
+  touch.perspective(PERSPECTIVE_LABELS[view]);
+  try { localStorage.setItem('stone-settings', JSON.stringify(settings)); } catch { /* optional */ }
+  renderUI();
 }
 function clearSession() { try { sessionStorage.removeItem('stone-session'); } catch { /* optional */ } }
 async function leaveRoom() {
@@ -92,7 +101,7 @@ async function connect(action: 'create' | 'join' | 'reconnect', code = '') {
         if (lastRound !== s.round || lastPhase !== s.phase || !local) { local = { ...p }; pending = []; yaw = p.yaw; pitch = p.pitch; weapon = p.weapon; seq = Math.max(seq, p.ack); }
         else { pending = pending.filter(i => i.seq > p.ack); local = { ...p }; if (p.alive && s.phase === 'active') for (const i of pending) move(local, { ...i, block: i.block && p.shieldDisabled <= 0 }, DT, p.charge > 0); }
         if (old && p.hp < old.hp) { const f = document.createElement('div'); f.className = 'damage-flash'; app.append(f); setTimeout(() => f.remove(), 300); sound(85, .15, 'sawtooth'); }
-        if (old?.alive && !p.alive) { releasePointer(); notice = 'Eliminated. You can watch the remaining players.'; }
+        if (old?.alive && !p.alive) { scene.inspectArmor = false; releasePointer(); notice = 'Eliminated. You can watch the remaining players.'; }
       }
       for (const e of s.events) if (e.id > eventId) {
         eventId = e.id; scene.event(e);
@@ -106,7 +115,7 @@ async function connect(action: 'create' | 'join' | 'reconnect', code = '') {
         if (e.type === 'result') sound(420, .5);
       }
       if (s.phase !== lastPhase || s.round !== lastRound) {
-        if (s.phase === 'results' || s.phase === 'waiting') releasePointer();
+        if (s.phase === 'results' || s.phase === 'waiting') { scene.inspectArmor = false; releasePointer(); }
         if (s.phase === 'results') resultsEnteredAt = performance.now();
         modal = ''; notice = ''; lastPhase = s.phase; lastRound = s.round; renderUI();
       }
@@ -146,17 +155,18 @@ function renderUI() {
     html = `<section class="screen interactive">${brand}<div class="lobby"><div class="eyebrow"><i class="dot"></i> Private arena</div><h2>Gather your contenders.</h2><p>Share the link. Ready up. Only one walks out.</p><div class="panel"><div class="row" style="justify-content:space-between"><div><span class="label">Room code</span><span class="room-code">${room.roomId}</span></div><button class="btn" data-action="invite">Copy invite</button></div><div class="players">${Array.from({ length: 5 }, (_, n) => { const q = s.players[n]; return q ? `<div class="player-row"><i class="avatar" style="background:${COLORS[q.color]}"></i><span class="name">${escape(q.name)} ${q.id === s.host ? '<span class="tag">Host</span>' : ''}</span><span class="tag ${q.ready ? 'ready' : ''}">${!q.connected ? 'Reconnecting' : q.ready ? 'Ready' : 'Not ready'}</span></div>` : '<div class="player-row"><i class="avatar" style="background:#26343b"></i><span class="name" style="color:#7c8c91">Waiting for player…</span><span class="tag">Open</span></div>'; }).join('')}</div><div class="room-actions"><button class="btn ${p?.ready ? '' : 'gold'}" data-action="ready" ${disconnected ? 'disabled' : ''}>${p?.ready ? 'Unready' : 'Ready up'}</button>${s.host === room.sessionId ? `<button class="btn gold" data-action="start" ${disconnected || !s.players.every(q => q.ready && q.connected) ? 'disabled' : ''}>${s.players.length === 1 ? 'Practice solo' : 'Start round'}</button>` : ''}</div><p class="help">${s.players.length === 1 ? 'Invite a friend for a competitive round. Solo practice lets you explore the arena and weapons.' : 'Everyone gets one life. Eliminated players spectate. The final survivor wins.'}</p></div><div class="row"><button class="text-btn" data-action="controls">Controls</button><button class="text-btn" data-action="settings">Settings</button><button class="text-btn" data-action="leave">Leave room</button></div></div>${footer()}</section>`;
   } else {
     const alive = s.players.filter(q => q.alive).length;
-    html = `<div class="hud"><div class="topbar"><div class="badge"><strong>${alive}</strong> ${s.practice ? 'Practice' : 'remaining'} <span style="color:#8fa2a5"> / ${s.players.length}</span></div><div class="net">STONE ARENA · ROUND ${s.round}<br>${ping} ms · ${scene.fps} FPS<br>${mobile ? 'Touch controls · landscape recommended' : '<kbd>ESC</kbd> Menu &nbsp; <kbd>TAB</kbd> Scoreboard'}</div></div><div class="feed">${s.events.filter(e => e.type === 'kill').slice(-4).map(e => `<div>${escape(e.text ?? '')}</div>`).join('')}</div>${p?.alive ? `<div class="crosshair"></div><div class="bottom">${hotbar(p, weapon)}<div class="charge" role="progressbar" aria-label="${weapon === 'bow' ? 'Bow draw' : weapon === 'crossbow' ? 'Crossbow load' : 'Attack strength'}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round((weapon === 'bow' ? p.charge : weapon === 'crossbow' ? p.loaded ? 1 : p.charge / 1.25 : attackStrength(p)) * 100)}"><i style="width:${Math.min(100, (weapon === 'bow' ? p.charge : weapon === 'crossbow' ? p.loaded ? 1 : p.charge / 1.25 : attackStrength(p)) * 100)}%"></i></div><div class="combat-hint">${mobile ? weapon === 'bow' ? 'Hold Attack to draw · release to shoot' : weapon === 'crossbow' ? p.loaded ? 'Loaded · tap Attack to fire' : p.charge ? 'Loading…' : 'Tap Attack to load' : 'Time hits for full power · Hold Attack to repeat' : weapon === 'bow' ? 'Hold left mouse to draw · release to shoot' : weapon === 'crossbow' ? p.loaded ? 'Loaded · click to fire' : p.charge ? 'Loading…' : 'Click to load · click again to fire' : 'Left mouse to attack'}${mobile ? '' : ' · Right mouse to block'}${dragLook ? ' · Alt + drag to look' : ''}</div></div>` : `<div class="spectate interactive"><span class="eyebrow" style="justify-content:center;margin:0">Eliminated · Spectating</span><p>${escape(s.players.filter(q => q.alive)[scene.spectator % Math.max(1, alive)]?.name ?? 'Round finished')}</p><button class="btn" data-action="spectate">Next player →</button></div>`}</div>`;
+    html = `<div class="hud"><div class="topbar"><div class="badge"><strong>${alive}</strong> ${s.practice ? 'Practice' : 'remaining'} <span style="color:#8fa2a5"> / ${s.players.length}</span></div><div class="net">STONE ARENA · ROUND ${s.round}<br>${ping} ms · ${scene.fps} FPS<br>${mobile ? 'Touch controls · landscape recommended' : '<kbd>ESC</kbd> Menu &nbsp; <kbd>TAB</kbd> Scoreboard &nbsp; <kbd>F5 / V</kbd> View'}</div></div><div class="feed">${s.events.filter(e => e.type === 'kill').slice(-4).map(e => `<div>${escape(e.text ?? '')}</div>`).join('')}</div>${p?.alive ? `${settings.perspective === 'first' && !scene.inspectArmor ? '<div class="crosshair"></div>' : ''}<div class="bottom">${hotbar(p, weapon)}<div class="charge" role="progressbar" aria-label="${weapon === 'bow' ? 'Bow draw' : weapon === 'crossbow' ? 'Crossbow load' : 'Attack strength'}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round((weapon === 'bow' ? p.charge : weapon === 'crossbow' ? p.loaded ? 1 : p.charge / 1.25 : attackStrength(p)) * 100)}"><i style="width:${Math.min(100, (weapon === 'bow' ? p.charge : weapon === 'crossbow' ? p.loaded ? 1 : p.charge / 1.25 : attackStrength(p)) * 100)}%"></i></div><div class="combat-hint">${mobile ? weapon === 'bow' ? 'Hold Attack to draw · release to shoot' : weapon === 'crossbow' ? p.loaded ? 'Loaded · tap Attack to fire' : p.charge ? 'Loading…' : 'Tap Attack to load' : 'Time hits for full power · Hold Attack to repeat' : weapon === 'bow' ? 'Hold left mouse to draw · release to shoot' : weapon === 'crossbow' ? p.loaded ? 'Loaded · click to fire' : p.charge ? 'Loading…' : 'Click to load · click again to fire' : 'Left mouse to attack'}${mobile ? '' : ' · Right mouse to block'}${dragLook ? ' · Alt + drag to look' : ''}</div></div>` : `<div class="spectate interactive"><span class="eyebrow" style="justify-content:center;margin:0">Eliminated · Spectating</span><p>${escape(s.players.filter(q => q.alive)[scene.spectator % Math.max(1, alive)]?.name ?? 'Round finished')}</p><button class="btn" data-action="spectate">Next player →</button></div>`}</div>`;
+    if (!scene.inspectArmor) html += `<div class="perspective-hint" aria-label="Perspective">${PERSPECTIVE_LABELS[settings.perspective]}${settings.perspective !== 'first' ? '<small>Attacks follow your character’s facing direction</small>' : ''}</div>`;
     if (s.phase === 'countdown') html += `<div class="center-message"><div class="eyebrow" style="justify-content:center">One life. Make it count.</div><div class="count">${Math.ceil(s.countdown)}</div></div>`;
-    if (s.phase === 'active' && p?.alive && !controlling() && !modal && !scoreboard && !disconnected) html += `<div class="center-message interactive ${scene.inspectArmor ? 'armor-inspection' : ''}"><button class="btn gold" data-action="play">${scene.inspectArmor ? 'Return to first person' : `${mobile ? 'Tap' : 'Click'} to enter the arena`}</button>${scene.inspectArmor ? '<button class="btn" data-action="settings">Change armor</button>' : ''}<p>${scene.inspectArmor ? 'Solo practice · Armor preview' : mobile ? 'Left stick to move · Swipe right side to aim' : 'WASD to move · Mouse to aim'}</p></div>`;
+    if (s.phase === 'active' && p?.alive && !controlling() && !modal && !scoreboard && !disconnected) html += `<div class="center-message interactive ${scene.inspectArmor ? 'armor-inspection' : ''}"><button class="btn gold" data-action="play">${scene.inspectArmor ? 'Resume play' : `${mobile ? 'Tap' : 'Click'} to enter the arena`}</button>${scene.inspectArmor ? '<button class="btn" data-action="settings">Settings</button>' : ''}<p>${scene.inspectArmor ? 'Character preview · The round continues' : mobile ? 'Left stick to move · Swipe right side to aim' : 'WASD to move · Mouse to aim'}</p></div>`;
     if (s.phase === 'results') html += `<div class="overlay interactive"><div class="panel results"><div class="eyebrow">${s.winner ? 'Last player standing' : 'No survivors'}</div><h2>${escape(s.result)}</h2><p>One life. Every decision mattered.</p>${scores()}${s.host === room.sessionId ? `<button class="btn gold wide" data-action="lobby" ${performance.now() - resultsEnteredAt < 3100 ? 'disabled' : ''}>${performance.now() - resultsEnteredAt < 3100 ? 'Next round in ' + Math.ceil((3100 - (performance.now() - resultsEnteredAt)) / 1000) + '…' : 'Back to lobby · Rematch'}</button>` : '<p class="help">Waiting for the host to return to the lobby.</p>'}<button class="text-btn" data-action="leave">Leave arena</button></div></div>`;
     if (scoreboard && s.phase !== 'results') html += `<div class="overlay interactive"><div class="panel results"><h2>Round ${s.round}</h2>${scores()}<p class="help">Survival decides the winner.</p><button class="btn gold" data-action="close-scores">Return to game</button></div></div>`;
   }
   if (notice) html += `<div class="notice" role="status">${escape(notice)}</div>`;
   if (modal) {
     html += `<div class="overlay interactive"><div class="panel"><div class="eyebrow">Stone Arena</div><h2>${modal === 'settings' ? 'Your settings' : 'Hold your ground.'}</h2>`;
-    if (modal === 'settings') html += `<div class="settings-grid"><label class="setting">Aim sensitivity<input data-setting="sensitivity" type="range" min="0.2" max="2.5" step="0.1" value="${settings.sensitivity}"></label><label class="setting">Sound volume<input data-setting="volume" type="range" min="0" max="1" step="0.05" value="${settings.volume}"></label><label class="setting" for="camera-fov">Field of view <output aria-hidden="true">${settings.fov}°</output><input id="camera-fov" data-setting="fov" type="range" min="60" max="120" step="1" value="${settings.fov}"></label><label class="setting">Graphics<select data-setting="quality">${['low', 'medium', 'high'].map(q => `<option ${q === settings.quality ? 'selected' : ''}>${q}</option>`).join('')}</select></label><label class="setting">Reduced camera motion<input type="checkbox" data-setting="reduced" ${settings.reduced ? 'checked' : ''}></label></div>${snapshot?.practice && snapshot.phase === 'active' ? `<label class="setting">Practice armor<select data-practice-armor>${ARMOR_TIERS.map(t => `<option value="${t.level}" ${t.level === armorTier(me()?.xp ?? 0).level ? 'selected' : ''}>Level ${t.level} · ${t.name}</option>`).join('')}</select></label><button class="text-btn" data-action="inspect-armor">View your armor</button>` : ''}<p class="help">The round continues while the menu is open.</p>`;
-    else html += '<p class="mobile-instructions">Touch: left thumbstick to move, swipe the right side to aim. Hold Attack to swing or draw a bow; release to shoot. Tap twice to load and fire a crossbow. Hold Shield, tap Jump, toggle Sprint, and tap the weapon bar to equip.</p><p>Up to five players. One life each. The final survivor wins. After elimination, watch your friends finish the round.</p><div class="controls"><span><kbd>W A S D</kbd> Move</span><span><kbd>MOUSE</kbd> Aim</span><span><kbd>SPACE</kbd> Jump</span><span><kbd>CTRL / SHIFT</kbd> Sprint</span><span><kbd>LMB</kbd> Attack / draw</span><span><kbd>RMB</kbd> Shield</span><span><kbd>1 – 4</kbd> Change weapon</span><span><kbd>TAB</kbd> Scoreboard</span></div><p class="help">Time melee hits for full power. Sprint hits push enemies back; strike while falling without sprinting for a critical hit. Shields block the front after raising; axe hits disable them for 5 seconds. Bows charge while held. Crossbows take one click to load and another to fire. No healing, no respawns, no time limit.</p><p class="help">Deal damage to earn 1 XP per HP, plus 50 XP per elimination. Level 2 at 50 XP equips Guard armor (20% damage reduction). Level 3 at 150 XP equips Enchanted armor (35%). Everyone starts at level 1 each round. Armor never heals you.</p>';
+    if (modal === 'settings') html += `<div class="settings-grid"><label class="setting">Aim sensitivity<input data-setting="sensitivity" type="range" min="0.2" max="2.5" step="0.1" value="${settings.sensitivity}"></label><label class="setting">Sound volume<input data-setting="volume" type="range" min="0" max="1" step="0.05" value="${settings.volume}"></label><label class="setting" for="camera-fov">Field of view <output aria-hidden="true">${settings.fov}°</output><input id="camera-fov" data-setting="fov" type="range" min="60" max="120" step="1" value="${settings.fov}"></label><label class="setting">Perspective<select data-setting="perspective">${PERSPECTIVES.map(v => `<option value="${v}" ${v === settings.perspective ? 'selected' : ''}>${PERSPECTIVE_LABELS[v]}</option>`).join('')}</select></label><label class="setting">Graphics<select data-setting="quality">${['low', 'medium', 'high'].map(q => `<option ${q === settings.quality ? 'selected' : ''}>${q}</option>`).join('')}</select></label><label class="setting">Reduced camera motion<input type="checkbox" data-setting="reduced" ${settings.reduced ? 'checked' : ''}></label></div>${snapshot?.practice && snapshot.phase === 'active' ? `<label class="setting">Practice armor<select data-practice-armor>${ARMOR_TIERS.map(t => `<option value="${t.level}" ${t.level === armorTier(me()?.xp ?? 0).level ? 'selected' : ''}>Level ${t.level} · ${t.name}</option>`).join('')}</select></label>` : ''}${snapshot?.phase === 'active' && me()?.alive ? '<button class="text-btn" data-action="inspect-armor">View your character · 360°</button>' : ''}<p class="help">The round continues while the menu is open.</p>`;
+    else html += '<p class="mobile-instructions">Touch: left thumbstick to move, swipe the right side to aim. Hold Attack to swing or draw a bow; release to shoot. Tap twice to load and fire a crossbow. Hold Shield, tap Jump, toggle Sprint, and tap the weapon bar to equip. Tap View to change perspective.</p><p>Up to five players. One life each. The final survivor wins. After elimination, watch your friends finish the round.</p><div class="controls"><span><kbd>W A S D</kbd> Move</span><span><kbd>MOUSE</kbd> Aim</span><span><kbd>SPACE</kbd> Jump</span><span><kbd>CTRL / SHIFT</kbd> Sprint</span><span><kbd>LMB</kbd> Attack / draw</span><span><kbd>RMB</kbd> Shield</span><span><kbd>1 – 4</kbd> Change weapon</span><span><kbd>TAB</kbd> Scoreboard</span><span><kbd>F5 / V</kbd> Perspective</span></div><p class="help">Time melee hits for full power. Sprint hits push enemies back; strike while falling without sprinting for a critical hit. Shields block the front after raising; axe hits disable them for 5 seconds. Bows charge while held. Crossbows take one click to load and another to fire. No healing, no respawns, no time limit.</p><p class="help">Deal damage to earn 1 XP per HP, plus 50 XP per elimination. Level 2 at 50 XP equips Guard armor (20% damage reduction). Level 3 at 150 XP equips Enchanted armor (35%). Everyone starts at level 1 each round. Armor never heals you.</p><p class="help">F5 or V cycles first person, third-person rear, and third-person front. Mobile: tap View. Movement and attacks still follow your character’s facing direction. Settings also offers a 360° character preview; the round keeps running.</p>';
     html += `<button class="btn gold wide" data-action="close">${snapshot?.phase === 'active' && me()?.alive ? 'Resume game' : 'Got it'}</button>${room ? `<div class="row">${snapshot?.practice ? '<button class="text-btn" data-action="lobby">Return to lobby</button>' : ''}<button class="text-btn" data-action="leave">Leave room</button></div>` : ''}</div></div>`;
   }
   // Preserve focused inputs and slider drags; HUD remains independently render-driven.
@@ -176,6 +186,7 @@ app.addEventListener('input', e => { const t = e.target as HTMLInputElement; if 
 app.addEventListener('change', e => {
   const t = e.target as HTMLInputElement; const k = t.dataset.setting;
   if (!k) return;
+  if (k === 'perspective' && validPerspective(t.value)) { setPerspective(t.value); return; }
   if (k === 'quality') settings.quality = t.value; else if (k === 'reduced') settings.reduced = t.checked; else if (k === 'fov' || k === 'volume' || k === 'sensitivity') settings[k] = Number(t.value);
   if (k === 'fov') { const output = t.parentElement?.querySelector('output'); if (output) output.textContent = `${settings.fov}°`; }
   scene.settings(settings.quality, settings.fov, settings.reduced); try { localStorage.setItem('stone-settings', JSON.stringify(settings)); } catch { /* optional */ }
@@ -190,7 +201,7 @@ app.addEventListener('click', async e => {
   if (action === 'start' && !disconnected) { room?.send('start', { practice: snapshot?.players.length === 1 }); void lockPointer(); }
   if (action === 'lobby') room?.send('lobby');
   if (action === 'play') void lockPointer();
-  if (action === 'inspect-armor' && snapshot?.practice) { releasePointer(); scene.inspectArmor = true; modal = ''; renderUI(); }
+  if (action === 'inspect-armor' && snapshot?.phase === 'active' && me()?.alive) { releasePointer(); scene.inspectArmor = true; modal = ''; renderUI(); }
   if (action === 'install') await installGame();
   if (action === 'leave') await leaveRoom();
   if (action === 'settings' || action === 'controls') { releasePointer(); modal = action; renderUI(); }
@@ -200,6 +211,7 @@ app.addEventListener('click', async e => {
 });
 document.addEventListener('keydown', e => {
   if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
+  if ((e.code === 'F5' || e.code === 'KeyV') && room && snapshot?.phase !== 'waiting' && !modal && !scoreboard && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); if (!e.repeat) setPerspective(nextPerspective(settings.perspective)); return; }
   if (controlling() && !modal && ['Tab', 'Space'].includes(e.code)) e.preventDefault();
   if (e.code === 'Tab' && controlling() && !modal) scoreboard = true;
   if (e.code === 'Escape' && room && !locked()) { releasePointer(); modal = modal ? '' : 'settings'; renderUI(); }

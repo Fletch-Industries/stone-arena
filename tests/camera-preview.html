@@ -1,0 +1,16 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Perspective preview</title><style>body{margin:0;background:#172228;color:white;font:14px system-ui}nav{position:fixed;top:12px;left:12px;background:#172228ee;padding:12px}select,button{padding:7px;margin:4px}output{display:block}</style></head><body><canvas id="world"></canvas><nav>Actual renderer · perspective and camera collision<br><label>Perspective <select id="view"><option value="first">First person</option><option value="rear" selected>Rear</option><option value="front">Front</option></select></label><label>Location <select id="location"><option>Open</option><option>Wall</option><option>Cover</option><option>Low cover</option><option>Lantern</option></select></label><br><label>Yaw <input id="yaw" type="range" min="-3.14" max="3.14" step=".01" value="0"></label><label>Pitch <input id="pitch" type="range" min="-1.5" max="1.5" step=".01" value="0"></label><button>Idle</button><button>Run</button><button>Jump</button><button>Attack</button><output></output></nav><script type="module">
+import { ArenaScene } from '/client/scene.ts';
+import { Simulation } from '/server/simulation.ts';
+import { DT, idleInput } from '/shared/game.ts';
+const scene=new ArenaScene(document.querySelector('canvas')), sim=new Simulation(), p=sim.add('player','Perspective test');
+sim.practice=true;sim.phase='active';scene.settings('medium',120,false);p.xp=150;
+const places={'Open':[-5,0], 'Wall':[-5,15.5], 'Cover':[0,-1.9], 'Low cover':[9,-1], 'Lantern':[-14,-12]};
+let mode='Idle',tick=0,eventId=0,previous=performance.now(),acc=0;
+function reset(){const [x,z]=places[document.querySelector('#location').value];Object.assign(p,{x,z,y:0,vy:0,vx:0,vz:0,grounded:true});tick=0;}
+reset();document.querySelector('#location').onchange=reset;for(const button of document.querySelectorAll('button'))button.onclick=()=>{mode=button.textContent;reset();};
+function frame(now){const dt=Math.min(.05,(now-previous)/1000);previous=now;acc+=dt;const yaw=Number(document.querySelector('#yaw').value),pitch=Number(document.querySelector('#pitch').value);scene.perspective=document.querySelector('#view').value;
+while(acc>=DT){acc-=DT;tick++;sim.input(p.id,{...idleInput(),seq:sim.tick+1,yaw,pitch,z:mode==='Run'?1:0,sprint:mode==='Run',jump:mode==='Jump',attack:mode==='Attack'});sim.step();if(tick>120)reset();}
+for(const e of sim.events)if(e.id>eventId){scene.event(e);eventId=e.id;}scene.render(dt,sim.snapshot(),p,p,yaw,pitch,true,mode==='Run');
+document.querySelector('output').textContent=`${scene.perspective} · ${scene.fps} FPS · camera ${scene.camera.position.toArray().map(n=>n.toFixed(2)).join(', ')} · avatar ${scene.avatars.get(p.id)?.visible?'visible':'hidden'} · first-person tool ${scene.weapon.visible?'visible':'hidden'}`;requestAnimationFrame(frame);}
+requestAnimationFrame(frame);
+</script></body></html>

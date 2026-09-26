@@ -30,6 +30,8 @@ represents ten hearts. All damage, motion and hit outcomes are server-authoritat
   Jump height and ground speeds are matched; acceleration, air control, collision
   corners, knockback distance and jump flight time are approximations.
 - The player-requested 120-degree FOV remains the default. Sprint does not widen it.
+  F5 cycles first/rear/front perspectives; V and a mobile View button are browser
+  conveniences. Camera movement does not change attack rays or player controls.
 - Ctrl and double-tap W sprint. Shift remains an alias for the game's existing
   controls; sneaking/crouching is not implemented. Mobile retains its sprint toggle.
 - Hold-to-repeat melee and tap-to-load crossbow remain touch-friendly conveniences.
@@ -49,6 +51,8 @@ represents ten hearts. All damage, motion and hit outcomes are server-authoritat
 ## Sources
 
 Primary gameplay and technical references:
+- [Minecraft: keyboard controls](https://edusupport.minecraft.net/hc/en-us/articles/360047116832-Minecraft-keyboard-and-mouse-controls):
+  F5 first-person/rear/front perspective cycle, verified 2026-09-26.
 - [Mojang: controls](https://www.minecraft.net/en-us/article/minecraft-controls):
   movement, jump, Ctrl sprint, hotbar, attack/use and touch controls.
 - [Mojang: sword](https://www.minecraft.net/en-us/article/taking-inventory--sword):

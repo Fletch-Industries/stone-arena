@@ -3,6 +3,7 @@ import { BOXES, COLORS, EYE, armorTier, attackStrength, type Body, type GameEven
 import { locomotionPose } from './animation.js';
 import { TextureLibrary, type Surface } from './textures.js';
 import { FlameAtlas, armorMaterial } from './effects.js';
+import { clipCamera, thirdPersonCamera, type Perspective } from './camera.js';
 
 export class ArenaScene {
   renderer: THREE.WebGLRenderer; scene = new THREE.Scene(); camera = new THREE.PerspectiveCamera(120, 1, .05, 130);
@@ -16,7 +17,7 @@ export class ArenaScene {
   avatarShadows = new Map<string, THREE.Mesh>();
   contactMaterial = new THREE.MeshBasicMaterial({ color: '#172838', transparent: true, opacity: .2, depthWrite: false });
   materials = new Map<string, THREE.MeshLambertMaterial>(); boxGeo = new THREE.BoxGeometry(1, 1, 1);
-  arrowGeo = new THREE.BoxGeometry(.055, .055, .7); lastWeapon = ''; swing = 0; time = 0; quality = 'medium'; inspectArmor = false; configuredFov = 120;
+  arrowGeo = new THREE.BoxGeometry(.055, .055, .7); lastWeapon = ''; swing = 0; time = 0; quality = 'medium'; inspectArmor = false; configuredFov = 120; perspective: Perspective = 'first';
   cameraDistance = 0; lastCamera = new THREE.Vector3(); cameraTracking = '';
   rigs = new Map<string, { head: THREE.Group; leftArm: THREE.Group; rightArm: THREE.Group; leftLeg: THREE.Group; rightLeg: THREE.Group; tool: THREE.Group; toolName: string; distance: number; speed: number; swing: number; landed: number; grounded: boolean }>();
   frames = 0; fps = 60; fpsTime = 0; spectator = 0; reduced = false; renderScale = 1;
@@ -168,6 +169,9 @@ export class ArenaScene {
     this.frames++; this.fpsTime += dt;
     if (this.fpsTime >= 1) { this.fps = Math.round(this.frames / this.fpsTime); this.frames = 0; this.fpsTime = 0; }
     const inRound = snapshot && snapshot.phase !== 'waiting';
+    const inspecting = this.inspectArmor && !!me?.alive && snapshot?.phase === 'active';
+    const thirdPerson = this.perspective !== 'first';
+    let cameraGap = Infinity;
     let follow = me;
     if (me && !me.alive) { const alive = snapshot?.players.filter(p => p.alive) ?? []; follow = alive[this.spectator % Math.max(1, alive.length)]; }
     if (inRound && follow) {
@@ -175,31 +179,39 @@ export class ArenaScene {
       const distance = Math.hypot(pos.x - this.lastCamera.x, pos.z - this.lastCamera.z);
       if (this.cameraTracking === follow.id && distance < 1 && pos.grounded) this.cameraDistance += distance;
       this.cameraTracking = follow.id; this.lastCamera.set(pos.x, pos.y, pos.z);
-      const bob = !this.reduced && pos.grounded && distance > .001 && distance < 1 ? Math.sin(this.cameraDistance * 5) * (pos.sprinting ? .045 : .025) : 0;
+      const bob = !thirdPerson && !this.reduced && pos.grounded && distance > .001 && distance < 1 ? Math.sin(this.cameraDistance * 5) * (pos.sprinting ? .045 : .025) : 0;
       this.camera.position.set(pos.x, pos.y + EYE + bob, pos.z);
-      this.camera.rotation.order = 'YXZ'; this.camera.rotation.set(follow.id === me?.id ? pitch : follow.pitch, follow.id === me?.id ? yaw : follow.yaw, 0);
+      const lookYaw = follow.id === me?.id ? yaw : follow.yaw, lookPitch = follow.id === me?.id ? pitch : follow.pitch;
+      this.camera.rotation.order = 'YXZ'; this.camera.rotation.set(lookPitch, lookYaw, 0);
+      if (this.perspective !== 'first') {
+        const radius = .03 + .05 * Math.tan(this.configuredFov * Math.PI / 360) * Math.hypot(1, this.camera.aspect);
+        const view = thirdPersonCamera(this.camera.position, lookYaw, lookPitch, this.perspective, Math.max(.18, radius));
+        this.camera.position.copy(view.position); this.camera.rotation.set(view.pitch, view.yaw, 0); cameraGap = view.distance;
+      }
     } else { const a = this.time * .018; this.camera.position.set(Math.sin(a + .8) * 24, 19, Math.cos(a + .8) * 24); this.camera.lookAt(0, 0, 0); }
-    const inspecting = this.inspectArmor && !!snapshot?.practice && !!me?.alive && snapshot.phase === 'active';
     const fov = inspecting ? 55 : this.configuredFov;
     if (this.camera.fov !== fov) { this.camera.fov = fov; this.camera.updateProjectionMatrix(); }
-    if (inspecting && me) { const angle = this.reduced ? Math.PI - me.yaw : this.time * .3; this.camera.position.set(me.x + Math.sin(angle) * 3.8, me.y + 1.8, me.z + Math.cos(angle) * 3.8); this.camera.lookAt(me.x, me.y + .85, me.z); }
-    this.weapon.visible = !inspecting && !!inRound && !!me?.alive && snapshot?.phase !== 'results';
+    if (inspecting && me) { const angle = this.reduced ? Math.PI + me.yaw : this.time * .3; this.camera.position.copy(clipCamera({ x: me.x, y: me.y + EYE, z: me.z }, { x: me.x + Math.sin(angle) * 3.8, y: me.y + 1.8, z: me.z + Math.cos(angle) * 3.8 })); this.camera.lookAt(me.x, me.y + .85, me.z); }
+    this.weapon.visible = !thirdPerson && !inspecting && !!inRound && !!me?.alive && snapshot?.phase !== 'results';
     if (me) { this.setWeapon(me.weapon, me.block, me.xp); this.swing = Math.max(0, this.swing - dt * 5); this.weapon.rotation.set(-this.swing * 1.2, 0, -.2 - this.swing * .8); this.weapon.position.y = -.43 - ((me.weapon === 'sword' || me.weapon === 'axe') ? (1 - attackStrength(me)) * .1 : 0) + (moving && local?.grounded && !this.reduced ? Math.sin(this.cameraDistance * 5) * .02 : 0); this.weapon.position.z = -.65 + me.charge * .035; }
     const ids = new Set(snapshot?.players.map(p => p.id));
     for (const [id, g] of this.avatars) if (!ids.has(id)) { this.scene.remove(g); g.traverse(o => { if (o instanceof THREE.Sprite) { o.material.map?.dispose(); o.material.dispose(); } }); this.avatars.delete(id); this.rigs.delete(id); const shadow = this.avatarShadows.get(id); if (shadow) this.contactShadows.remove(shadow); this.avatarShadows.delete(id); }
     for (const p of snapshot?.players ?? []) {
-      const g = this.avatars.get(p.id) ?? this.makeAvatar(p); g.visible = p.alive && (inspecting || p.id !== (inRound ? follow?.id : undefined));
+      const g = this.avatars.get(p.id) ?? this.makeAvatar(p); g.visible = p.alive && (inspecting || (thirdPerson && cameraGap > .65) || p.id !== (inRound ? follow?.id : undefined));
+      // Hide only the followed avatar's name; it otherwise blocks the aiming area.
+      for (const child of g.children) if (child instanceof THREE.Sprite) child.visible = p.id !== follow?.id || !inRound;
       const shadow = this.avatarShadows.get(p.id)!; shadow.visible = p.alive && p.y < 1.5; shadow.position.set(p.x, .014, p.z); shadow.scale.setScalar(.7 + p.y * .15);
       const rig = this.rigs.get(p.id)!, oldX = g.position.x, oldZ = g.position.z;
-      const target = new THREE.Vector3(p.x, p.y, p.z); if (g.position.distanceTo(target) > 4) g.position.copy(target); else g.position.lerp(target, 1 - Math.exp(-dt * 18));
+      const body = p.id === me?.id && local && inRound ? local : p;
+      const target = new THREE.Vector3(body.x, body.y, body.z); if (body === local || g.position.distanceTo(target) > 4) g.position.copy(target); else g.position.lerp(target, 1 - Math.exp(-dt * 18));
       const travelled = Math.hypot(g.position.x - oldX, g.position.z - oldZ);
-      if (travelled < 1 && p.grounded) rig.distance += travelled;
+      if (travelled < 1 && body.grounded) rig.distance += travelled;
       rig.speed += ((snapshot?.phase === 'active' ? p.moveSpeed : 0) - rig.speed) * (1 - Math.exp(-dt * 15));
-      const pose = locomotionPose(rig.distance, rig.speed, p.grounded, !!p.sprinting, p.vy);
-      if (!rig.grounded && p.grounded) rig.landed = 1;
-      rig.grounded = p.grounded; rig.landed = Math.max(0, rig.landed - dt * 6);
+      const pose = locomotionPose(rig.distance, rig.speed, body.grounded, !!body.sprinting, body.vy);
+      if (!rig.grounded && body.grounded) rig.landed = 1;
+      rig.grounded = body.grounded; rig.landed = Math.max(0, rig.landed - dt * 6);
       g.position.y -= Math.sin(rig.landed * Math.PI) * .06;
-      g.rotation.set(pose.lean, p.yaw, 0); rig.head.rotation.x = p.pitch;
+      g.rotation.set(pose.lean, p.id === me?.id ? yaw : p.yaw, 0); rig.head.rotation.x = p.id === me?.id ? pitch : p.pitch;
       rig.leftLeg.rotation.x = pose.leftLeg; rig.rightLeg.rotation.x = pose.rightLeg;
       rig.leftArm.rotation.x = p.block ? -1.1 : pose.leftArm;
       rig.swing = Math.max(0, rig.swing - dt / .3);

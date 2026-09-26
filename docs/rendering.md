@@ -41,3 +41,20 @@ Reduced motion freezes flame frames, glint, and the solo armor-preview camera.
 `/tests/equipment-preview.html` exercises the actual renderer and simulation with
 armor tiers, walk/run/jump/attack/hurt poses, graphics quality and reduced motion.
 The development fixture is excluded from production builds.
+
+## Gameplay perspectives
+
+`client/camera.ts` computes rear/front camera booms without modifying the player's
+input, aim, hit ray or server state. A conservative camera volume covers the near
+plane at the current FOV/aspect ratio; the boom retracts against cover (including
+caps), lantern cages, boundary walls and floor. Close follow avatars are hidden
+rather than rendering inside the head. The camera follows predicted local
+movement, with the local mesh using the same position to avoid network-lag jitter.
+First-person weapons are hidden in third person; attached world tools/armor and
+normal locomotion remain visible. A selected perspective also follows the current
+spectated survivor. No extra render passes or lights are added.
+
+`/tests/camera-preview.html` exercises front/rear views, running/jumping/attacking,
+cover and wall locations, and yaw/pitch using the actual renderer. Camera unit
+tests cover collision and orientation, independent of WebGL. Production excludes
+the preview fixture.
