@@ -1,0 +1,24 @@
+name: Bug report
+description: Report a gameplay, connection, or rendering problem.
+title: "[Bug]: "
+body:
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Tell us what you did and what went wrong. Do not include private room links or personal information.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Device and browser
+      placeholder: Android / Chrome, iPhone / Safari, Windows / Firefox…
+    validations:
+      required: true

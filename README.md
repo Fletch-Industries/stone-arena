@@ -7,6 +7,14 @@ one life each, no match timer. The last survivor wins. Includes private invitati
 solo practice, sword/axe/bow/crossbow/shield combat, spectating, results, rematches,
 and a 15-second reconnect window.
 
+Source: [Fletch-Industries/stone-arena](https://github.com/Fletch-Industries/stone-arena).
+[Request a feature or report a bug](https://github.com/Fletch-Industries/stone-arena/issues/new/choose).
+See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidance.
+
+The arena uses original pixel-art cobblestone, stone brick, wood, metal, and fabric
+maps, warmer sunlight, cooler ambient light, and quality-scaled shadows. See the
+[rendering notes](docs/rendering.md) for asset provenance and performance settings.
+
 ## Combat and movement
 
 Movement and combat follow modern Java Edition conventions: sword knockback,

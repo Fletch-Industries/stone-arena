@@ -1,0 +1,70 @@
+import * as THREE from 'three';
+
+export type Surface = 'stone' | 'brick' | 'cobble' | 'wood' | 'metal' | 'cloth';
+/** Original seamless pixel maps. No downloaded textures or game assets. */
+export class TextureLibrary {
+  private maps = new Map<Surface, THREE.CanvasTexture>();
+  private normals = new Map<Surface, THREE.CanvasTexture>();
+  get(surface: Surface) {
+    if (!this.maps.has(surface)) this.make(surface);
+    return this.maps.get(surface)!;
+  }
+  normal(surface: Surface) {
+    if (!this.normals.has(surface)) this.make(surface);
+    return this.normals.get(surface)!;
+  }
+  private make(surface: Surface) {
+    const size = 32, heights: number[] = [], colors: number[][] = [];
+    const noise = (x: number, y: number, seed = 0) => {
+      let n = Math.imul((x & 31) + 1, 374761393) ^ Math.imul((y & 31) + 1, 668265263) ^ Math.imul(seed + 1, 1274126177);
+      n = Math.imul(n ^ (n >>> 13), 1274126177); return ((n ^ (n >>> 16)) >>> 0) / 4294967295;
+    };
+    const cells = Array.from({ length: 16 }, (_, n) => ({ x: n % 4 * 8 + 2 + noise(n, 1) * 4, y: Math.floor(n / 4) * 8 + 2 + noise(n, 2) * 4 }));
+    for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+      const fine = Math.floor(noise(x, y, 3) * 5) * 2 - 4;
+      const coarse = Math.floor(noise(Math.floor(x / 3), Math.floor(y / 3), 9) * 5) * 3 - 6;
+      let v = 150 + fine + coarse, h = .7, rgb = [v, v + 1, v + 2];
+      if (surface === 'brick') {
+        const row = Math.floor(y / 8), xx = (x + (row % 2) * 8) % 16, yy = y % 8;
+        const seam = xx === 0 || yy === 0, edge = xx === 1 || yy === 1;
+        v = seam ? 70 + fine : 145 + fine + coarse + (edge ? 21 : xx === 15 || yy === 7 ? -18 : 0);
+        rgb = [v, v + 2, v + 3]; h = seam ? .15 : edge ? .9 : .72;
+      } else if (surface === 'cobble') {
+        const nearest = cells.map((c, id) => { const dx = Math.min(Math.abs(x - c.x), size - Math.abs(x - c.x)), dy = Math.min(Math.abs(y - c.y), size - Math.abs(y - c.y)); return { id, d: dx * dx + dy * dy }; }).sort((a, b) => a.d - b.d);
+        const gap = nearest[1].d - nearest[0].d, edge = gap < 6;
+        v = edge ? 67 + fine : 132 + Math.floor(noise(nearest[0].id, 5) * 6) * 5 + fine + (gap < 16 ? 13 : 0);
+        rgb = [v, v + 2, v + 4]; h = edge ? .1 : Math.min(.9, .55 + gap / 100);
+      } else if (surface === 'wood') {
+        const seam = x % 8 === 0 || (y + Math.floor(x / 8) * 9) % 32 === 0;
+        const grain = Math.floor(noise(x, Math.floor(y / 6), 7) * 5) * 5;
+        v = seam ? 65 : 150 + grain + fine;
+        rgb = [v, v * .74, v * .43]; h = seam ? .15 : .6 + grain / 100;
+      } else if (surface === 'metal') {
+        v = 190 + fine + (x < 2 || y < 2 ? 25 : x > 29 || y > 29 ? -30 : 0);
+        rgb = [v - 8, v, v + 4]; h = .7;
+      } else if (surface === 'cloth') {
+        v = 226 + (x % 2 === y % 2 ? 9 : -7) + fine;
+        rgb = [v, v, v]; h = .5;
+      }
+      heights.push(h); colors.push(rgb);
+    }
+    const canvas = document.createElement('canvas'); canvas.width = canvas.height = size;
+    const ctx = canvas.getContext('2d')!, pixels = ctx.createImageData(size, size);
+    colors.forEach((rgb, n) => { for (let c = 0; c < 3; c++) pixels.data[n * 4 + c] = Math.max(0, Math.min(255, rgb[c])); pixels.data[n * 4 + 3] = 255; });
+    ctx.putImageData(pixels, 0, 0);
+    const map = new THREE.CanvasTexture(canvas); map.colorSpace = THREE.SRGBColorSpace;
+    map.magFilter = THREE.NearestFilter; map.minFilter = THREE.NearestMipmapLinearFilter;
+    map.wrapS = map.wrapT = THREE.RepeatWrapping; this.maps.set(surface, map);
+    const normalCanvas = document.createElement('canvas'); normalCanvas.width = normalCanvas.height = size;
+    const ng = normalCanvas.getContext('2d')!, np = ng.createImageData(size, size);
+    const height = (x: number, y: number) => heights[(y & 31) * size + (x & 31)];
+    for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+      const n = new THREE.Vector3((height(x - 1, y) - height(x + 1, y)) * .6, (height(x, y + 1) - height(x, y - 1)) * .6, 1).normalize();
+      const offset = (y * size + x) * 4;
+      np.data[offset] = (n.x * .5 + .5) * 255; np.data[offset + 1] = (n.y * .5 + .5) * 255; np.data[offset + 2] = (n.z * .5 + .5) * 255; np.data[offset + 3] = 255;
+    }
+    ng.putImageData(np, 0, 0); const normal = new THREE.CanvasTexture(normalCanvas);
+    normal.magFilter = THREE.NearestFilter; normal.minFilter = THREE.NearestMipmapLinearFilter; normal.wrapS = normal.wrapT = THREE.RepeatWrapping;
+    this.normals.set(surface, normal);
+  }
+}

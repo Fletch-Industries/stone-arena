@@ -1,0 +1,24 @@
+name: Feature request
+description: Suggest an improvement to Stone Arena.
+title: "[Feature]: "
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What would you like to improve?
+      description: Describe the problem or opportunity from a player's perspective.
+      placeholder: When I play with friends, I wish I could…
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Your suggested feature
+      description: Explain how it would work and why it would make the game better.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives or examples
+      description: Optional alternatives, sketches, or examples from other games.
