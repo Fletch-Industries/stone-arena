@@ -15,6 +15,22 @@ The arena uses original pixel-art cobblestone, stone brick, wood, metal, and fab
 maps, warmer sunlight, cooler ambient light, and quality-scaled shadows. See the
 [rendering notes](docs/rendering.md) for asset provenance and performance settings.
 
+## Install on your Mac or phone
+
+Open the live game in Safari on macOS Sonoma 14 or newer, then choose **File →
+Add to Dock**. Chrome and Edge offer **Install app** in the address bar or browser
+menu. On iPhone/iPad, use **Share → Add to Home Screen**. The landing page's
+**Install game** button opens the native install prompt where supported, or shows
+these instructions. See [Apple's web app guide](https://support.apple.com/104996).
+
+The PWA opens in its own window with an original app icon. A fixed manifest ID and
+start URL launch the lobby, without saving a private invitation as the app's home.
+Both solo practice and multiplayer require internet. The service worker stores
+only an offline explanation; it never caches matchmaking, room state, configuration,
+or game bundles, and never forces a reload during play. Updates appear on the next
+online launch/reload. Original PNG icons can be regenerated with
+`python3 tools/generate-icons.py` (no third-party dependencies).
+
 ## Combat and movement
 
 Movement and combat follow modern Java Edition conventions: sword knockback,

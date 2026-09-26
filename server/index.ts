@@ -95,7 +95,7 @@ const server = new Server({ transport, greet: false, express: app => {
   if (process.env.ACME_CHALLENGE_DIR) app.use('/.well-known/acme-challenge', express.static(process.env.ACME_CHALLENGE_DIR, { dotfiles: 'deny' }));
   app.get('/health', (_req, res) => res.status(draining ? 503 : 200).json({ ok: !draining, version: VERSION, rooms: activeRooms.size, uptime: Math.floor(process.uptime()) }));
   app.get('/config.json', (_req, res) => { res.setHeader('Cache-Control', 'no-store'); res.json({ api: process.env.ARENA_API_URL ?? '/arena-api' }); });
-  app.use(express.static(resolve('dist'), { maxAge: '1h', setHeaders(res, path) { if (path.endsWith('index.html')) res.setHeader('Cache-Control', 'no-cache'); } }));
+  app.use(express.static(resolve('dist'), { maxAge: '1h', setHeaders(res, path) { if (['index.html', 'sw.js', 'manifest.webmanifest'].some(file => path.endsWith(file))) res.setHeader('Cache-Control', 'no-cache'); } }));
 } });
 server.define('arena', ArenaRoom);
 server.onBeforeShutdown(() => { draining = true; });
