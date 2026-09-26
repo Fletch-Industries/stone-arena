@@ -1,4 +1,4 @@
-import { Server, Room, ServerError, type Client } from '@colyseus/core';
+import { Server, Room, ServerError, createRouter, type Client } from '@colyseus/core';
 import { WebSocketTransport } from '@colyseus/ws-transport';
 import express from 'express';
 import { resolve } from 'node:path';
@@ -6,6 +6,7 @@ import { randomBytes } from 'node:crypto';
 import { SeatRegistry } from './seats.js';
 import { Simulation } from './simulation.js';
 import { DT, VERSION, validInput } from '../shared/game.js';
+import { isUnavailable, unavailableMessage } from './availability.js';
 
 const origins = new Set((process.env.ALLOWED_ORIGINS ?? 'http://127.0.0.1:5173,http://localhost:5173,http://127.0.0.1:5174,http://127.0.0.1:3107').split(','));
 const activeRooms = new Set<string>();
@@ -18,6 +19,7 @@ export class ArenaRoom extends Room {
   expired = new Set<string>();
   latencySent = new Map<string, number>();
   onCreate() {
+    if (isUnavailable()) throw new ServerError(503, unavailableMessage);
     if (draining || activeRooms.size >= Number(process.env.MAX_ROOMS ?? 8)) throw new ServerError(503, 'Arena is busy. Please try again shortly.');
     this.roomId = randomBytes(5).toString('hex').toUpperCase();
     activeRooms.add(this.roomId); this.autoDispose = true; this.maxClients = 5; this.maxMessagesPerSecond = 90;
@@ -42,6 +44,7 @@ export class ArenaRoom extends Room {
     }, 1000 / 60);
     this.setPatchRate(null);
     this.clock.setInterval(() => {
+      if (isUnavailable()) { this.broadcast('maintenance'); void this.disconnect(); return; }
       for (const c of this.clients) if (!this.expired.has(c.sessionId) && performance.now() - (this.lastSeen.get(c.sessionId) ?? 0) > heartbeatMs) {
         this.expired.add(c.sessionId); c.leave(4000, 'Connection inactive. Join the arena again.');
       }
@@ -57,6 +60,7 @@ export class ArenaRoom extends Room {
     }, 50);
   }
   onAuth(_c: Client, opts: { version?: number; name?: unknown; seatKey?: unknown }) {
+    if (isUnavailable()) throw new ServerError(503, unavailableMessage);
     if (draining) throw new ServerError(503, 'Server is updating. Please reconnect shortly.');
     if (opts.version !== VERSION) throw new ServerError(400, 'Please refresh to update the game.');
     if (typeof opts.name !== 'string' || !opts.name.trim() || opts.name.length > 24) throw new ServerError(400, 'Enter a nickname (1–24 characters).');
@@ -64,6 +68,7 @@ export class ArenaRoom extends Room {
     return true;
   }
   onJoin(c: Client, opts: { name: string; seatKey?: string }) {
+    if (isUnavailable()) throw new ServerError(503, unavailableMessage);
     if (!seats.claim(opts.seatKey ?? c.sessionId, this.roomId, c.sessionId)) throw new ServerError(409, 'This browser tab already has a seat. Return to the existing arena or close the duplicate tab. Abandoned connections expire within 30 seconds.');
     try { this.sim.add(c.sessionId, opts.name.trim().replace(/[\u0000-\u001f<>]/g, '').slice(0, 24) || 'Player'); }
     catch (e) { seats.releasePlayer(this.roomId, c.sessionId); throw e; }
@@ -78,6 +83,7 @@ export class ArenaRoom extends Room {
 const transport = new WebSocketTransport({
   maxPayload: 4096, perMessageDeflate: false, pingInterval: 3000, pingMaxRetries: 2,
   beforeUpgrade: (_url, ctx) => {
+    if (isUnavailable()) return new Response(unavailableMessage, { status: 503, headers: { 'Cache-Control': 'no-store', 'Retry-After': '300' } });
     const origin = ctx.headers.get('origin');
     if (origin && !origins.has(origin)) return new Response('Origin denied', { status: 403 });
   },
@@ -94,9 +100,20 @@ const server = new Server({ transport, greet: false, express: app => {
     if (req.method === 'OPTIONS') { res.sendStatus(204); return; } next();
   });
   if (process.env.ACME_CHALLENGE_DIR) app.use('/.well-known/acme-challenge', express.static(process.env.ACME_CHALLENGE_DIR, { dotfiles: 'deny' }));
-  app.get('/health', (_req, res) => res.status(draining ? 503 : 200).json({ ok: !draining, version: VERSION, rooms: activeRooms.size, uptime: Math.floor(process.uptime()) }));
-  app.get('/config.json', (_req, res) => { res.setHeader('Cache-Control', 'no-store'); res.json({ api: process.env.ARENA_API_URL ?? '/arena-api' }); });
+  app.get('/health', (_req, res) => { res.setHeader('Cache-Control', 'no-store'); res.status(draining ? 503 : 200).json({ ok: !draining, available: !isUnavailable(), version: VERSION, rooms: activeRooms.size, uptime: Math.floor(process.uptime()) }); });
+  app.get('/config.json', (_req, res) => { res.setHeader('Cache-Control', 'no-store'); res.json({ api: process.env.ARENA_API_URL ?? '/arena-api', available: !isUnavailable() }); });
+  app.use((req, res, next) => {
+    // Keep installed-app metadata/offline launch functional, without serving game code.
+    if (!isUnavailable() || ['/sw.js', '/offline.html', '/manifest.webmanifest', '/favicon.svg'].includes(req.path) || /^\/icons\/[a-zA-Z0-9-]+\.png$/.test(req.path)) { next(); return; }
+    res.status(503).set({ 'Cache-Control': 'no-store', 'Retry-After': '300' });
+    if (req.method === 'GET' && (req.path === '/' || req.path === '/index.html' || req.accepts(['html', 'json']) === 'html')) res.sendFile(resolve('dist/maintenance.html'));
+    else res.json({ code: 503, error: unavailableMessage });
+  });
   app.use(express.static(resolve('dist'), { maxAge: '1h', setHeaders(res, path) { if (['index.html', 'sw.js', 'manifest.webmanifest'].some(file => path.endsWith(file))) res.setHeader('Cache-Control', 'no-cache'); } }));
+} });
+// Colyseus handles matchmaking before Express. Reject seat reservations here too.
+server.router = createRouter({}, { onRequest: () => {
+  if (isUnavailable()) return Response.json({ code: 503, error: unavailableMessage }, { status: 503, headers: { 'Cache-Control': 'no-store', 'Retry-After': '300' } });
 } });
 server.define('arena', ArenaRoom);
 server.onBeforeShutdown(() => { draining = true; });

@@ -97,6 +97,33 @@ counts, shield status, armor level, and XP progress. Empty slots collapse on ver
 The touch surfaces preserve multiple pointer captures across HUD refreshes and
 clear held controls when interrupted. No installation or account is needed.
 
+## Temporarily close or reopen the game
+
+The server can replace the game with a lightweight landing page saying:
+“Temporarily unavailable. Do your school and chores, then check back later.”
+
+```sh
+npm run game -- off     # Show the unavailable page and stop multiplayer
+npm run game -- on      # Make the game playable again
+npm run game -- status  # Read the current state
+```
+
+Run these from the same directory/environment as the server. For production,
+set `ARENA_MAINTENANCE_FILE` to an absolute path **outside the release directory**
+for both the service and these commands. That preserves the switch across
+deployments and restarts. The default `.arena-maintenance` is for local use and
+is ignored by Git. The flag's presence means the game is off; its absence means on.
+
+No rebuild or restart is required. Closing takes effect for HTTP requests and new
+WebSockets immediately, and active rooms close within one second. Current clients
+move to the landing page; idle lobby tabs check within five seconds or on returning
+to the tab. Older clients are still disconnected and cannot reconnect. The page
+uses `503`, `Retry-After` and `no-store`; installed apps receive it on launch too.
+“Check again” returns to the normal game once reopened. `/health` remains a service
+health check and reports `available: false` while closed. `/config.json` also exposes
+availability. This switch has no public admin endpoint; only host operators can
+change it. It does not affect other API services on the same host.
+
 ## Golden apples and sword appearance
 
 Each player starts with **two golden apples per round**. Select **slot 5** (or tap

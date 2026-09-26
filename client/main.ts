@@ -56,6 +56,21 @@ catch { app.innerHTML = '<div class="overlay interactive"><div class="panel"><h2
 const api = await fetch(new URL('config.json', location.href)).then(r => r.ok ? r.json() : Promise.reject()).then(c => c.api as string).catch(() => '/arena-api');
 const endpoint = new URL(api, location.origin).href;
 const client = new Client(endpoint);
+function showUnavailable() {
+  clearSession();
+  if (room) { room.reconnection.enabled = false; room.connection.close(); }
+  location.replace('/');
+}
+// Also move idle lobby tabs to the landing page when the operator pauses the game.
+async function checkAvailability() {
+  try {
+    const response = await fetch(new URL('config.json', location.href), { cache: 'no-store' });
+    if (response.ok && (await response.json()).available === false) showUnavailable();
+  } catch { /* A network outage uses the existing reconnect behavior. */ }
+}
+void checkAvailability();
+setInterval(() => { if (!document.hidden) void checkAvailability(); }, 5000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) void checkAvailability(); });
 const me = () => snapshot?.players.find(p => p.id === room?.sessionId);
 const locked = () => document.pointerLockElement === canvas;
 const controlling = () => locked() || dragLook || touchPlaying;
@@ -90,6 +105,7 @@ async function connect(action: 'create' | 'join' | 'reconnect', code = '') {
     const options = { name: nickname.trim().slice(0, 24), version: VERSION, seatKey };
     const joined = action === 'create' ? await client.create('arena', options) : action === 'join' ? await client.joinById(code.trim().toUpperCase(), options) : await client.reconnect(code);
     room = joined;
+    joined.onMessage('maintenance', showUnavailable);
     joined.reconnection.minUptime = 0; joined.reconnection.maxDelay = 1000; joined.reconnection.maxRetries = 12;
     disconnected = false; eventId = 0; pending = []; lastPhase = ''; snapshot = undefined;
     try { localStorage.setItem('stone-name', nickname); } catch { /* optional */ }

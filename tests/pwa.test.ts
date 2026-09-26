@@ -25,6 +25,12 @@ test('offline launch shows reconnect instructions instead of a stale multiplayer
   const request = worker(async () => { throw new TypeError('Offline'); });
   assert.equal(await (await request('/?room=ABC123'))!.text(), 'Offline screen');
 });
+test('installed app shows the server maintenance page instead of its offline fallback', async () => {
+  const maintenance = new Response('Do your school and chores, then check back later.', { status: 503 });
+  const response = await worker(async () => maintenance)('/?room=ABC123');
+  assert.equal(response?.status, 503);
+  assert.match(await response!.text(), /school and chores/);
+});
 test('service worker never intercepts API, assets, POSTs or other origins', () => {
   const request = worker(async () => { throw new Error('Must not fetch'); });
   assert.equal(request('/config.json', 'cors'), undefined);
