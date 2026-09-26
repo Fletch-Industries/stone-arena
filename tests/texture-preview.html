@@ -1,0 +1,16 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Texture surface preview</title><style>body{margin:0;font:16px system-ui;background:#172228;color:white}nav{position:fixed;top:12px;left:12px;padding:12px;background:#172228ee}button,select{padding:8px;margin:4px}</style></head><body><canvas id="world"></canvas><nav>Development preview · actual arena geometry<br><button>Cover tops</button><button>Wall corner</button><label>Graphics <select><option>low</option><option selected>medium</option><option>high</option></select></label></nav><script type="module">
+import { ArenaScene } from '/client/scene.ts';
+const arena = new ArenaScene(document.querySelector('canvas'));
+arena.settings('medium',70,true);
+let corner=false;
+for(const button of document.querySelectorAll('button'))button.onclick=()=>{corner=button.textContent==='Wall corner';};
+document.querySelector('select').onchange=event=>arena.settings(event.target.value,70,true);
+function frame(now){
+ const drift=Math.sin(now*.0004)*.6;
+ arena.camera.position.set(corner?12+drift:4+drift,corner?9:6,corner?12:5);
+ arena.camera.lookAt(corner?16:0,corner?5.5:1.8,corner?16:0);
+ arena.renderer.render(arena.scene,arena.camera);
+ requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script></body></html>

@@ -31,12 +31,18 @@ export class ArenaScene {
     const floor = new THREE.Mesh(floorGeo, this.surface('cobble')); floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; this.scene.add(floor);
     // Unit masonry keeps a consistent pixel density. All wall blocks share one draw call.
     const positions: number[][] = [];
-    for (let y = 0; y < 6; y++) for (let x = -16; x <= 16; x++) positions.push([x, y + .5, -16.5], [x, y + .5, 16.5], [-16.5, y + .5, x], [16.5, y + .5, x]);
+    for (let y = 0; y < 6; y++) {
+      // Front/back own the corner cubes; side rows stop before them.
+      for (let x = -16.5; x <= 16.5; x++) positions.push([x, y + .5, -16.5], [x, y + .5, 16.5]);
+      for (let z = -15.5; z <= 15.5; z++) positions.push([-16.5, y + .5, z], [16.5, y + .5, z]);
+    }
     const walls = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), this.surface('brick'), positions.length), mat = new THREE.Matrix4();
     positions.forEach((p, i) => { mat.makeTranslation(p[0], p[1], p[2]); walls.setMatrixAt(i, mat); walls.setColorAt(i, new THREE.Color().setScalar(.88 + ((i * 17) % 13) / 100)); });
     walls.castShadow = walls.receiveShadow = true; this.scene.add(walls);
     for (const b of BOXES) {
-      const mesh = new THREE.Mesh(this.blockGeometry(b.w, b.h, b.d), this.surface('brick')); mesh.position.set(b.x, b.h / 2, b.z); mesh.castShadow = mesh.receiveShadow = true; this.scene.add(mesh);
+      // Cap replaces the top .12 units; coplanar brick and cap tops flicker.
+      const bodyHeight = b.h - .12;
+      const mesh = new THREE.Mesh(this.blockGeometry(b.w, bodyHeight, b.d), this.surface('brick')); mesh.position.set(b.x, bodyHeight / 2, b.z); mesh.castShadow = mesh.receiveShadow = true; this.scene.add(mesh);
       const cap = new THREE.Mesh(this.blockGeometry(b.w + .08, .12, b.d + .08), this.surface('stone', '#c7c9c5')); cap.position.set(b.x, b.h - .06, b.z); cap.castShadow = cap.receiveShadow = true; this.scene.add(cap);
       this.contact(b.x, b.z, b.w + .35, b.d + .35);
     }
