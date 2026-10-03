@@ -20,7 +20,7 @@ async function walk(r: Room, x: number, z: number, stop = () => Math.hypot(me(r)
 try {
   const host = track(await client.create('arena', { name: 'Wilds explorer', version: VERSION, private: true }));
   let guest = track(await client.joinById(host.roomId, { name: 'Terrain observer', version: VERSION }));
-  await until(() => states.get(host)?.players.length === 2); assert.equal(states.get(host)!.world.seed, states.get(guest)!.world.seed);
+  await until(() => rooms.every(r => states.get(r)?.players.length === 2)); assert.equal(states.get(host)!.world.seed, states.get(guest)!.world.seed);
   host.send('ready'); guest.send('ready'); await until(() => states.get(host)!.players.every(p => p.ready)); host.send('start'); await until(() => states.get(host)?.phase === 'active');
   guest.send('interact'); await wait(100); assert(!states.get(host)!.world.doorOpen);
   await walk(host, -26, -46); host.send('interact'); await until(() => rooms.every(r => states.get(r)?.world.doorOpen === true));
