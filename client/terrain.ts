@@ -1,4 +1,5 @@
 import { buildHorizon } from '../shared/horizon.js';
+import { BIOMES } from '../shared/biomes.js';
 import { TextureLibrary } from './textures.js';
 import * as THREE from 'three';
 import { CHUNK_SIZE, chunkRadius, wantedChunks } from '../shared/world.js';
@@ -9,9 +10,11 @@ export class TerrainStreamer {
   group = new THREE.Group(); chunks = new Map<string, THREE.Group>();
   worker?: Worker; busy = false; epoch = 0; seed = -1; center = ''; wanted = new Set<string>();
   queue: { x: number; z: number; key: string }[] = []; ready?: TerrainChunk;
+  quality = 'medium';
   box = new THREE.BoxGeometry(1, 1, 1);
   grass = new THREE.MeshLambertMaterial({ vertexColors: true });
-  bark = new THREE.MeshLambertMaterial({ color: '#755238' }); leaves = new THREE.MeshLambertMaterial({ color: '#4b9a71' }); canopy = new THREE.IcosahedronGeometry(.65, 0);
+  bark = new THREE.MeshLambertMaterial({ color: '#755238' }); leaves = new THREE.MeshLambertMaterial({ color: '#ffffff' }); canopy = new THREE.IcosahedronGeometry(.65, 0);
+  spire = new THREE.ConeGeometry(1, 1, 5); blossom = blossomGeometry(); flowers = new THREE.MeshLambertMaterial({ side: THREE.DoubleSide });
   water = new THREE.MeshPhongMaterial({ color: '#318da7', specular:'#9fdbeb', shininess:95, transparent:true, opacity:.8 });
   constructor() {
     const textures = new TextureLibrary(); this.grass.map = textures.get('grass'); this.grass.normalMap=textures.normal('grass');this.grass.normalScale.set(.14,.14); this.bark.map = textures.get('bark'); this.leaves.map = textures.get('leaves');
@@ -20,6 +23,8 @@ export class TerrainStreamer {
       transformed.x += sin(windTime * .8 + instanceMatrix[3].x * .18 + instanceMatrix[3].z * .12) * .018 * (position.y + .65);
       #endif`); }; this.leaves.customProgramCacheKey = () => 'stone-leaf-wind-v1';
     this.water.onBeforeCompile=shader=>{shader.uniforms.windTime=this.time;shader.vertexShader='uniform float windTime;\n'+shader.vertexShader.replace('#include <begin_vertex>','#include <begin_vertex>\n transformed += normal * sin(position.x*.3+position.y*.24+windTime*.8)*.025;');};this.water.customProgramCacheKey=()=> 'stone-water-ripple-v1';
+    this.flowers.onBeforeCompile = shader => { shader.uniforms.windTime = this.time; shader.vertexShader = 'uniform float windTime;\n' + shader.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n transformed.x += sin(windTime * 1.2 + instanceMatrix[3].x * .7 + instanceMatrix[3].z * .3) * position.y * .1;'); };
+    this.flowers.customProgramCacheKey = () => 'stone-blossom-wind-v1';
     try {
       this.worker = new Worker(new URL('./terrain-worker.ts', import.meta.url), { type: 'module' });
       this.worker.onmessage = (e: MessageEvent<{ epoch: number; chunk: TerrainChunk; horizon?: string }>) => { this.busy = false; if (e.data.epoch !== this.epoch || !this.group.visible) return; if (e.data.horizon) { if (e.data.horizon === this.center) { this.horizonReady = e.data.chunk; this.horizonKey = e.data.horizon; } } else if (this.wanted.has(e.data.chunk.key)) this.ready = e.data.chunk; };
@@ -27,7 +32,7 @@ export class TerrainStreamer {
     } catch { /* Older browsers use one small chunk per frame instead. */ }
     this.group.visible = false;
   }
-  dispose(group: THREE.Group) { group.traverse(o => { if (o instanceof THREE.InstancedMesh) o.dispose(); if (o instanceof THREE.Mesh && o.geometry !== this.box && o.geometry !== this.canopy) o.geometry.dispose(); }); this.group.remove(group); }
+  dispose(group: THREE.Group) { group.traverse(o => { if (o instanceof THREE.InstancedMesh) o.dispose(); if (o instanceof THREE.Mesh && ![this.box, this.canopy, this.spire, this.blossom].includes(o.geometry)) o.geometry.dispose(); }); this.group.remove(group); }
   forget(key: string) {
     const group = this.chunks.get(key); if (!group) return;
     this.dispose(group); this.chunks.delete(key);
@@ -42,18 +47,36 @@ export class TerrainStreamer {
     }
     if(c.key==='horizon'){const pos=new Float32Array(c.positions);for(let i=1;i<pos.length;i+=3)pos[i]=.65;const waterGeometry=new THREE.BufferGeometry();waterGeometry.setAttribute('position',new THREE.BufferAttribute(pos,3));waterGeometry.setIndex(new THREE.BufferAttribute(new Uint16Array(c.indices),1));waterGeometry.computeVertexNormals();waterGeometry.computeBoundingSphere();group.add(new THREE.Mesh(waterGeometry,this.water));}
     if (c.trees.length) {
-      const trunks = new THREE.InstancedMesh(this.box, this.bark, c.trees.length), crowns = new THREE.InstancedMesh(this.canopy, this.leaves, c.trees.length * (c.key==='horizon'?1:2)), matrix = new THREE.Matrix4();
+      const trunks = new THREE.InstancedMesh(this.box, this.bark, c.trees.length), matrix = new THREE.Matrix4();
       c.trees.forEach((t, i) => {
         const x = t.x - c.cx * CHUNK_SIZE, z = t.z - c.cz * CHUNK_SIZE;
         matrix.makeScale(.7, t.height, .7); matrix.setPosition(x, t.y + t.height / 2, z); trunks.setMatrixAt(i, matrix);
-        const layers=c.key==='horizon'?1:2; for(let n=0;n<layers;n++){matrix.makeScale(n?2.5:3.7,n?2.1:2.6,n?2.5:3.7);matrix.setPosition(x,t.y+t.height+(n?1:.1),z);crowns.setMatrixAt(i*layers+n,matrix);crowns.setColorAt(i*layers+n,new THREE.Color().setScalar((n ? .88 : .68)+t.shade*.3));}
-      }); group.add(trunks, crowns);
+      }); group.add(trunks);
+      for (const pointed of [false, true]) {
+        const trees = c.trees.filter(t => (t.biome === 'moonwood') === pointed), layers = c.key === 'horizon' ? 1 : 2;
+        if (!trees.length) continue;
+        const crowns = new THREE.InstancedMesh(pointed ? this.spire : this.canopy, this.leaves, trees.length * layers);
+        trees.forEach((t, i) => { for (let n = 0; n < layers; n++) {
+          if (pointed) matrix.makeScale(n ? 1.4 : 2, n ? 2.2 : 3.3, n ? 1.4 : 2);
+          else matrix.makeScale(n ? 2.2 : 3, n ? 1.8 : 2.4, n ? 2.2 : 3);
+          matrix.setPosition(t.x - c.cx * CHUNK_SIZE, t.y + t.height + (pointed ? n ? 1.6 : .65 : n ? 1.4 : .25), t.z - c.cz * CHUNK_SIZE);
+          crowns.setMatrixAt(i * layers + n, matrix); crowns.setColorAt(i * layers + n, new THREE.Color(BIOMES[t.biome].leaves).multiplyScalar(.82 + t.shade * .25));
+        } }); group.add(crowns);
+      }
+    }
+    const plants = this.quality === 'low' ? c.plants.filter((_, n) => n % 2 === 0) : c.plants;
+    if (plants.length) {
+      const flowers = new THREE.InstancedMesh(this.blossom, this.flowers, plants.length), matrix = new THREE.Matrix4();
+      plants.forEach((p,n) => { matrix.makeRotationY(p.x + p.z); matrix.scale(new THREE.Vector3(p.size,p.size,p.size)); matrix.setPosition(p.x - c.cx * CHUNK_SIZE,p.y,p.z - c.cz * CHUNK_SIZE); flowers.setMatrixAt(n,matrix); flowers.setColorAt(n,new THREE.Color(BIOMES[p.biome].flower)); });
+      group.add(flowers);
     }
     this.group.add(group); if (c.key === 'horizon') { if (this.horizon) this.dispose(this.horizon); this.horizon = group; } else this.chunks.set(c.key, group);
   }
   update(x: number, z: number, seed: number, quality: string, visible: boolean) {
     if (!visible) { if (this.group.visible) this.clear(); this.group.visible = false; return; }
     this.group.visible = true;
+    const detail = this.worker ? quality : 'low';
+    if (this.quality !== detail) { this.clear(); this.quality = detail; }
     if (seed !== this.seed) { this.clear(); this.seed = seed; }
     const radius = chunkRadius(this.worker ? quality : 'low'), center = `${Math.floor(x / CHUNK_SIZE)},${Math.floor(z / CHUNK_SIZE)}:${radius}`;
     if (center !== this.center) {
@@ -76,4 +99,12 @@ export class TerrainStreamer {
       }
     }
   }
+}
+function blossomGeometry() {
+  const points: number[] = [];
+  for (const a of [0, Math.PI / 2]) {
+    const vertices = [[-.035,0],[.035,0],[.025,.4],[-.025,.4],[-.22,.47],[0,.72],[.22,.47],[0,.34]];
+    for (const i of [0,1,2,0,2,3,4,5,6,4,6,7]) { const [x,y] = vertices[i]; points.push(x * Math.cos(a), y, x * Math.sin(a)); }
+  }
+  const geometry = new THREE.BufferGeometry(); geometry.setAttribute('position',new THREE.Float32BufferAttribute(points,3)); geometry.computeVertexNormals(); return geometry;
 }

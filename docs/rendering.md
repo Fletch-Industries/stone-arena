@@ -92,7 +92,7 @@ meshes. `client/terrain-worker.ts` generates one 24×24 chunk at a time and tran
 its typed arrays. The renderer uploads at most one chunk each frame; queues,
 resident chunks (25/49/81) and height caches (4,096 vertices) remain bounded.
 Leaving an area disposes its geometry and instancing buffers. Trees share geometry
-and materials, with two instanced draws per chunk; grass uses original pixel noise.
+and materials, with two or three instanced draws per chunk depending on the mixture of canopies; grass uses original pixel noise.
 Wilds renders without dynamic shadows, with quality-scaled fog masking the edge.
 Worker failure falls back to one small chunk per frame and the Low chunk limit.
 
@@ -143,3 +143,34 @@ A user gesture creates/resumes audio; background tabs fade ambience and stop
 scheduling music. There are no downloaded samples, always-running intervals or
 autoplay prompts. The development world preview includes sound/dash/rune/aura
 controls and reports context state and voice count.
+
+## Biomes and waystone ruins
+
+`shared/biomes.ts` blends nine nearby seeded habitat centers. Near chunks and the
+coarse horizon share its vertex palette, preventing palette seams at their edge.
+The meadow, Moonwood, Emberfields and Tideglade change canopy tint, density, flower
+color and the synthesized ambience/melody tuning. Moonwood uses shared pointed
+canopy geometry. Noise and terrain heights remain compatible with the earlier
+Wilds landscape; new collision includes the seeded ruin pillars.
+
+Each nearby chunk adds at most 16 flowers (half on Low) in one instanced draw,
+with inexpensive vertex wind. `SpiritMoths` has one instanced draw and only
+8/18/32 decorative moths at Low/Medium/High. It does not create network actors
+or claim creature AI. Reduced motion freezes wings, flowers and moth movement.
+Tree metadata is cached across seeds with a 2,048-entry bound, alongside the
+existing 4,096-height limit and 25/49/81 resident-chunk limits.
+
+Nine waystone landmarks include the arrival stone and eight seeded ruins. They
+share masonry, ring/crystal geometry and four glow materials. Changing room seeds
+disposes the old labels and instancing buffers. The center and all four approaches
+remain walkable; actual terrain heights support each pillar. Discovery and Warden
+travel are server-authoritative. Travel clears movement, pending attacks, owned
+projectiles and outdated lag-compensation poses; it requires a discovered source
+and destination, all three shards, a two-second rest and five damage-free seconds.
+
+The constellation atlas is the same component in the game and development
+preview. It caches one biome chart per seed while updating discoveries, player
+location and travel readiness. Phone layouts scroll and keep every destination
+accessible. The preview includes habitat/waystone controls, reduced motion, the
+atlas and bounded-cache counters. All art and audio are generated locally from
+original code; no Minecraft assets or external asset services are included.

@@ -30,3 +30,4 @@ jobs:
           npx tsx tests/capture-flag.ts
           npx tsx tests/wilds.ts
           npx tsx tests/wilds.ts --expedition
+          npx tsx tests/wilds.ts --waystones

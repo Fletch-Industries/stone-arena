@@ -1,6 +1,8 @@
 import { vistaDistance } from '../shared/horizon.js';
 import { Atmosphere, SparkPool } from './atmosphere.js';
 import { RuneLandmarks } from './landmarks.js';
+import { WaystoneLandmarks } from './waystones.js';
+import { SpiritMoths } from './wildlife.js';
 import { SECRET, PASSAGE, RETURN_PASSAGE } from '../shared/world.js';
 import { TerrainStreamer } from './terrain.js';
 import * as THREE from 'three';
@@ -16,6 +18,7 @@ export class ArenaScene {
   renderer: THREE.WebGLRenderer; scene = new THREE.Scene(); camera = new THREE.PerspectiveCamera(120, 1, .05, 1200);
   arena = new THREE.Group(); worldDecor = new THREE.Group(); terrain = new TerrainStreamer(); secretDoor = new THREE.Group();
   atmosphere: Atmosphere; sparks: SparkPool; runeLandmarks = new RuneLandmarks();
+  waystoneLandmarks: WaystoneLandmarks; wildlife = new SpiritMoths(this.worldDecor);
   auraGeometry = new THREE.TorusGeometry(.7,.022,4,24); runeGeometry = new THREE.IcosahedronGeometry(.17,0);
   auraMaterial = new THREE.MeshBasicMaterial({color:'#76fff1'});
   runeMaterials = ['#ffcd6b','#60e1e6','#c197ff'].map(color => new THREE.MeshBasicMaterial({color}));
@@ -46,6 +49,7 @@ export class ArenaScene {
     this.scene.background = new THREE.Color('#a5cee5'); this.scene.fog = new THREE.Fog('#a5cee5', 65, 150);
     this.scene.add(new THREE.HemisphereLight('#b8deef', '#435a44', 1.25));
     this.atmosphere = new Atmosphere(this.scene); this.sparks = new SparkPool(this.scene); this.worldDecor.add(this.runeLandmarks.group);
+    this.waystoneLandmarks = new WaystoneLandmarks(this.runeLandmarks.halo,this.surface('stone')); this.worldDecor.add(this.waystoneLandmarks.group);
     this.sun.position.set(-40, 80, 30); this.sun.castShadow = true;
     Object.assign(this.sun.shadow.camera, { left: -72, right: 72, top: 72, bottom: -72, near: .5, far: 180 });
     this.sun.shadow.bias = -.00015; this.sun.shadow.normalBias = .035;
@@ -255,7 +259,7 @@ export class ArenaScene {
   }
   event(e: GameEvent) {
     if (e.type === 'swing' || e.type === 'shot') { const rig = e.actor && this.rigs.get(e.actor); if (rig) rig.swing = 1; }
-    const g = this.avatars.get(e.target ?? e.actor ?? ''); if (g?.userData.realm === this.viewRealm && !this.reduced && ['hit','relic','totem','dash','level','flag_capture'].includes(e.type)) this.sparks.burst(g.position.x,g.position.y+1,g.position.z,e.type === 'hit' ? e.blocked ? '#bdeaff' : '#ffcd83' : '#6dfff0',e.type === 'relic' ? 45 : 16);
+    const g = this.avatars.get(e.target ?? e.actor ?? ''); if (g?.userData.realm === this.viewRealm && !this.reduced && ['hit','relic','totem','dash','level','flag_capture','waystone','warp'].includes(e.type)) this.sparks.burst(g.position.x,g.position.y+1,g.position.z,e.type === 'hit' ? e.blocked ? '#bdeaff' : '#ffcd83' : '#6dfff0',e.type === 'relic' ? 45 : 16);
   }
   render(dt: number, snapshot: Snapshot | undefined, me: Player | undefined, local: Body | undefined, yaw: number, pitch: number, playing: boolean, moving: boolean) {
     this.time += dt; this.armorTime.value = this.reduced ? 0 : this.time;
@@ -290,6 +294,8 @@ export class ArenaScene {
     const fog = this.scene.fog as THREE.Fog; fog.near = wild ? vistaDistance(this.terrain.worker ? this.quality : 'low') * .48 : 80; fog.far = wild ? vistaDistance(this.terrain.worker ? this.quality : 'low') : 200;
     this.atmosphere.update(this.camera,this.time,this.reduced); this.sparks.update(dt,!this.reduced);
     if (snapshot && wild) { this.runeLandmarks.build(snapshot.world.seed); this.runeLandmarks.update(this.time,me?.relics ?? 0,this.reduced); }
+    if (snapshot && wild) { this.waystoneLandmarks.build(snapshot.world.seed); this.waystoneLandmarks.update(this.camera.position.x,this.camera.position.z,this.time,snapshot.world.waystones ?? 1,this.reduced,vistaDistance(this.terrain.worker ? this.quality : 'low')); }
+    this.wildlife.update(this.camera.position.x,this.camera.position.z,snapshot?.world.seed ?? 0,this.time,this.quality,this.reduced,wild);
     this.secretDoor.position.x += ((snapshot?.world.doorOpen ? SECRET.x + 4.3 : SECRET.x) - this.secretDoor.position.x) * Math.min(1, dt * 4);
     const fov = inspecting ? 55 : this.configuredFov;
     if (this.camera.fov !== fov) { this.camera.fov = fov; this.camera.updateProjectionMatrix(); }

@@ -1,10 +1,24 @@
 import { shardSites, shardCount } from '../shared/expedition.js';
+import { HOME_WAYSTONE, nearbyWaystone, waystoneSites } from '../shared/waystones.js';
 import { nearSecret, SECRET, WORLD_LIMIT, type Realm, type WorldState } from '../shared/world.js';
 import { CTF, MODES, isTeamMode, TEAMS, LIMIT, type Mode, type Team, type Flag, APPLE, TOTEM, ARMOR_TIERS, armorTier, MELEE, attackStrength, meleeRecovery, knockback, DT, EYE, HEIGHT, SPAWNS, direction, idleInput, move, segmentBox, wallHit, type Arrow, type GameEvent, type Input, type Player, type Snapshot, type Phase } from '../shared/game.js';
 
 export class Simulation {
   world: WorldState;
-  constructor(seed = 7919) { this.world = { seed: seed >>> 0, doorOpen: false }; }
+  constructor(seed = 7919) { this.world = { seed: seed >>> 0, doorOpen: false, waystones: 1 }; }
+  warp(id: string, destination: unknown) {
+    const p = this.players.get(id);
+    const source = p && nearbyWaystone(p, this.world.seed);
+    if (this.phase !== 'active' || !p?.alive || !p.connected || p.relics !== 7 || p.hurtTime > 0 || this.tick < (p.warpReadyAt ?? 0) || !source || !((this.world.waystones ?? 1) & 1 << source.id) || !Number.isInteger(destination) || (destination as number) < 0 || (destination as number) > 8 || !((this.world.waystones ?? 1) & 1 << (destination as number))) return false;
+    if ([...(this.damageHistory.get(id)?.values() ?? [])].some(at => this.tick - at < 300)) return false;
+    const target = destination === 0 ? HOME_WAYSTONE : waystoneSites(this.world.seed).find(s => s.id === destination)!;
+    if (target.id === source.id) return false;
+    Object.assign(p, { x: target.x, y: target.y, z: target.z, vx: 0, vz: 0, vy: 0, grounded: true, warpTick: this.tick, warpReadyAt: this.tick + 120, yaw: 0, pitch: 0, dashTime: 0, dashHeld: false, block: false, shieldRaise: 0, charge: 0, moveSpeed: 0, sprinting: false, sprintLocked: false, immuneUntil: 0 });
+    this.inputs.set(id, { ...idleInput(), seq: p.ack, offhand: p.offhand }); this.lastInput.delete(id); this.lastAttack.set(id, false); this.attackPress.delete(id); this.attackRelease.delete(id);
+    this.arrows = this.arrows.filter(a => a.owner !== id);
+    for (const frame of this.history) frame.players.delete(id);
+    this.event({ type: 'warp', actor: id, text: `Waystone travel · ${target.name}` }); return true;
+  }
   interact(id: string) {
     const p = this.players.get(id);
     if (this.phase !== 'active' || !p?.alive || !p.connected || !nearSecret(p)) return false;
@@ -58,7 +72,7 @@ export class Simulation {
   }
   spawn(p: Player, index: number) {
     const s = !isTeamMode(this.mode) ? SPAWNS[(index + this.round * 2) % SPAWNS.length] : [p.team === 'red' ? -43 : 43, (index - 1) * 5];
-    Object.assign(p, { dashTime: 0, dashHeld: false, dashCooldown: 0, realm: 'arena', x: s[0], z: s[1], y: 0, vy: 0, vx: 0, vz: 0, grounded: true, sprinting: false, sprintLocked: false, yaw: Math.atan2(s[0], s[1]), pitch: 0 });
+    Object.assign(p, { warpTick: -1000, warpReadyAt: 0, dashTime: 0, dashHeld: false, dashCooldown: 0, realm: 'arena', x: s[0], z: s[1], y: 0, vy: 0, vx: 0, vz: 0, grounded: true, sprinting: false, sprintLocked: false, yaw: Math.atan2(s[0], s[1]), pitch: 0 });
   }
   positionPlayers() { let n = 0; const teams = { red: 0, blue: 0 }; for (const p of this.players.values()) this.spawn(p, !isTeamMode(this.mode) ? n++ : teams[p.team]++); }
   dropFlag(id: string) {
@@ -204,6 +218,7 @@ export class Simulation {
     const saved = !hit.force && amount > 0 && target.offhand === 'totem' && target.totems > 0 && before - amount <= TOTEM.health;
     target.hp = saved ? TOTEM.health : Math.max(0, before - amount);
     amount = Math.max(0, before - target.hp); actor.damage += amount;
+    if (amount > 0) target.warpReadyAt = Math.max(target.warpReadyAt ?? 0, this.tick + 300);
     if (saved) {
       target.totems--; target.charge = 0;
       this.event({ type: 'totem', actor: target.id, text: 'Totem used · Two hearts remaining' });
@@ -281,6 +296,11 @@ export class Simulation {
         if (!(p.relics & 1 << site.id) && Math.hypot(p.x - site.x, p.z - site.z) < 2.6 && Math.abs(p.y - site.y) < 3) {
           p.relics |= 1 << site.id; this.event({ type: 'relic', actor: p.id, text: shardCount(p.relics) === 3 ? `${p.name} found all three skyshards · Warden aura unlocked!` : `${p.name} discovered the ${site.name} skyshard · ${shardCount(p.relics)}/3` });
         }
+      }
+      const waystone = p.connected && nearbyWaystone(p, this.world.seed);
+      if (waystone && !((this.world.waystones ?? 1) & 1 << waystone.id)) {
+        this.world.waystones = (this.world.waystones ?? 1) | 1 << waystone.id;
+        this.event({ type: 'waystone', actor: p.id, text: `${p.name} awakened ${waystone.name} · Shared by your party` });
       }
       p.moveSpeed = Math.hypot(p.x - oldX, p.z - oldZ) / DT;
       const pressed = !stale && (this.attackPress.has(p.id) || (i.attack && !this.lastAttack.get(p.id))), released = this.attackRelease.has(p.id) || (!i.attack && !!this.lastAttack.get(p.id));

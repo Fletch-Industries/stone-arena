@@ -1,0 +1,17 @@
+import { BIOMES, biomeAt } from '../shared/biomes.js';
+import { HOME_WAYSTONE, nearbyWaystone, waystoneSites, awakenedCount } from '../shared/waystones.js';
+import type { Player, Snapshot } from '../shared/game.js';
+const escape = (s: string) => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
+/** One cached terrain chart per room seed; current discovery and travel readiness stay live. */
+export class ConstellationAtlas {
+  private seed = -1; private base = '';
+  render(p: Player, snapshot: Snapshot, tracked?: number) {
+    const seed = snapshot.world.seed, stones = [HOME_WAYSTONE,...waystoneSites(seed)], mask = snapshot.world.waystones ?? 1, near = nearbyWaystone(p,seed), rest = Math.max(0,Math.ceil(((p.warpReadyAt??0)-snapshot.tick)/60));
+    if (this.seed !== seed) {
+      this.seed = seed; this.base = '';
+      for (let x = -600; x < 600; x += 60) for (let z = -600; z < 600; z += 60) this.base += `<rect x="${x}" y="${z}" width="60" height="60" fill="${BIOMES[biomeAt(x+30,z+30,seed)].leaves}" opacity=".28"/>`;
+    }
+    const chart = `<svg class="waystone-map" viewBox="-600 -600 1200 1200" role="img" aria-label="Nearby waystone atlas. North is up. White marker is your location."><rect x="-600" y="-600" width="1200" height="1200" fill="#132b32"/>${this.base}${stones.filter(s=>mask&1<<s.id).map(s=>`<path d="M0,-5 L${s.x},${s.z}" stroke="#a4ddd2" stroke-width="2" stroke-dasharray="8 10" opacity=".45"/>`).join('')}${stones.map(s=>`<circle cx="${s.x}" cy="${s.z}" r="${mask&1<<s.id?18:11}" fill="${BIOMES[s.biome].spirit}" opacity="${mask&1<<s.id?1:.35}"/><text x="${s.x+25}" y="${s.z+9}" fill="#e8eddf" font-size="28">${s.id===0?'HOME':s.id}</text>`).join('')}<path d="M0,-18 L13,12 L0,6 L-13,12 Z" fill="#fff" stroke="#142d33" stroke-width="3" transform="translate(${Math.max(-570,Math.min(570,p.x))} ${Math.max(-570,Math.min(570,p.z))}) rotate(${-p.yaw*180/Math.PI})"/><text x="0" y="-550" fill="#e6efdf" font-size="32" text-anchor="middle">NORTH ↑</text></svg>`;
+    return `<p>Touch the center of a ruin to awaken its waystone for your whole party. ${p.relics===7 ? rest ? `Travel rests for ${rest}s.` : near ? `Standing at ${escape(near.name)}. Choose an awakened stone to travel.` : 'Stand at an awakened waystone to travel.' : 'Find all three skyshards to unlock Warden travel.'}</p><div class="atlas-layout">${chart}<div class="waystone-list">${stones.map(s=>{const awake=!!(mask&1<<s.id);return `<div class="waystone-row"><i style="background:${BIOMES[s.biome].spirit}">${s.id===0?'⌂':s.id}</i><div><b>${escape(s.name)}</b><small>${awake?'Awakened':'Undiscovered'} · ${Math.round(Math.hypot(s.x-p.x,s.z-p.z))} blocks</small></div><button class="btn" data-action="track-waystone" aria-label="${tracked===s.id?'Tracking':'Track'} ${escape(s.name)}" data-waystone="${s.id}">${tracked===s.id?'Tracked':'Track'}</button>${awake?`<button class="btn gold" data-action="warp" aria-label="Travel to ${escape(s.name)}" data-waystone="${s.id}" ${!p.alive||!p.connected||p.relics!==7||!near||near.id===s.id||rest>0||snapshot.phase!=='active'?'disabled':''}>Travel</button>`:''}</div>`;}).join('')}</div></div><p class="help">${awakenedCount(mask)}/8 ruins awakened · Discoveries last for this arena. White arrow: you. Dotted lines: travel links.${Math.abs(p.x)>600||Math.abs(p.z)>600?' You are beyond this chart; your arrow marks the nearest edge.':''}${tracked!==undefined?' <button class="text-btn" data-action="clear-track">Follow the skyshard trail</button>':''}</p>`;
+}
+}

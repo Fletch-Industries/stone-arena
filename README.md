@@ -49,6 +49,21 @@ the citadel. Follow the colored beams, move between hills and race friends to
 complete the skyshard trail while your arena round continues. A compass arrow
 points toward your next beacon, then toward the return tunnel.
 
+The Wilds blend four seeded habitats: **Verdant Reach**, **Moonwood**,
+**Emberfields** and **Tideglade**. Look for lavender spires, warm golden groves,
+cyan foliage, small wind-blown flowers and drifting spirit moths. Their colors
+and soundscapes change as you explore; everyone sees the same terrain and ruins.
+
+Awaken **eight waystone ruins** by walking into their centers. Each discovery
+unlocks for everyone in your room and survives rematches. Press **M** or tap
+**Atlas** to see the nearby habitats, track a ruin with your compass, and find
+your way home. You can also press **E** beside a waystone to open the atlas.
+With all three skyshards, stand at an awakened stone and choose **Travel** to
+reach another discovered stone, including the arrival clearing. Travel preserves
+health and supplies, rests for two seconds, and is unavailable for five seconds
+after damage. Personal Warden progress resets each round; shared discoveries
+last until the arena closes. There are no accounts or permanent rewards.
+
 Choose **Co-op expedition** in the lobby for a shared adventure, solo or with up
 to five explorers. Player damage is off. Find the secret stone door together;
 each explorer collects all three skyshards and returns through the tunnel. The
