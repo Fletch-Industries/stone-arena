@@ -5,6 +5,7 @@ import { BUILD, Construction } from '../shared/construction.js';
 import { placementReason, weaveTarget } from '../shared/weaving.js';
 import { hotbar, runePalette } from '../client/hotbar.js';
 import { ArenaAudio } from '../client/audio.js';
+import { TouchControls } from '../client/touch.js';
 import { ConstellationAtlas } from '../client/atlas.js';
 import { creatureHUD } from '../client/creature-hud.js';
 import { CREATURES, WILDLIFE, creatureNests, guardianNests, creatureClear, creatureWire, creatureCacheSize, type CreatureWire } from '../shared/creatures.js';
@@ -16,7 +17,7 @@ import { HOME_WAYSTONE, nearbyWaystone, waystoneSites, awakenedCount } from '../
 import { ArenaScene } from '../client/scene.js';
 import { Simulation } from '../server/simulation.js';
 import { terrainHeight, treeCacheSize, terrainCacheSize, worldBoxes } from '../shared/world.js';
-import { idleInput, DT } from '../shared/game.js';
+import { idleInput, DT, attackStrength } from '../shared/game.js';
 const scene = new ArenaScene(document.querySelector<HTMLCanvasElement>('#world')!), sim = new Simulation(7919), p = sim.add('preview', 'Explorer');
 sim.phase = 'active'; sim.practice = true; sim.world.doorOpen = true;
 Object.assign(p, { realm: 'wilds', x: 22, z: -32, y: terrainHeight(22, -32, sim.world.seed), yaw: -.9, pitch: -.12 });
@@ -28,6 +29,8 @@ let speciesKind=0,selectedCreature:Creature|undefined,shielding=false,visualPopu
 let weaving=false, weaveKind=0, weave=false, erase=false, jump=false, buildHudHTML='', demoBase:{x:number;y:number;z:number}|undefined;
 let dash=false, seq=0, eventId=0, tracked:number|undefined, lastAtlas=0, lastAtlasHTML='';
 let quality = 'medium', reduced=false, walking = false, previous = performance.now(), acc = 0, region = 0;
+let touchAttack=false;
+const touch=new TouchControls({aim:(x,y)=>{p.yaw-=x*.0025;p.pitch=Math.max(-1.5,Math.min(1.5,p.pitch-y*.0025));},attack:down=>{touchAttack=down;},block:down=>{shielding=down;},menu:()=>{atlasPanel.hidden=false;atlasView();},scores:()=>{atlasPanel.hidden=false;atlasView();},perspective:()=>{scene.perspective=scene.perspective==='first'?'rear':scene.perspective==='rear'?'front':'first';},offhand:()=>{p.offhand=p.offhand==='shield'?'totem':'shield';}});
 const frames: number[] = [];
 const selectedSite = () => {const biome=(document.querySelector<HTMLSelectElement>('#habitat')!.value as Biome);return biome==='meadow'?HOME_WAYSTONE:waystoneSites(sim.world.seed).find(s=>s.biome===biome)!;};
 function atlasView() {
@@ -106,12 +109,18 @@ document.querySelector('#creature-hud')!.addEventListener('click',e=>{if((e.targ
 function frame(now: number) {
   const elapsed = now - previous; previous = now; frames.push(elapsed); if (frames.length > 240) frames.shift();
   const dt = Math.min(.1, elapsed / 1000); acc = Math.min(.1, acc + dt);
-  while (acc >= DT) { acc -= DT; sim.input(p.id,{ ...idleInput(),seq:++seq,yaw:p.yaw,pitch:p.pitch,offhand:p.offhand,weapon:p.weapon,glide,z:walking?1:0,sprint:walking,dash,weaving,weaveKind,attack:weave,block:erase||shielding,jump });sim.step();glide=dash=weave=erase=jump=false; }
+  while (acc >= DT) { acc -= DT; sim.input(p.id,{ ...idleInput(),seq:++seq,yaw:p.yaw,pitch:p.pitch,offhand:p.offhand,weapon:p.weapon,glide,x:touch.x,z:touch.z||(walking?1:0),sprint:walking||touch.sprint,dash,weaving,weaveKind,attack:weave||touchAttack,block:erase||shielding,jump:jump||touch.jump||touch.jumpQueued });sim.step();glide=dash=weave=erase=jump=touch.jumpQueued=false; }
   for(const e of sim.events)if(e.id>eventId){eventId=e.id;scene.event(e);audio.event(e,e.actor===p.id);}
   audio.update(dt,p,p,true,.3,true,sim.world.seed,sim.ecosystem.wire());
   const snapshot=sim.snapshot(); snapshot.world.construction=sim.world.construction; snapshot.world.forage=sim.world.forage; scene.weavePreview=weaving; scene.erasePreview=erase;
   if(visualPopulation)snapshot.creatures=visualPopulation;
-  const creature=creatureHUD(p,snapshot,mobileQuery.matches),creatureHTML=creature.prompt+creature.status;if(creatureHTML!==lastCreatureHUD){lastCreatureHUD=creatureHTML;document.querySelector('#creature-hud')!.innerHTML=creatureHTML;}
+  const layout=document.querySelector<HTMLSelectElement>('#hud-layout')!.value;
+  touch.show(layout!=='bare'&&mobileQuery.matches&&atlasPanel.hidden===true);touch.offhand(p.offhand==='totem',weaving);touch.item(p.weapon==='apple',weaving);
+  const trail=layout==='bare'?'':`<div class="world-hint expedition-hud"><b>✦ SKYSHARD TRAIL · 0/3</b><p>↑ Dawn skyshard · 120 blocks</p><small>Return tunnel · 0, 8</small>${layout==='expedition'?`<div class="party-progress">${Array.from({length:5},(_,n)=>`<span><i></i><em>Explorer ${n+1}</em><b>0/3</b></span>`).join('')}</div>`:''}<div class="trail-actions"><button class="atlas-button interactive">Atlas 0/8</button><button class="windstep interactive">Windstep READY</button><button class="atlas-button interactive">Rune loom</button><button class="atlas-button interactive">Glide</button><button class="atlas-button interactive">Rune build</button></div></div>`;
+  const flags=layout==='ctf'?'<div class="flag-hud"><div class="flag-score"><b>Red 0</b><span>First to 3 captures</span><b>Blue 0</b></div><div class="flag-status">Red flag: home · Blue flag: carried</div><p>Bring the enemy flag home.</p></div>':'';
+  document.querySelector('#creature-hud')!.className='hud '+(layout==='ctf'?'ctf':'expedition');
+  const belt=layout==='bare'?'':`<div class="bottom">${hotbar(p,p.weapon,layout==='expedition')}<div class="charge"><i style="width:${attackStrength(p)*100}%"></i></div><div class="combat-hint">Time your hits · Face the Warden to block</div></div>`;
+  const creature=creatureHUD(p,snapshot,mobileQuery.matches),creatureHTML=flags+trail+creature.prompt+creature.status+belt;if(creatureHTML!==lastCreatureHUD){lastCreatureHUD=creatureHTML;document.querySelector('#creature-hud')!.innerHTML=creatureHTML;}
   scene.render(dt, snapshot, p, p, p.yaw, p.pitch, true, walking);
   if(!atlasPanel.hidden&&now-lastAtlas>120){lastAtlas=now;atlasView();}
   if(weaving)buildHud();
