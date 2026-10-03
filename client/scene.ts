@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { BOXES, COLORS, EYE, armorTier, attackStrength, type Body, type GameEvent, type Player, type Snapshot, type Weapon } from '../shared/game.js';
+import { ARENA_SIZE, SPAWNS, BOXES, COLORS, EYE, armorTier, attackStrength, type Body, type GameEvent, type Player, type Snapshot, type Weapon } from '../shared/game.js';
+import { LANDMARKS } from '../shared/arena.js';
 import { locomotionPose } from './animation.js';
 import { TextureLibrary, type Surface } from './textures.js';
 import { FlameAtlas, armorMaterial } from './effects.js';
@@ -7,7 +8,7 @@ import { swordBlade, appleBody, totemBody } from './items.js';
 import { clipCamera, thirdPersonCamera, type Perspective } from './camera.js';
 
 export class ArenaScene {
-  renderer: THREE.WebGLRenderer; scene = new THREE.Scene(); camera = new THREE.PerspectiveCamera(120, 1, .05, 130);
+  renderer: THREE.WebGLRenderer; scene = new THREE.Scene(); camera = new THREE.PerspectiveCamera(120, 1, .05, 200);
   avatars = new Map<string, THREE.Group>(); arrowMeshes = new Map<number, THREE.Mesh>(); weapon = new THREE.Group(); leftHand = new THREE.Group();
   textures = new TextureLibrary(); surfaceMaterials = new Map<string, THREE.MeshLambertMaterial>();
   flameAtlas = new FlameAtlas(); flames: THREE.MeshBasicMaterial[] = [];
@@ -30,20 +31,21 @@ export class ArenaScene {
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5)); this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping; this.renderer.toneMappingExposure = 1.05;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
-    this.scene.background = new THREE.Color('#a5cee5'); this.scene.fog = new THREE.Fog('#a5cee5', 45, 100);
+    this.scene.background = new THREE.Color('#a5cee5'); this.scene.fog = new THREE.Fog('#a5cee5', 65, 150);
     this.scene.add(new THREE.HemisphereLight('#d9edff', '#777467', 1.4));
-    this.sun.position.set(-18, 32, 14); this.sun.castShadow = true;
-    Object.assign(this.sun.shadow.camera, { left: -26, right: 26, top: 26, bottom: -26, near: .5, far: 90 });
+    this.sun.position.set(-40, 80, 30); this.sun.castShadow = true;
+    Object.assign(this.sun.shadow.camera, { left: -72, right: 72, top: 72, bottom: -72, near: .5, far: 180 });
     this.sun.shadow.bias = -.00015; this.sun.shadow.normalBias = .035;
     this.scene.add(this.sun, this.sun.target, this.contactShadows);
-    const floorGeo = new THREE.PlaneGeometry(32, 32); this.repeatUV(floorGeo, 32, 32);
+    const floorGeo = new THREE.PlaneGeometry(ARENA_SIZE, ARENA_SIZE); this.repeatUV(floorGeo, ARENA_SIZE, ARENA_SIZE);
     const floor = new THREE.Mesh(floorGeo, this.surface('cobble')); floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; this.scene.add(floor);
     // Unit masonry keeps a consistent pixel density. All wall blocks share one draw call.
     const positions: number[][] = [];
+    const edge = ARENA_SIZE / 2 + .5;
     for (let y = 0; y < 6; y++) {
       // Front/back own the corner cubes; side rows stop before them.
-      for (let x = -16.5; x <= 16.5; x++) positions.push([x, y + .5, -16.5], [x, y + .5, 16.5]);
-      for (let z = -15.5; z <= 15.5; z++) positions.push([-16.5, y + .5, z], [16.5, y + .5, z]);
+      for (let x = -edge; x <= edge; x++) positions.push([x, y + .5, -edge], [x, y + .5, edge]);
+      for (let z = -edge + 1; z <= edge - 1; z++) positions.push([-edge, y + .5, z], [edge, y + .5, z]);
     }
     const walls = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), this.surface('brick'), positions.length), mat = new THREE.Matrix4();
     positions.forEach((p, i) => { mat.makeTranslation(p[0], p[1], p[2]); walls.setMatrixAt(i, mat); walls.setColorAt(i, new THREE.Color().setScalar(.88 + ((i * 17) % 13) / 100)); });
@@ -51,13 +53,13 @@ export class ArenaScene {
     for (const b of BOXES) {
       // Cap replaces the top .12 units; coplanar brick and cap tops flicker.
       const bodyHeight = b.h - .12;
-      const mesh = new THREE.Mesh(this.blockGeometry(b.w, bodyHeight, b.d), this.surface('brick')); mesh.position.set(b.x, bodyHeight / 2, b.z); mesh.castShadow = mesh.receiveShadow = true; this.scene.add(mesh);
-      const cap = new THREE.Mesh(this.blockGeometry(b.w + .08, .12, b.d + .08), this.surface('stone', '#c7c9c5')); cap.position.set(b.x, b.h - .06, b.z); cap.castShadow = cap.receiveShadow = true; this.scene.add(cap);
-      this.contact(b.x, b.z, b.w + .35, b.d + .35);
+      const mesh = new THREE.Mesh(this.blockGeometry(b.w, bodyHeight, b.d), this.surface(b.surface ?? 'brick')); mesh.position.set(b.x, (b.y ?? 0) + bodyHeight / 2, b.z); mesh.castShadow = mesh.receiveShadow = true; this.scene.add(mesh);
+      const cap = new THREE.Mesh(this.blockGeometry(b.w, .12, b.d), this.surface(b.surface === 'wood' ? 'wood' : 'stone', '#c7c9c5')); cap.position.set(b.x, (b.y ?? 0) + b.h - .06, b.z); cap.castShadow = cap.receiveShadow = true; this.scene.add(cap);
+      if (!b.y) this.contact(b.x, b.z, b.w + .35, b.d + .35);
     }
-    for (let x = -15; x <= 15; x += 3) for (const z of [-16.5, 16.5]) this.masonry([1.4, 1, 1.3], [x, 6.5, z]);
-    for (let z = -15; z <= 15; z += 3) for (const x of [-16.5, 16.5]) this.masonry([1.3, 1, 1.4], [x, 6.5, z]);
-    for (const [x, z] of [[-14, -14], [14, 14], [-14, 14], [14, -14]]) {
+    for (let x = -45; x <= 45; x += 3) for (const z of [-edge, edge]) this.masonry([1.4, 1, 1.3], [x, 6.5, z]);
+    for (let z = -45; z <= 45; z += 3) for (const x of [-edge, edge]) this.masonry([1.3, 1, 1.4], [x, 6.5, z]);
+    for (const [x, z] of [[-14, -14], [14, 14], [-14, 14], [14, -14], [-36, -26], [36, 26], [0, 35], [-11, 17], [11, -17]]) {
       this.box(this.scene, [.24, 2.06, .24], [x, 1.03, z], '#bc9060', 'wood');
       const flame = this.flameAtlas.material(); this.flames.push(flame);
       const flameGeo = new THREE.PlaneGeometry(.46, .64);
@@ -68,11 +70,23 @@ export class ArenaScene {
       this.contact(x, z, .65, .65);
     }
     // Small baked contact patches keep geometry grounded on low-power devices.
-    for (const side of [-1, 1]) { this.contact(side * 15.7, 0, .6, 32); this.contact(0, side * 15.7, 32, .6); }
+    for (const side of [-1, 1]) { this.contact(side * 47.7, 0, .6, ARENA_SIZE); this.contact(0, side * 47.7, ARENA_SIZE, .6); }
     const ring = new THREE.Mesh(new THREE.RingGeometry(4.7, 4.8, 48), this.material('#b9ad87')); ring.rotation.x = -Math.PI / 2; ring.position.y = .008; this.scene.add(ring);
-    for (const [x, z, color] of [[-12, -12, COLORS[0]], [12, 12, COLORS[1]], [-12, 12, COLORS[2]], [12, -12, COLORS[3]], [0, -13, COLORS[4]]] as [number, number, string][]) {
+    for (const [n, [x, z]] of SPAWNS.entries()) {
+      const color = COLORS[n % COLORS.length];
       const tile = this.box(this.scene, [1.8, .015, 1.8], [x, .018, z], color); tile.material = new THREE.MeshLambertMaterial({ color, transparent: true, opacity: .5 });
     }
+    // Readable landmark signs, original canvas lettering; no external textures.
+    for (const place of LANDMARKS) {
+      const label = document.createElement('canvas'); label.width = 512; label.height = 96;
+      const ctx = label.getContext('2d')!; ctx.fillStyle = '#263538'; ctx.fillRect(0, 0, 512, 96);
+      ctx.strokeStyle = '#bf9860'; ctx.lineWidth = 8; ctx.strokeRect(4, 4, 504, 88);
+      ctx.fillStyle = '#f6d79d'; ctx.font = 'bold 30px sans-serif'; ctx.textAlign = 'center'; ctx.fillText(place.name.toUpperCase(), 256, 59);
+      const sign = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(label), depthTest: true }));
+      sign.scale.set(4.5, .85, 1); sign.position.set(place.x, place.name === 'Lookout tower' ? 9.8 : 4.9, place.z); this.scene.add(sign);
+    }
+    // Muted garden tiles distinguish ruined wings from the cobblestone courtyard.
+    for (const side of [-1, 1]) this.box(this.scene, [17, .018, 17], [side * 26, .015, -side * 26], '#879378', 'stone');
     this.scene.add(this.camera); this.camera.add(this.weapon, this.leftHand); this.leftHand.scale.setScalar(.55); this.leftHand.position.set(-.36, -.4, -.65); this.weapon.scale.setScalar(.55); this.weapon.position.set(.36, -.4, -.65);
     window.addEventListener('resize', () => this.resize()); this.resize();
   }
@@ -226,7 +240,7 @@ export class ArenaScene {
         const view = thirdPersonCamera(this.camera.position, lookYaw, lookPitch, this.perspective, Math.max(.18, radius));
         this.camera.position.copy(view.position); this.camera.rotation.set(view.pitch, view.yaw, 0); cameraGap = view.distance;
       }
-    } else { const a = this.time * .018; this.camera.position.set(Math.sin(a + .8) * 24, 19, Math.cos(a + .8) * 24); this.camera.lookAt(0, 0, 0); }
+    } else { const a = this.time * .018; this.camera.position.set(Math.sin(a + .8) * 62, 48, Math.cos(a + .8) * 62); this.camera.lookAt(0, 0, 0); }
     const fov = inspecting ? 55 : this.configuredFov;
     if (this.camera.fov !== fov) { this.camera.fov = fov; this.camera.updateProjectionMatrix(); }
     if (inspecting && me) { const angle = this.reduced ? Math.PI + me.yaw : this.time * .3; this.camera.position.copy(clipCamera({ x: me.x, y: me.y + EYE, z: me.z }, { x: me.x + Math.sin(angle) * 3.8, y: me.y + 1.8, z: me.z + Math.cos(angle) * 3.8 })); this.camera.lookAt(me.x, me.y + .85, me.z); }

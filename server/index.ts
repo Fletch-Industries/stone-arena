@@ -9,20 +9,23 @@ import { DT, VERSION, validInput } from '../shared/game.js';
 import { isUnavailable, unavailableMessage } from './availability.js';
 
 const origins = new Set((process.env.ALLOWED_ORIGINS ?? 'http://127.0.0.1:5173,http://localhost:5173,http://127.0.0.1:5174,http://127.0.0.1:3107').split(','));
-const activeRooms = new Set<string>();
+const activeRooms = new Map<string, ArenaRoom>();
 let draining = false;
 const seats = new SeatRegistry();
 const heartbeatMs = Math.max(1000, Number(process.env.ARENA_HEARTBEAT_MS ?? 30000));
 export class ArenaRoom extends Room {
+  publicLobby = true;
   sim = new Simulation(); accumulator = 0; lastPhase = 'waiting'; idleTicks = 0;
   lastSeen = new Map<string, number>();
   expired = new Set<string>();
   latencySent = new Map<string, number>();
-  onCreate() {
+  onCreate(options: { private?: boolean } = {}) {
+    if (options.private !== undefined && typeof options.private !== 'boolean') throw new ServerError(400, 'Invalid arena visibility.');
     if (isUnavailable()) throw new ServerError(503, unavailableMessage);
     if (draining || activeRooms.size >= Number(process.env.MAX_ROOMS ?? 8)) throw new ServerError(503, 'Arena is busy. Please try again shortly.');
     this.roomId = randomBytes(5).toString('hex').toUpperCase();
-    activeRooms.add(this.roomId); this.autoDispose = true; this.maxClients = 5; this.maxMessagesPerSecond = 90;
+    this.publicLobby = options.private !== true;
+    activeRooms.set(this.roomId, this); this.autoDispose = true; this.maxClients = 5; this.maxMessagesPerSecond = 90;
     this.seatReservationTimeout = 10; this.setPrivate(true);
     this.onMessage('input', (c, input) => { this.lastSeen.set(c.sessionId, performance.now()); if (!validInput(input)) { c.leave(4002, 'Invalid controls'); return; } this.sim.input(c.sessionId, input); });
     this.onMessage('ready', (c, data) => { const p = this.sim.players.get(c.sessionId); this.lastSeen.set(c.sessionId, performance.now()); if (p?.connected && this.sim.phase === 'waiting') { p.ready = typeof data?.ready === 'boolean' ? data.ready : !p.ready; c.send('snapshot', this.sim.snapshot()); } else c.send('actionError', 'Ready is available in the lobby.'); });
@@ -102,6 +105,13 @@ const server = new Server({ transport, greet: false, express: app => {
   if (process.env.ACME_CHALLENGE_DIR) app.use('/.well-known/acme-challenge', express.static(process.env.ACME_CHALLENGE_DIR, { dotfiles: 'deny' }));
   app.get('/health', (_req, res) => { res.setHeader('Cache-Control', 'no-store'); res.status(draining ? 503 : 200).json({ ok: !draining, available: !isUnavailable(), version: VERSION, rooms: activeRooms.size, uptime: Math.floor(process.uptime()) }); });
   app.get('/config.json', (_req, res) => { res.setHeader('Cache-Control', 'no-store'); res.json({ api: process.env.ARENA_API_URL ?? '/arena-api', available: !isUnavailable() }); });
+  app.get('/arenas', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    if (isUnavailable() || draining) { res.status(503).json({ error: 'Arena is temporarily unavailable.' }); return; }
+    res.json({ arenas: [...activeRooms.values()].filter(room => room.publicLobby && room.sim.phase === 'waiting' && !room.locked && room.clients.length > 0 && room.clients.length < room.maxClients).map(room => ({
+      roomId: room.roomId, host: room.sim.players.get(room.sim.host)?.name ?? 'Open arena', players: room.sim.players.size, capacity: room.maxClients,
+    })).filter(room => room.players < room.capacity) });
+  });
   app.use((req, res, next) => {
     // Keep installed-app metadata/offline launch functional, without serving game code.
     if (!isUnavailable() || ['/sw.js', '/offline.html', '/manifest.webmanifest', '/favicon.svg'].includes(req.path) || /^\/icons\/[a-zA-Z0-9-]+\.png$/.test(req.path)) { next(); return; }

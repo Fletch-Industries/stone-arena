@@ -14,7 +14,7 @@ function track(r: Room, heartbeat = true) {
   if (heartbeat) timers.push(setInterval(() => { if (r.connection.isOpen) r.send('ping', Date.now()); }, 1000));
   r.send('sync'); return r;
 }
-const options = (seatKey = randomUUID()) => ({ version: VERSION, name: 'Lifecycle-Test', seatKey });
+const options = (seatKey = randomUUID()) => ({ version: VERSION, private: true, name: 'Lifecycle-Test', seatKey });
 const baseline = await count();
 try {
   const seat = options(); let host = track(await client.create('arena', seat));

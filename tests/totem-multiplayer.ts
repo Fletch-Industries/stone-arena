@@ -6,7 +6,7 @@ const client = new Client(process.env.TEST_ENDPOINT ?? 'http://127.0.0.1:3107');
 const rooms: Room[] = [], states = new Map<Room, Snapshot>();
 let timer: ReturnType<typeof setInterval> | undefined, seq = 0, corner = false, attacking = true;
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-async function until(check: () => boolean, timeout = 25000) {
+async function until(check: () => boolean, timeout = 90000) {
   const end = Date.now() + timeout;
   while (!check()) { if (Date.now() > end) throw Error('Totem integration timed out'); await wait(30); }
 }
@@ -16,7 +16,7 @@ function track(room: Room) {
   room.send('sync'); return room;
 }
 try {
-  const a = track(await client.create('arena', { name: 'Totem attacker', version: VERSION }));
+  const a = track(await client.create('arena', { name: 'Totem attacker', version: VERSION, private: true }));
   const b = track(await client.joinById(a.roomId, { name: 'Totem bearer', version: VERSION }));
   await until(() => states.get(a)?.players.length === 2);
   a.send('ready'); b.send('ready'); await until(() => states.get(a)!.players.every(p => p.ready));

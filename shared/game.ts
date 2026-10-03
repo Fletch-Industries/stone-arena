@@ -1,4 +1,6 @@
-export const VERSION = 5;
+import { BOXES, LIMIT } from './arena.js';
+export { BOXES, LIMIT, SPAWNS, ARENA_SIZE, type Box } from './arena.js';
+export const VERSION = 6;
 // Round progression is an arena rule, not Minecraft's XP/armor formula.
 export const ARMOR_TIERS = [
   { level: 1, xp: 0, name: 'Unarmored', reduction: 0 },
@@ -21,19 +23,10 @@ export const GRAVITY = 32;
 export const MELEE = { sword: { damage: 35, recovery: .625 }, axe: { damage: 45, recovery: 1 } };
 export const meleeRecovery = (weapon: Weapon) => weapon === 'axe' ? MELEE.axe.recovery : MELEE.sword.recovery;
 export const attackStrength = (p: Pick<Player, 'weapon' | 'cooldown'>) => Math.max(0, Math.min(1, 1 - p.cooldown / meleeRecovery(p.weapon)));
-export const LIMIT = 15.65;
 export type Weapon = 'sword' | 'axe' | 'bow' | 'crossbow' | 'apple';
 export const WEAPONS: Weapon[] = ['sword', 'axe', 'bow', 'crossbow', 'apple'];
 export const COLORS = ['#f3b85b', '#6adbc8', '#a8a0ff', '#f58f9c', '#8ece6b'];
 export type Phase = 'waiting' | 'countdown' | 'active' | 'results';
-export interface Box { x: number; z: number; w: number; d: number; h: number }
-export const BOXES: Box[] = [
-  { x: 0, z: 0, w: 3, d: 3, h: 2.8 },
-  ...[-1, 1].flatMap(x => [-1, 1].map(z => ({ x: x * 7, z: z * 7, w: 2, d: 2, h: 2.5 }))),
-  { x: -9, z: 0, w: 3, d: 1, h: 1.15 }, { x: 9, z: 0, w: 3, d: 1, h: 1.15 },
-  { x: 0, z: -9, w: 1, d: 3, h: 1.15 }, { x: 0, z: 9, w: 1, d: 3, h: 1.15 },
-];
-export const SPAWNS = [[-12, -12], [12, 12], [-12, 12], [12, -12], [0, -13], [0, 13], [-13, 0], [13, 0]];
 export interface Input { seq: number; x: number; z: number; yaw: number; pitch: number; jump: boolean; sprint: boolean; block: boolean; attack: boolean; weapon: Weapon; offhand: Offhand }
 export const idleInput = (): Input => ({ seq: 0, x: 0, z: 0, yaw: 0, pitch: 0, jump: false, sprint: false, block: false, attack: false, weapon: 'sword', offhand: 'shield' });
 export interface Body { x: number; y: number; z: number; vy: number; grounded: boolean; vx?: number; vz?: number; sprinting?: boolean; sprintLocked?: boolean }
@@ -78,9 +71,10 @@ export function move(body: Body, i: Input, dt = DT, slow = false) {
   body.grounded = false;
   if (body.y <= 0) { body.y = 0; body.vy = 0; body.grounded = true; }
   for (const b of BOXES) {
-    if (Math.abs(body.x - b.x) < b.w / 2 + RADIUS && Math.abs(body.z - b.z) < b.d / 2 + RADIUS && oldY >= b.h - .001 && body.y < b.h) {
-      body.y = b.h; body.vy = 0; body.grounded = true;
-    }
+    if (Math.abs(body.x - b.x) >= b.w / 2 + RADIUS || Math.abs(body.z - b.z) >= b.d / 2 + RADIUS) continue;
+    const bottom = b.y ?? 0, top = bottom + b.h;
+    if (oldY >= top - .001 && body.y < top && body.vy <= 0) { body.y = top; body.vy = 0; body.grounded = true; }
+    else if (bottom > 0 && oldY + HEIGHT <= bottom + .001 && body.y + HEIGHT > bottom && body.vy > 0) { body.y = bottom - HEIGHT; body.vy = 0; }
   }
   // Resolve to the contact surface instead of reverting an entire impulse step.
   for (const [axis, delta, velocity] of [['x', dx, 'vx'], ['z', dz, 'vz']] as const) {
@@ -89,10 +83,20 @@ export function move(body: Body, i: Input, dt = DT, slow = false) {
     for (const b of BOXES) {
       const other = axis === 'x' ? 'z' : 'x', half = (axis === 'x' ? b.w : b.d) / 2 + RADIUS;
       const otherHalf = (axis === 'x' ? b.d : b.w) / 2 + RADIUS;
-      if (body.y >= b.h - .001 || Math.abs(body[other] - b[other]) >= otherHalf) continue;
+      const bottom = b.y ?? 0, top = bottom + b.h;
+      if (body.y >= top - .001 || body.y + HEIGHT <= bottom + .001 || Math.abs(body[other] - b[other]) >= otherHalf) continue;
       const lo = b[axis] - half, hi = b[axis] + half;
-      if (delta > 0 && before <= lo && next > lo) { next = lo; body[velocity] = 0; }
-      else if (delta < 0 && before >= hi && next < hi) { next = hi; body[velocity] = 0; }
+      const crossing = delta > 0 && before <= lo && next > lo || delta < 0 && before >= hi && next < hi;
+      if (!crossing) continue;
+      // Step only onto the destination's small riser, with clear headroom.
+      const destination = { x: body.x, z: body.z, [axis]: next };
+      const step = top - body.y;
+      const clear = !BOXES.some(o => {
+        const y = o.y ?? 0;
+        return Math.abs(destination.x - o.x) < o.w / 2 + RADIUS && Math.abs(destination.z - o.z) < o.d / 2 + RADIUS && top < y + o.h - .001 && top + HEIGHT > y + .001;
+      });
+      if (body.grounded && step > 0 && step <= .41 && next > lo && next < hi && clear) { body.y = top; body.vy = 0; }
+      else { next = delta > 0 ? lo : hi; body[velocity] = 0; }
     }
     body[axis] = next;
   }
@@ -113,6 +117,6 @@ export function segmentBox(a: { x: number; y: number; z: number }, b: { x: numbe
 }
 export function wallHit(a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number }) {
   let t = Infinity;
-  for (const box of BOXES) t = Math.min(t, segmentBox(a, b, [box.x - box.w / 2, 0, box.z - box.d / 2], [box.x + box.w / 2, box.h, box.z + box.d / 2]));
+  for (const box of BOXES) t = Math.min(t, segmentBox(a, b, [box.x - box.w / 2, box.y ?? 0, box.z - box.d / 2], [box.x + box.w / 2, (box.y ?? 0) + box.h, box.z + box.d / 2]));
   return t;
 }

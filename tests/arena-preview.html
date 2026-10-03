@@ -1,0 +1,8 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Stone Citadel development preview</title><style>body{margin:0;background:#172228;color:#fff;font:14px system-ui}canvas{position:fixed;inset:0}nav{position:fixed;top:12px;left:12px;background:#172228e8;padding:14px;border:1px solid #c29b61;border-radius:5px}button{padding:9px;margin:4px;background:#26383d;color:#fff;border:1px solid #7a8886;border-radius:3px}strong{display:block;margin-bottom:6px}</style></head><body><canvas id="world" aria-label="Stone Citadel geometry preview"></canvas><nav><strong>Development preview · actual arena geometry</strong><button>Overview</button><button>Tower</button><button>Tunnel</button><button>Chambers</button><button>Lookout</button></nav><script type="module">
+import {ArenaScene} from '/client/scene.ts';
+const arena=new ArenaScene(document.querySelector('canvas'));arena.settings('medium',60,false);
+const views={Overview:[[46,52,54],[0,0,0]],Tower:[[14,11,-14],[0,6,-28]],Tunnel:[[15,1.62,17],[-15,1.62,17]],Chambers:[[-21,1.62,-22],[-29,1.62,-29]],Lookout:[[0,8.82,-31],[0,1,10]]};
+let view='Overview',previous=performance.now();
+for(const button of document.querySelectorAll('button'))button.onclick=()=>{view=button.textContent;};
+function frame(now){arena.render(Math.min(.1,(now-previous)/1000),undefined,undefined,undefined,0,0,false,false);previous=now;arena.camera.fov=60;arena.camera.updateProjectionMatrix();arena.camera.position.set(...views[view][0]);arena.camera.lookAt(...views[view][1]);arena.renderer.render(arena.scene,arena.camera);requestAnimationFrame(frame);}requestAnimationFrame(frame);
+</script></body></html>

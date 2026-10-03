@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { ARENA_SIZE } from '../shared/game.js';
 import { clipCamera, nextPerspective, thirdPersonCamera, validPerspective } from '../client/camera.js';
 const near = (actual: number, expected: number) => assert.ok(Math.abs(actual - expected) < 1e-8, `${actual} != ${expected}`);
 test('perspective cycles first/rear/front and rejects stale saved settings', () => {
@@ -18,8 +19,8 @@ test('rear and front cameras follow yaw and pitch without changing aim or eye po
 });
 test('camera retracts before all walls, including diagonals and wide near planes', () => {
   for (const radius of [.18, .22, .3]) for (const sign of [-1, 1]) {
-    const p = clipCamera({ x: 15 * sign, y: 1.6, z: 15 * sign }, { x: 18 * sign, y: 1.6, z: 18 * sign }, radius);
-    assert.ok(Math.abs(p.x) < 16 - radius); assert.ok(Math.abs(p.z) < 16 - radius); assert.ok(Math.abs(p.x) >= 15);
+    const p = clipCamera({ x: (ARENA_SIZE / 2 - 1) * sign, y: 1.6, z: (ARENA_SIZE / 2 - 1) * sign }, { x: (ARENA_SIZE / 2 + 2) * sign, y: 1.6, z: (ARENA_SIZE / 2 + 2) * sign }, radius);
+    assert.ok(Math.abs(p.x) < ARENA_SIZE / 2 - radius); assert.ok(Math.abs(p.z) < ARENA_SIZE / 2 - radius); assert.ok(Math.abs(p.x) >= ARENA_SIZE / 2 - 1);
   }
 });
 test('camera cannot tunnel through tall cover, cap edges, low cover, or lanterns', () => {

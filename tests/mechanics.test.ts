@@ -83,7 +83,7 @@ test('melee uses a three-block ray and respects cover', () => {
 });
 test('knockback cannot tunnel through cover or arena walls', () => {
   const p = body(); Object.assign(p, { x: 0, z: 3, vx: 0, vz: -300, grounded: false, y: .1 }); move(p, idleInput()); assert.ok(p.z >= 1.84 - 1e-8); assert.equal(p.vz, 0);
-  Object.assign(p, { x: 15, z: 12, vx: 300, vz: 0 }); move(p, idleInput()); assert.equal(p.x, LIMIT); assert.equal(p.vx, 0);
+  Object.assign(p, { x: LIMIT - .2, z: 12, vx: 300, vz: 0 }); move(p, idleInput()); assert.equal(p.x, LIMIT); assert.equal(p.vx, 0);
 });
 test('replayed movement retains knockback and sprint lock exactly', () => {
   const { s, a, b } = duel(); a.sprinting = true; s.melee(a);

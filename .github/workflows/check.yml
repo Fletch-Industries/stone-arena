@@ -22,6 +22,8 @@ jobs:
             sleep 1
           done
           npx tsx tests/room-lifecycle.ts
+          npx tsx tests/lobby-discovery.ts
+          npx tsx tests/exploration.ts
           npx tsx tests/multiplayer.ts
           npx tsx tests/healing-multiplayer.ts
           npx tsx tests/totem-multiplayer.ts
