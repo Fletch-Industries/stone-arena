@@ -48,6 +48,7 @@ export function sculptTarget(p: StoneSinger, world: WorldState, mend = false, pl
     if (segmentBox(a, b, [box.x - box.w / 2, box.y ?? 0, box.z - box.d / 2], [box.x + box.w / 2, (box.y ?? 0) + box.h, box.z + box.d / 2]) < nearest - .001) { reason = 'Aim past your runes at native ground'; break; }
   }
   if (!((world.upgrades ?? 0) & ECHO_CHISEL)) reason = 'Weave Echo chisel at a waystone loom first';
+  else if (!world.excavation) reason = 'The stone song is arriving…';
   else if (mend && !existing) reason = 'Aim at an excavated edge to mend it';
   else if (mend && existing!.owner !== p.id && !allowMend) reason = 'This opening belongs to another explorer';
   else if (!mend && existing) reason = 'That stone is already open';

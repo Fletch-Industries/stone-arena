@@ -19,7 +19,7 @@ export class StoneReceiver {
   expire(now: number) { if (this.transfer && now - this.transfer.at > STONE_SYNC.timeout) { this.clear(); return true; } return false; }
   changes(changes: ExcavationChanges) {
     const transfer = this.transfer;
-    if (!transfer || !changes || changes.seed !== transfer.state.seed || !Array.isArray(changes.edits) || (transfer.edits += changes.edits.length) > STONE_SYNC.bufferedEdits) { this.clear(); return false; }
+    if (!transfer || !changes || changes.seed !== transfer.state.seed || !Array.isArray(changes.edits) || !changes.edits.length || changes.edits.length > 64 || (transfer.edits += changes.edits.length) > STONE_SYNC.bufferedEdits) { this.clear(); return false; }
     transfer.changes.push(changes); return true;
   }
   receive(packet: StonePacket, now: number): { seed: number; excavation: Excavation } | false | undefined {

@@ -29,6 +29,7 @@ test('large terrain synchronization is paced, atomic and includes edits made dur
   receiver.receive(packets[0],0);assert(receiver.expire(STONE_SYNC.timeout+1));assert(!receiver.active);
   receiver.receive(packets[0],0); assert.equal(receiver.receive(packets.at(-1)!,1),false);
   receiver.receive(packets[0],0); assert(!receiver.changes({seed:7919,revision:99999,edits:Array(257).fill([1,1,-1,1,'a',false])}));
+  receiver.receive(packets[0],0); assert(!receiver.changes({seed:7919,revision:0,edits:[]}));
   assert.equal(receiver.receive({...packets[0],cuts:SCULPT.roomLimit+1} as StonePacket,0),false);
 });
 
@@ -176,6 +177,11 @@ test('a held stone song mines from authenticated aim without trusting submitted 
   control(sim, p, target.stratum.ticks - 2); assert.equal(sim.world.excavation!.size, 0);
   control(sim, p, 1); assert.equal(sim.world.excavation!.size, 1); assert.equal(sim.world.excavation!.get(target.x, target.y, target.z)!.owner, p.id); assert(!sim.world.excavation!.get(999, -12, 999));
   assert.equal(p.kills, 0); assert.equal(p.damage, 0); assert.equal(guest.xp, 0);
+});
+
+test('a reconnecting chisel waits for its complete terrain store before previewing an edit', () => {
+  const {sim,p}=surfaceFixture(),loading={...sim.world,excavation:undefined};
+  for(const mend of [false,true]){const target=sculptTarget(p,loading,mend);assert(target);assert.equal(target.valid,false);assert.match(target.reason,/arriving/);}
 });
 
 test('release, tool switching and stale controls cancel unfinished mining', () => {
