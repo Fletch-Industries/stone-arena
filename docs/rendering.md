@@ -229,3 +229,40 @@ sharing construction geometry and instancing. Its healing is server-authoritativ
 and checks cover, health and damage-free rest. Version-2 world saves retain
 pantry/upgrades; version-1 worlds remain readable. Restoring a world renews resource
 patches and resets personal state rather than restoring mid-flight players.
+
+
+## Living Wilds and field guide
+
+Four original habitat companions and eight optional Shade Wardens use the shared
+server ecosystem. Each room keeps at most 32 actors, including up to five owned
+companions. Interest updates run once per second, steering and terrain collision
+at 20Hz; unowned distant actors retire and seeded nest metadata has a 512-entry
+cache. Compact centimeter-precision poses accompany snapshots; clients cannot
+submit creature positions, stock or ownership.
+
+`client/creatures.ts` uses six fixed-capacity instanced meshes per species, shared
+body/crystal geometry, original fur and shell maps, contact patches and companion
+hearts. Smoothed poses drive legs, hops, ears, tails, ribbon fins and blinks. One
+fixed geometry holds at most eight warning circles, following the exact terrain
+triangles so hills do not hide the pulse radius. Terrain positions update only
+when a warning's locked center changes. There are no creature point lights,
+dynamic shadows or additional render passes. Reduced motion freezes decorative
+animation while preserving the essential attack countdown and warning.
+
+Creature calls, bonding/scouting cues and Warden effects use the existing original
+synth and 32-voice ceiling. Calls schedule only near an explorer in an active,
+visible Wilds tab. The atlas field guide uses scrolling phone layouts and buttons
+at least 44 CSS pixels high. Portable version-3 worlds save shared species and
+freed-Warden masks without names or companion identities; versions 1 and 2 remain
+supported.
+
+On October 3, 2026, the development renderer on an M4 Mac with all 32 visual
+creatures and six simultaneous warning circles sustained about 120 FPS and an
+8.4 ms 95th-percentile frame interval after streaming settled. High at 1280×720
+kept 81 resident chunks, 257 draws and roughly 289,000 triangles. Low with reduced
+motion at 852×393 kept 25 chunks, 137 draws and roughly 51,000 triangles. Browser
+logs were free of warnings and shader errors after the final changes. These are
+desktop measurements at a phone viewport, not physical-phone benchmarks or a
+claim about playtesting with children. Separate ordinary two-client tests cover
+bonding, scouting, aim/cover, shields, defeating a Warden, reconnecting and saving
+progress; unit tests cover five explorers sharing the bounded actor pool.

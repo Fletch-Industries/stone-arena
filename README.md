@@ -34,8 +34,8 @@ distance appear on the HUD. Discovery persists through rematches and reconnects.
 Travel preserves health, equipment and supplies. Combat works between players in
 the same area. Capture-the-flag objectives stay in the citadel: entering the tunnel
 drops a carried flag. Gather magical supplies, craft shared exploration upgrades,
-weave original structures, and keep a portable world save. Terrain mining and
-creature encounters are still ahead.
+weave original structures, befriend creatures, and keep a portable world save.
+Terrain mining is still ahead.
 
 Follow the **Dawn, Tide and Dusk skyshard beacons** in the Wilds. Touch each
 floating rune to collect it. Find all three to earn a **Warden aura** visible to
@@ -119,6 +119,30 @@ second after five damage-free seconds. Cover blocks its effect. It cannot revive
 players. Shared supplies and upgrades survive rematches, reconnects and world saves;
 arrows and personal flight state reset each round.
 
+## Grove friends and Shade Wardens
+
+Meet **Mosskips**, **Moonwhisks**, **Emberlugs** and **Tidewings** in their seeded
+habitats. Aim at one nearby and press **R**, or tap its prompt, to offer one favorite
+party supply. Each explorer has one companion. A heart marks yours; it follows
+you, and you can ask it to **Scout for supplies** every twelve seconds. Scouting
+guides your compass toward a fresh patch without spending another supply.
+Friends cannot steal or hurt your companion. Open **Atlas → Field guide** to see
+species discoveries, track their food or let your companion wander.
+
+**Shade Wardens** rest beside the eight waystone ruins. Challenge one with R or
+its prompt, or strike it, when you want an encounter. Its violet ground circle
+locks before the pulse: move clear, or face the Warden and hold your shield.
+Strike during recovery to free it, earn armor XP and find shared supplies. A
+freed Warden stays peaceful. These encounters are optional; in Co-op expedition,
+an explorer scattered by a Warden returns at the arrival clearing after five
+seconds with discoveries and earned armor intact. Survival modes keep one life.
+
+Original fur and shell textures, moving legs, leaf antlers, crystal tails,
+floating ribbon fins, creature calls and pulse cues give the Wilds their own
+character. The server simulates at most **32 creatures per room**, shared by all
+explorers. Field guide discoveries and freed Wardens survive rematches and world
+saves; companions begin a fresh journey each round.
+
 ## Weave your own world
 
 Press **B** or tap **Rune build** in the Wilds to hold a crystal weaving wand.
@@ -141,11 +165,13 @@ Rune structures remain in the room across rematches and reconnects.
 Open **Saved worlds** in the lobby or Settings. The host's browser automatically
 keeps up to **three recent worlds**, saving changes about every ten seconds and
 when leaving normally. **Download this world** makes a portable JSON file that
-contains terrain seed, buildings, shared supplies/upgrades, the open door and awakened waystones. Restore a
+contains terrain seed, buildings, shared supplies/upgrades, the open door,
+awakened waystones, field guide discoveries and freed Wardens. Restore a
 recent world or open its file **as a lobby host**, then everyone readies again.
 Health, arrows and personal skyshards start fresh; player names and combat stats
 are excluded. Resource patches regrow when restoring a world. Earlier version-1
 world files remain supported, with an empty pantry and upgrades ready to craft.
+Version-2 files keep supplies and upgrades; both earlier formats start a fresh field guide.
 Restored structures belong to the world; the host and co-op friends
 can edit them. Browser storage can be cleared or unavailable: keep a downloaded
 file for anything you want to retain. Rooms are still temporary and server restarts

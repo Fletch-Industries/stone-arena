@@ -6,12 +6,27 @@ import { FORAGE, Forage, gatherTarget, SUPPLIES } from '../shared/forage.js';
 import { craftReason, hearthNear, recipeFor } from '../shared/crafting.js';
 import { HEARTHSTONE } from '../shared/sailing.js';
 import { HOME_WAYSTONE, nearbyWaystone, waystoneSites } from '../shared/waystones.js';
-import { nearSecret, SECRET, WORLD_LIMIT, type Realm, type WorldState } from '../shared/world.js';
+import { WILDLIFE, guardianRay } from '../shared/creatures.js';
+import { Ecosystem, type Creature, type EcosystemHooks } from './ecosystem.js';
+import { nearSecret, SECRET, WORLD_LIMIT, terrainHeight, type Realm, type WorldState } from '../shared/world.js';
 import { CTF, MODES, isTeamMode, TEAMS, LIMIT, type Mode, type Team, type Flag, APPLE, TOTEM, ARMOR_TIERS, armorTier, MELEE, attackStrength, meleeRecovery, knockback, DT, EYE, HEIGHT, SPAWNS, direction, idleInput, move, segmentBox, wallHit, type Arrow, type GameEvent, type Input, type Player, type Snapshot, type Phase } from '../shared/game.js';
 
+interface WorldActor { worldEnemy: true; id: string; name: string; x: number; z: number; realm: 'wilds' }
 export class Simulation {
   world: WorldState;
-  constructor(seed = 7919) { this.world = { seed: seed >>> 0, doorOpen: false, waystones: 1, construction: new Construction(), forage: new Forage(), supplies: [0, 0, 0], upgrades: 0 }; }
+  ecosystem = new Ecosystem();
+  private ecologyHooks: EcosystemHooks = { event: e => this.event(e), hurt: (p, c, n) => this.worldStrike(p, c, n), reward: (p, n, damage) => { if (damage) p.damage += n; this.earnXp(p, n); } };
+  constructor(seed = 7919) { this.world = { seed: seed >>> 0, doorOpen: false, waystones: 1, construction: new Construction(), forage: new Forage(), supplies: [0, 0, 0], upgrades: 0, bonds: 0, guardians: 0 }; }
+  creature(id: string, action?: unknown) {
+    const p = this.players.get(id);
+    if (this.phase !== 'active' || !p?.alive || !p.connected || p.realm !== 'wilds' || p.block || p.charge > 0 || action !== 'release' && this.tick < (p.friendReadyAt ?? 0) || p.hurtTime > 0 || !this.rested(id)) return false;
+    if (!this.ecosystem.interact(p, this.world, this.tick, this.ecologyHooks, action)) return false;
+    const scouting=action===undefined&&[...this.ecosystem.creatures.values()].some(c=>c.owner===id&&c.state==='scout');
+    p.friendReadyAt = this.tick + (scouting?WILDLIFE.scoutSeconds*60:39); p.immuneUntil = 0; return true;
+  }
+  worldStrike(p: Player, c: Creature, amount: number) {
+    return this.damage(p, { worldEnemy: true, id: `wild:${c.id}`, name: 'Shade Warden', x: c.x, z: c.z, realm: 'wilds' }, amount, false, { projectile: true, strength: 5 });
+  }
   rested(id: string) { return ![...(this.damageHistory.get(id)?.values() ?? [])].some(at => this.tick - at < 300); }
   gather(id: string) {
     const p = this.players.get(id);
@@ -34,7 +49,7 @@ export class Simulation {
   restore(id: string, save: unknown) {
     if (id !== this.host || this.phase !== 'waiting' || !this.players.get(id)?.connected) return false;
     const world = restoreWorld(save); if (!world) return false;
-    this.world = world; this.history = []; this.arrows = []; this.resetFlags();
+    this.world = world; this.ecosystem.clear(); this.history = []; this.arrows = []; this.resetFlags();
     for (const p of this.players.values()) { p.ready = false; this.inputs.set(p.id, { ...idleInput(), seq: p.ack }); this.lastInput.delete(p.id); }
     this.positionPlayers(); return true;
   }
@@ -115,7 +130,7 @@ export class Simulation {
   }
   spawn(p: Player, index: number) {
     const s = !isTeamMode(this.mode) ? SPAWNS[(index + this.round * 2) % SPAWNS.length] : [p.team === 'red' ? -43 : 43, (index - 1) * 5];
-    Object.assign(p, { glideTime: 0, glideCooldown: 0, glideHeld: false, gatherReadyAt: 0, craftReadyAt: 0, weaving: false, weaveReadyAt: 0, warpTick: -1000, warpReadyAt: 0, dashTime: 0, dashHeld: false, dashCooldown: 0, realm: 'arena', x: s[0], z: s[1], y: 0, vy: 0, vx: 0, vz: 0, grounded: true, sprinting: false, sprintLocked: false, yaw: Math.atan2(s[0], s[1]), pitch: 0 });
+    Object.assign(p, { glideTime: 0, glideCooldown: 0, glideHeld: false, gatherReadyAt: 0, craftReadyAt: 0, friendReadyAt: 0, weaving: false, weaveReadyAt: 0, warpTick: -1000, warpReadyAt: 0, dashTime: 0, dashHeld: false, dashCooldown: 0, realm: 'arena', x: s[0], z: s[1], y: 0, vy: 0, vx: 0, vz: 0, grounded: true, sprinting: false, sprintLocked: false, yaw: Math.atan2(s[0], s[1]), pitch: 0 });
   }
   positionPlayers() { let n = 0; const teams = { red: 0, blue: 0 }; for (const p of this.players.values()) this.spawn(p, !isTeamMode(this.mode) ? n++ : teams[p.team]++); }
   dropFlag(id: string) {
@@ -160,6 +175,7 @@ export class Simulation {
   respawn(p: Player) {
     Object.assign(p, { alive: true, hp: 100, respawnAt: 0, immuneUntil: this.tick + CTF.protectionTicks, weapon: 'sword', offhand: 'shield', ammo: 20, apples: APPLE.count, totems: TOTEM.count, block: false, charge: 0, cooldown: 0, loaded: false, shieldDisabled: 0, hurtTime: 0, lastDamage: 0, shieldRaise: 0, swingWait: 0, moveSpeed: 0 });
     const team = [...this.players.values()].filter(q => q.team === p.team); this.spawn(p, team.indexOf(p));
+    if (this.mode === 'expedition') Object.assign(p, { realm: 'wilds', x: 0, z: -5, y: terrainHeight(0, -5, this.world.seed), yaw: 0, pitch: 0, warpTick: this.tick });
     this.inputs.set(p.id, { ...idleInput(), seq: p.ack, yaw: p.yaw }); this.lastInput.delete(p.id); this.lastAttack.set(p.id, false); this.attackPress.delete(p.id); this.attackRelease.delete(p.id); this.damageHistory.delete(p.id);
   }
   event(e: Omit<GameEvent, 'id'>) { this.events.push({ ...e, id: ++this.nextEvent }); this.events = this.events.slice(-24); }
@@ -168,7 +184,7 @@ export class Simulation {
     const ps = [...this.players.values()];
     if (id !== this.host || this.phase !== 'waiting' || !ps.every(p => p.connected && p.ready) || (practice ? ps.length !== 1 : ps.length < (this.mode === 'expedition' ? 1 : 2))) return false;
     if (!practice && isTeamMode(this.mode) && !this.balanced()) return false;
-    this.resetFlags();
+    this.resetFlags(); this.ecosystem.clear();
     this.practice = practice && this.mode !== 'expedition'; this.round++; this.phase = 'countdown'; this.countdown = 5; this.result = ''; this.winner = ''; this.arrows = []; this.events = []; this.damageHistory.clear();
     for (const p of ps) { Object.assign(p, { relics: 0, respawnAt: 0, immuneUntil: 0, captures: 0, flagReturns: 0, hp: 100, xp: 0, alive: true, weapon: 'sword', offhand: 'shield', block: false, ammo: 20, apples: APPLE.count, totems: TOTEM.count, kills: 0, damage: 0, assists: 0, cooldown: 0, charge: 0, loaded: false, shieldDisabled: 0, hurtTime: 0, lastDamage: 0, shieldRaise: 0, swingWait: 0, moveSpeed: 0, vx: 0, vz: 0, sprinting: false, sprintLocked: false, eliminatedAt: 0, ack: 0 }); this.inputs.set(p.id, idleInput()); this.lastAttack.set(p.id, false); }
     this.history = []; this.attackPress.clear(); this.attackRelease.clear(); this.positionPlayers(); return true;
@@ -194,7 +210,7 @@ export class Simulation {
   lobby(id: string) {
     if (id !== this.host || (this.phase !== 'results' && !this.practice && !(this.mode === 'expedition' && this.phase === 'active'))) return;
     if (this.phase === 'results' && this.tick - this.resultTime < 180) return;
-    this.phase = 'waiting'; this.practice = false; this.arrows = []; this.resetFlags();
+    this.phase = 'waiting'; this.practice = false; this.arrows = []; this.ecosystem.clear(); this.resetFlags();
     for (const [key, p] of this.players) { if (this.departed.has(key)) this.removePlayer(key); else { p.ready = false; p.respawnAt = 0; p.immuneUntil = 0; p.captures = p.flagReturns = 0; p.xp = 0; p.apples = APPLE.count; p.totems = TOTEM.count; p.charge = 0; p.alive = true; p.hp = 100; p.hurtTime = 0; p.block = false; p.shieldRaise = 0; p.moveSpeed = 0; } }
     this.positionPlayers();
   }
@@ -241,36 +257,42 @@ export class Simulation {
     if (!this.practice || this.phase !== 'active' || this.players.size !== 1 || !player?.alive || !player.connected || ![1, 2, 3].includes(level as number)) return false;
     player.xp = ARMOR_TIERS[(level as number) - 1].xp; return true;
   }
-  damage(target: Player, actor: Player, amount: number, axe = false, hit: { strength?: number; critical?: boolean; sprintHit?: boolean; sweep?: boolean; projectile?: boolean; source?: { x: number; z: number }; force?: boolean } = {}) {
-    if (!target.alive || (!hit.force && (this.teammates(target, actor) || target.realm !== actor.realm || target.immuneUntil > this.tick))) return false;
+  damage(target: Player, actor: Player | WorldActor, amount: number, axe = false, hit: { strength?: number; critical?: boolean; sprintHit?: boolean; sweep?: boolean; projectile?: boolean; source?: { x: number; z: number }; force?: boolean } = {}) {
+    const enemy = 'worldEnemy' in actor;
+    if (!target.alive || (!hit.force && ((!enemy && this.teammates(target, actor)) || target.realm !== actor.realm || target.immuneUntil > this.tick))) return false;
     const source = hit.source ?? actor, facing = direction(target.yaw);
     const dx = source.x - target.x, dz = source.z - target.z;
     const blocked = !hit.force && target.offhand === 'shield' && target.block && target.shieldDisabled <= 0 && target.shieldRaise >= .25 && facing.x * dx + facing.z * dz > 0;
     if (blocked) {
       // Modern Java weapon component: axes disable a successfully blocked shield.
       if (axe) { target.shieldDisabled = 5; target.block = false; target.shieldRaise = 0; }
-      if (!hit.projectile) knockback(actor, dx, dz, 10);
-      this.event({ type: 'hit', actor: actor.id, target: target.id, blocked: true }); return false;
+      if (!hit.projectile && !enemy) knockback(actor, dx, dz, 10);
+      this.event({ type: 'hit', actor: actor.id, target: target.id, realm: enemy ? 'wilds' : undefined, position: enemy ? { x: target.x, y: target.y + 1, z: target.z } : undefined, blocked: true }); return false;
     }
     const original = amount, immune = !hit.force && target.hurtTime > 0;
     if (immune) { if (amount <= target.lastDamage) return false; amount -= target.lastDamage; }
     else if (!hit.force) target.hurtTime = .5;
-    target.lastDamage = original; target.craftReadyAt = Math.max(target.craftReadyAt ?? 0, this.tick + 300); target.gatherReadyAt = Math.max(target.gatherReadyAt ?? 0, this.tick + 300); target.glideTime = 0; target.glideCooldown = Math.max(target.glideCooldown ?? 0, 5);
+    target.lastDamage = original; target.craftReadyAt = Math.max(target.craftReadyAt ?? 0, this.tick + 300); target.gatherReadyAt = Math.max(target.gatherReadyAt ?? 0, this.tick + 300); target.friendReadyAt = Math.max(target.friendReadyAt ?? 0, this.tick + 300); target.glideTime = 0; target.glideCooldown = Math.max(target.glideCooldown ?? 0, 5);
     if (!hit.force) amount *= 1 - armorTier(this.combatXp?.get(target.id) ?? target.xp).reduction;
     const before = target.hp;
     const saved = !hit.force && amount > 0 && target.offhand === 'totem' && target.totems > 0 && before - amount <= TOTEM.health;
     target.hp = saved ? TOTEM.health : Math.max(0, before - amount);
-    amount = Math.max(0, before - target.hp); actor.damage += amount;
+    amount = Math.max(0, before - target.hp); if (!enemy) actor.damage += amount;
     if (amount > 0) target.warpReadyAt = Math.max(target.warpReadyAt ?? 0, this.tick + 300);
     if (saved) {
       target.totems--; target.charge = 0;
       this.event({ type: 'totem', actor: target.id, text: 'Totem used · Two hearts remaining' });
     }
-    if (!hit.force && actor.id !== target.id) this.earnXp(actor, amount);
+    if (!enemy && !hit.force && actor.id !== target.id) this.earnXp(actor, amount);
     if (!immune && !hit.force) knockback(target, -dx, -dz, hit.strength ?? 8);
     const history = this.damageHistory.get(target.id) ?? new Map<string, number>(); history.set(actor.id, this.tick); this.damageHistory.set(target.id, history);
-    this.event({ type: 'hit', actor: actor.id, target: target.id, blocked: false, critical: hit.critical, sprintHit: hit.sprintHit, sweep: hit.sweep });
-    if (target.hp <= 0) { target.alive = false; target.block = false; target.charge = 0; target.eliminatedAt = this.tick; this.dropFlag(target.id); if (this.mode === 'ctf' && !hit.force) target.respawnAt = this.tick + CTF.respawnTicks; actor.kills++; if (!hit.force && actor.id !== target.id) this.earnXp(actor, 50); for (const [id, at] of history) if (id !== actor.id && this.tick - at <= 300) { const assister = this.players.get(id); if (assister) assister.assists++; } this.event({ type: 'kill', actor: actor.id, target: target.id, text: `${actor.name} eliminated ${target.name}` }); }
+    this.event({ type: 'hit', actor: actor.id, target: target.id, realm: enemy ? 'wilds' : undefined, position: enemy ? { x: target.x, y: target.y + 1, z: target.z } : undefined, blocked: false, critical: hit.critical, sprintHit: hit.sprintHit, sweep: hit.sweep });
+    if (target.hp <= 0) {
+      target.alive = false; target.block = false; target.charge = 0; target.eliminatedAt = this.tick; this.dropFlag(target.id);
+      if (!hit.force && (this.mode === 'ctf' || this.mode === 'expedition' && enemy)) target.respawnAt = this.tick + CTF.respawnTicks;
+      if (!enemy) { actor.kills++; if (!hit.force && actor.id !== target.id) this.earnXp(actor, 50); for (const [id, at] of history) if (id !== actor.id && this.tick - at <= 300) { const assister = this.players.get(id); if (assister) assister.assists++; } }
+      this.event({ type: 'kill', actor: actor.id, target: target.id, realm: enemy ? 'wilds' : undefined, text: enemy ? `Shade Warden scattered ${target.name}${target.respawnAt?' · Return in five seconds':''}` : `${actor.name} eliminated ${target.name}` });
+    }
     return true;
   }
   random = Math.random;
@@ -286,10 +308,13 @@ export class Simulation {
     const rewind = Math.min(6, Math.max(0, this.rewindTicks.get(p.id) ?? 0));
     const past = rewind > 0 ? this.history.find(h => h.tick >= this.tick - rewind) : undefined;
     for (const q of this.players.values()) if (q.id !== p.id && q.alive && q.realm === p.realm && !this.teammates(p, q)) { const pose = past?.players.get(q.id) ?? q; if (pose.realm !== p.realm) continue; const t = segmentBox(a, b, [pose.x - .3, pose.y, pose.z - .3], [pose.x + .3, pose.y + HEIGHT, pose.z + .3]); if (t < nearest) { nearest = t; target = q; } }
-    if (target) {
+    const guardian = guardianRay(a, b, this.ecosystem.creatures.values(), p.realm);
+    const creature = guardian && guardian.t < nearest ? this.ecosystem.creatures.get(guardian.creature.id) : undefined;
+    if (creature) target = undefined;
+    if (target || creature) {
       const amount = (p.weapon === 'axe' ? MELEE.axe.damage : MELEE.sword.damage) * (.2 + .8 * strength * strength) * (critical ? 1.5 : 1);
-      const landed = this.damage(target, p, amount, p.weapon === 'axe', { strength: sprintHit ? 18 : 8, critical, sprintHit });
-      if (landed && sweep) for (const q of this.players.values()) {
+      const landed = creature ? this.ecosystem.hurt(creature, p, amount, this.world, this.ecologyHooks, sprintHit ? 18 : 8) : this.damage(target!, p, amount, p.weapon === 'axe', { strength: sprintHit ? 18 : 8, critical, sprintHit });
+      if (target && landed && sweep) for (const q of this.players.values()) {
         if (q.id === p.id || q.id === target.id || !q.alive || q.realm !== p.realm || this.teammates(p, q) || Math.hypot(q.x - p.x, q.z - p.z) >= 3 || Math.abs(q.y - target.y) > .5 || Math.abs(q.x - target.x) > 1.3 || Math.abs(q.z - target.z) > 1.3) continue;
         if (!Number.isFinite(wallHit(a, { x: q.x, y: q.y + 1, z: q.z }, p.realm, this.world))) this.damage(q, p, 5, false, { strength: 8, sweep: true });
       }
@@ -316,7 +341,7 @@ export class Simulation {
       return;
     }
     if (this.phase !== 'active') return;
-    if (this.mode === 'ctf') for (const p of this.players.values()) if (!p.alive && p.connected && p.respawnAt > 0 && this.tick >= p.respawnAt && !this.departed.has(p.id)) this.respawn(p);
+    if (this.mode === 'ctf' || this.mode === 'expedition') for (const p of this.players.values()) if (!p.alive && p.connected && p.respawnAt > 0 && this.tick >= p.respawnAt && !this.departed.has(p.id)) this.respawn(p);
     this.history.push({ tick: this.tick, players: new Map([...this.players].map(([id, p]) => [id, { x: p.x, y: p.y, z: p.z, realm: p.realm }])) });
     if (this.history.length > 8) this.history.shift();
     // Gather attacks before resolving them so attacks initiated in one tick are simultaneous.
@@ -377,13 +402,18 @@ export class Simulation {
       const owner = this.players.get(a.owner);
       let nearest = wallHit(old, a, a.realm ?? 'arena', this.world), target: Player | undefined;
       for (const p of this.players.values()) if (p.id !== a.owner && p.alive && p.realm === (a.realm ?? 'arena') && (!owner || !this.teammates(owner, p))) { const t = segmentBox(old, a, [p.x - .38, p.y, p.z - .38], [p.x + .38, p.y + HEIGHT, p.z + .38]); if (t < nearest) { nearest = t; target = p; } }
-      if (target && owner) {
+      const guardian = guardianRay(old, a, this.ecosystem.creatures.values(), a.realm ?? 'arena');
+      const creature = guardian && guardian.t < nearest ? this.ecosystem.creatures.get(guardian.creature.id) : undefined;
+      if (creature) { nearest = guardian!.t; target = undefined; }
+      if ((target || creature) && owner) {
         const base = Math.ceil(Math.hypot(a.vx, a.vy, a.vz) / 20 * 2);
         const amount = (base + (a.critical ? Math.floor(this.random() * (Math.floor(base / 2) + 2)) : 0)) * 5;
-        this.damage(target, owner, amount, false, { projectile: true, source: old, critical: a.critical });
+        if (creature) this.ecosystem.hurt(creature, owner, amount, this.world, this.ecologyHooks);
+        else this.damage(target!, owner, amount, false, { projectile: true, source: old, critical: a.critical });
       }
       return !Number.isFinite(nearest) && a.age < 4 && a.y > 0 && Math.abs(a.x) < (a.realm === 'wilds' ? WORLD_LIMIT : LIMIT) && (a.realm === 'wilds' ? Math.abs(a.z) < WORLD_LIMIT : a.z > SECRET.end - 1 && a.z < LIMIT);
     });
+    this.ecosystem.step([...this.players.values()], this.world, this.tick, this.ecologyHooks);
     this.combatXp = undefined;
     // Food cannot revive a same-tick death or finish a bite cancelled by a totem save.
     for (const { player: p, totems } of meals) if (p.totems === totems && p.alive && p.connected && p.apples > 0 && p.hp < 100) {
@@ -395,5 +425,5 @@ export class Simulation {
     }
     this.updateFlags(); this.checkWinner();
   }
-  snapshot(): Snapshot { return { world: { seed: this.world.seed, doorOpen: this.world.doorOpen, waystones: this.world.waystones, title: this.world.title, buildRevision: this.world.construction!.revision, forageRevision: this.world.forage!.revision, supplies: [...this.world.supplies!], upgrades: this.world.upgrades }, mode: this.mode, winnerTeam: this.winnerTeam, scores: { ...this.scores }, flags: this.flags.map(f => ({ ...f })), tick: this.tick, phase: this.phase, countdown: this.countdown, result: this.result, winner: this.winner, round: this.round, host: this.host, practice: this.practice, players: [...this.players.values()].map(p => ({ ...p, buildCount: this.world.construction!.count(p.id) })), arrows: this.arrows.map(a => ({ ...a })), events: this.events }; }
+  snapshot(): Snapshot { return { world: { seed: this.world.seed, doorOpen: this.world.doorOpen, waystones: this.world.waystones, title: this.world.title, buildRevision: this.world.construction!.revision, forageRevision: this.world.forage!.revision, supplies: [...this.world.supplies!], upgrades: this.world.upgrades, bonds: this.world.bonds, guardians: this.world.guardians }, creatures: this.ecosystem.wire(), mode: this.mode, winnerTeam: this.winnerTeam, scores: { ...this.scores }, flags: this.flags.map(f => ({ ...f })), tick: this.tick, phase: this.phase, countdown: this.countdown, result: this.result, winner: this.winner, round: this.round, host: this.host, practice: this.practice, players: [...this.players.values()].map(p => ({ ...p, buildCount: this.world.construction!.count(p.id) })), arrows: this.arrows.map(a => ({ ...a })), events: this.events }; }
 }

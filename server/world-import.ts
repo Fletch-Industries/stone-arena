@@ -7,7 +7,7 @@ export class WorldImport {
   begin(header: unknown, count: unknown, now: number) {
     this.upload = undefined;
     if (!validSaveHeader(header) || !Number.isInteger(count) || (count as number) < 0 || (count as number) > BUILD.roomLimit) return false;
-    this.upload = { header: { format: header.format, version: header.version, title: header.title, seed: header.seed, doorOpen: header.doorOpen, waystones: header.waystones, supplies: header.supplies ? [...header.supplies] : undefined, upgrades: header.upgrades }, count: count as number, blocks: [], started: now }; return true;
+    this.upload = { header: { format: header.format, version: header.version, title: header.title, seed: header.seed, doorOpen: header.doorOpen, waystones: header.waystones, supplies: header.supplies ? [...header.supplies] : undefined, upgrades: header.upgrades, bonds: header.bonds, guardians: header.guardians }, count: count as number, blocks: [], started: now }; return true;
   }
   chunk(offset: unknown, blocks: unknown, now: number) {
     const u = this.upload;

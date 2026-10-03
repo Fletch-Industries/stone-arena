@@ -1,5 +1,6 @@
 import { RuneConstruction } from './construction.js';
 import { ForageRenderer } from './forage.js';
+import { CreatureRenderer } from './creatures.js';
 import { SkySails } from './sail.js';
 import { vistaDistance } from '../shared/horizon.js';
 import { Atmosphere, SparkPool } from './atmosphere.js';
@@ -30,6 +31,7 @@ export class ArenaScene {
   avatars = new Map<string, THREE.Group>(); arrowMeshes = new Map<number, THREE.Mesh>(); weapon = new THREE.Group(); leftHand = new THREE.Group();
   textures = new TextureLibrary(); construction = new RuneConstruction(this.textures); weavePreview = false; erasePreview = false; surfaceMaterials = new Map<string, THREE.MeshLambertMaterial>();
   resources = new ForageRenderer(this.textures); sails = new SkySails(this.textures); flightTips = this.sails.make();
+  creatures = new CreatureRenderer(this.textures);
   flameAtlas = new FlameAtlas(); flames: THREE.MeshBasicMaterial[] = [];
   armorTime = { value: 0 };
   armorMaterials = [armorMaterial(this.textures.get('metal'), false, this.armorTime), armorMaterial(this.textures.get('metal'), true, this.armorTime)];
@@ -58,7 +60,7 @@ export class ArenaScene {
     Object.assign(this.sun.shadow.camera, { left: -72, right: 72, top: 72, bottom: -72, near: .5, far: 180 });
     this.sun.shadow.bias = -.00015; this.sun.shadow.normalBias = .035;
     this.scene.add(this.sun, this.sun.target, this.contactShadows);
-    this.worldDecor.add(this.construction.group, this.resources.group); this.scene.add(this.arena, this.terrain.group, this.worldDecor); this.worldDecor.visible = false;
+    this.worldDecor.add(this.construction.group, this.resources.group, this.creatures.group); this.scene.add(this.arena, this.terrain.group, this.worldDecor); this.worldDecor.visible = false;
     const floorGeo = new THREE.PlaneGeometry(ARENA_SIZE, ARENA_SIZE); this.repeatUV(floorGeo, ARENA_SIZE/3, ARENA_SIZE/3);
     const floor = new THREE.Mesh(floorGeo, this.surface('paving')); floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; this.arena.add(floor);
     // Unit masonry keeps a consistent pixel density. All wall blocks share one draw call.
@@ -269,8 +271,10 @@ export class ArenaScene {
     if(group===this.weapon){this.box(group,[.17,.19,.18],[0,-.02,.07],'#dab48b');this.box(group,[.15,.28,.17],[0,-.23,.22],'#355b65','cloth');}
   }
   event(e: GameEvent) {
+    this.creatures.event(e);
+    if(e.realm&&e.realm!==this.viewRealm)return;
     if (e.type === 'swing' || e.type === 'shot' || e.type === 'weave' || e.type === 'erase' || e.type === 'gather') { const rig = e.actor && this.rigs.get(e.actor); if (rig) rig.swing = 1; }
-    if (e.position && this.viewRealm === 'wilds' && !this.reduced && ['weave', 'erase', 'windlift', 'gather', 'craft', 'hearth'].includes(e.type)) this.sparks.burst(e.position.x, e.position.y, e.position.z, e.type === 'weave' || e.type === 'gather' ? '#9affde' : '#ffd59d', e.type === 'hearth' ? 4 : 12);
+    if (e.position && this.viewRealm === 'wilds' && !this.reduced && ['weave', 'erase', 'windlift', 'gather', 'craft', 'hearth', 'creature_bond', 'creature_blink', 'creature_clear', 'creature_hit'].includes(e.type)) this.sparks.burst(e.position.x, e.position.y, e.position.z, e.type === 'creature_hit' ? '#ddaeff' : e.type === 'weave' || e.type === 'gather' || e.type.startsWith('creature_') ? '#9affde' : '#ffd59d', e.type === 'hearth' ? 4 : e.type === 'creature_clear' ? 35 : 12);
     const g = this.avatars.get(e.target ?? e.actor ?? ''); if (g?.userData.realm === this.viewRealm && !this.reduced && ['hit','relic','totem','dash','level','flag_capture','waystone','warp'].includes(e.type)) this.sparks.burst(g.position.x,g.position.y+1,g.position.z,e.type === 'hit' ? e.blocked ? '#bdeaff' : '#ffcd83' : '#6dfff0',e.type === 'relic' ? 45 : 16);
   }
   render(dt: number, snapshot: Snapshot | undefined, me: Player | undefined, local: Body | undefined, yaw: number, pitch: number, playing: boolean, moving: boolean) {
@@ -309,6 +313,7 @@ export class ArenaScene {
     if (snapshot && wild) { this.waystoneLandmarks.build(snapshot.world.seed); this.waystoneLandmarks.update(this.camera.position.x,this.camera.position.z,this.time,snapshot.world.waystones ?? 1,this.reduced,vistaDistance(this.terrain.worker ? this.quality : 'low')); }
     if (snapshot) this.construction.update(snapshot.world, me && local ? { ...local, id: me.id, weaveKind: me.weaveKind, yaw, pitch } : follow, this.quality, this.time, wild && this.weavePreview && playing && !!me?.alive, this.erasePreview, snapshot.players, snapshot.mode === 'expedition' || snapshot.host === me?.id);
     if (snapshot && wild && follow) this.resources.update(snapshot.world, local && follow.id === me?.id ? { ...local, yaw, pitch } : follow, snapshot.tick, this.time, this.quality, this.reduced);
+    if(snapshot)this.creatures.update(snapshot.creatures??[],snapshot.world,this.camera,me?.id??'',this.time,dt,this.reduced,wild);
     this.flightTips.visible = !!me?.alive && !thirdPerson && !inspecting && wild && ((local?.glideTime ?? me?.glideTime ?? 0) > 0);
     if (this.flightTips.visible) this.sails.animate(this.flightTips, this.time, this.reduced);
     this.wildlife.update(this.camera.position.x,this.camera.position.z,snapshot?.world.seed ?? 0,this.time,this.quality,this.reduced,wild);

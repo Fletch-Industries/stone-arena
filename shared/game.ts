@@ -3,8 +3,9 @@ import { BUILD, validKind } from './construction.js';
 import { SAIL, SKY_SAIL } from './sailing.js';
 import { LIMIT } from './arena.js';
 import { movementLimit, terrainHeight, worldBoxes, type Realm, type WorldState } from './world.js';
+import type { CreatureWire } from './creatures.js';
 export { BOXES, LIMIT, SPAWNS, ARENA_SIZE, type Box } from './arena.js';
-export const VERSION = 13;
+export const VERSION = 14;
 export type Mode = 'ffa' | 'teams' | 'ctf' | 'expedition';
 export type Team = 'red' | 'blue';
 export const MODES = { ffa: 'Free for all', teams: 'Team survival', ctf: 'Capture the flag', expedition: 'Co-op expedition' } as const;
@@ -43,7 +44,7 @@ export interface Input { seq: number; x: number; z: number; yaw: number; pitch: 
 export const idleInput = (): Input => ({ seq: 0, x: 0, z: 0, yaw: 0, pitch: 0, jump: false, dash: false, sprint: false, block: false, attack: false, weapon: 'sword', offhand: 'shield' });
 export interface Body { glideTime?: number; glideCooldown?: number; glideHeld?: boolean; hurtTime?: number; dashTime?: number; dashCooldown?: number; dashYaw?: number; dashHeld?: boolean; realm?: Realm; x: number; y: number; z: number; vy: number; grounded: boolean; vx?: number; vz?: number; sprinting?: boolean; sprintLocked?: boolean }
 export interface Player extends Body {
-  weaving?: boolean; weaveKind?: number; weaveReadyAt?: number; buildCount?: number; gatherReadyAt?: number; craftReadyAt?: number;
+  weaving?: boolean; weaveKind?: number; weaveReadyAt?: number; buildCount?: number; gatherReadyAt?: number; craftReadyAt?: number; friendReadyAt?: number;
   warpTick?: number; warpReadyAt?: number;
   relics: number; realm: Realm; team: Team; respawnAt: number; immuneUntil: number; captures: number; flagReturns: number;
   id: string; name: string; color: number; yaw: number; pitch: number; hp: number; alive: boolean;
@@ -52,8 +53,8 @@ export interface Player extends Body {
   hurtTime: number; lastDamage: number; shieldRaise: number; swingWait: number; moveSpeed: number; cooldown: number; charge: number; loaded: boolean; shieldDisabled: number; eliminatedAt: number;
 }
 export interface Arrow { realm?: Realm; id: number; owner: string; x: number; y: number; z: number; vx: number; vy: number; vz: number; damage: number; age: number; critical?: boolean }
-export interface GameEvent { id: number; type: 'hit' | 'kill' | 'shot' | 'swing' | 'start' | 'result' | 'level' | 'heal' | 'totem' | 'flag_pickup' | 'flag_drop' | 'flag_return' | 'flag_capture' | 'door' | 'travel' | 'dash' | 'relic' | 'waystone' | 'warp' | 'weave' | 'erase' | 'windlift' | 'gather' | 'craft' | 'glide' | 'hearth'; actor?: string; target?: string; team?: Team; text?: string; position?: { x: number; y: number; z: number }; blocked?: boolean; critical?: boolean; sprintHit?: boolean; sweep?: boolean }
-export interface Snapshot { world: WorldState; mode: Mode; winnerTeam: Team | ''; scores: Record<Team, number>; flags: Flag[]; tick: number; phase: Phase; countdown: number; result: string; winner: string; round: number; host: string; practice: boolean; players: Player[]; arrows: Arrow[]; events: GameEvent[] }
+export interface GameEvent { id: number; type: 'hit' | 'kill' | 'shot' | 'swing' | 'start' | 'result' | 'level' | 'heal' | 'totem' | 'flag_pickup' | 'flag_drop' | 'flag_return' | 'flag_capture' | 'door' | 'travel' | 'dash' | 'relic' | 'waystone' | 'warp' | 'weave' | 'erase' | 'windlift' | 'gather' | 'craft' | 'glide' | 'hearth' | 'creature_bond' | 'creature_scout' | 'creature_blink' | 'creature_challenge' | 'creature_hit' | 'creature_pulse' | 'creature_clear'; actor?: string; target?: string; realm?: Realm; team?: Team; text?: string; position?: { x: number; y: number; z: number }; blocked?: boolean; critical?: boolean; sprintHit?: boolean; sweep?: boolean }
+export interface Snapshot { world: WorldState; creatures?: CreatureWire[]; mode: Mode; winnerTeam: Team | ''; scores: Record<Team, number>; flags: Flag[]; tick: number; phase: Phase; countdown: number; result: string; winner: string; round: number; host: string; practice: boolean; players: Player[]; arrows: Arrow[]; events: GameEvent[] }
 export function validInput(a: unknown): a is Input {
   if (!a || typeof a !== 'object') return false;
   const i = a as Input;

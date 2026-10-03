@@ -1,11 +1,22 @@
 import { BIOMES, biomeAt } from '../shared/biomes.js';
 import { HOME_WAYSTONE, nearbyWaystone, waystoneSites, awakenedCount } from '../shared/waystones.js';
 import type { Player, Snapshot } from '../shared/game.js';
+import { CREATURES, bondCount, guardianCount, creatureView } from '../shared/creatures.js';
+import { SUPPLIES } from '../shared/forage.js';
 const escape = (s: string) => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
 /** One cached terrain chart per room seed; current discovery and travel readiness stay live. */
 export class ConstellationAtlas {
   private seed = -1; private base = '';
+  page: 'map' | 'guide' = 'map';
   render(p: Player, snapshot: Snapshot, tracked?: number) {
+    const tabs=`<div class="atlas-tabs" role="tablist" aria-label="Atlas pages"><button class="btn" role="tab" aria-selected="${this.page==='map'}" data-action="atlas-page" data-page="map">Waystone map</button><button class="btn" role="tab" aria-selected="${this.page==='guide'}" data-action="atlas-page" data-page="guide">Field guide · ${bondCount(snapshot.world.bonds)}/4</button></div>`;
+    return tabs+(this.page==='guide'?this.guide(p,snapshot):this.chart(p,snapshot,tracked));
+  }
+  private guide(p:Player,s:Snapshot) {
+    const companion=(s.creatures??[]).map(creatureView).find(c=>c.owner===p.id),mask=s.world.bonds??0;
+    return `<div class="field-guide" role="tabpanel" aria-label="Field guide"><p>Befriend the Wilds. Aim at a grove creature and press R or tap its prompt to share one favorite supply. Your companion follows you; ask it to scout for fresh patches.</p><div class="guide-progress"><b>${bondCount(mask)}/4 grove friends</b><b>${guardianCount(s.world.guardians)}/8 Wardens freed</b></div>${companion&&companion.kind!==4?`<div class="companion-row"><span>Your companion: <b>${CREATURES[companion.kind].name}</b></span><button class="btn" data-action="release-creature" ${!p.alive||!p.connected||s.phase!=='active'?'disabled':''}>Let it wander</button></div>`:''}<div class="guide-cards">${CREATURES.map((c,k)=>`<article class="guide-card ${mask&1<<k?'befriended':''}" style="--creature-color:${c.color}"><i aria-hidden="true">${c.glyph}</i><div><h3>${c.name}</h3><small>${BIOMES[c.biome].name} · ${mask&1<<k?'Befriended ✓':'Find and befriend'}</small><p>${c.description}</p><button class="btn" data-action="track-creature-food" data-food="${c.food}">Find ${SUPPLIES[c.food].name}</button></div></article>`).join('')}</div><article class="guide-warden"><h3>Shade Wardens</h3><p>Violet guardians rest beside the eight waystone ruins. Challenge one when you are ready. Leave its glowing circle before the pulse, or face the Warden and hold your shield. Strike during recovery to free it and find party supplies.</p><p class="help">Co-op friends help each other and return at the arrival waystone after five seconds if scattered. Your field guide and freed Wardens stay with this world. A new round starts a fresh search for companions.</p></article></div>`;
+  }
+  private chart(p: Player, snapshot: Snapshot, tracked?: number) {
     const seed = snapshot.world.seed, stones = [HOME_WAYSTONE,...waystoneSites(seed)], mask = snapshot.world.waystones ?? 1, near = nearbyWaystone(p,seed), rest = Math.max(0,Math.ceil(((p.warpReadyAt??0)-snapshot.tick)/60));
     if (this.seed !== seed) {
       this.seed = seed; this.base = '';

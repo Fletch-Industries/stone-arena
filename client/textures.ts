@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-export type Surface = 'stone' | 'brick' | 'cobble' | 'paving' | 'wood' | 'metal' | 'cloth' | 'grass' | 'bark' | 'leaves' | 'rune' | 'wind-rune' | 'hearth-rune';
+export type Surface = 'stone' | 'brick' | 'cobble' | 'paving' | 'wood' | 'metal' | 'cloth' | 'grass' | 'bark' | 'leaves' | 'rune' | 'wind-rune' | 'hearth-rune' | 'spirit-fur' | 'lantern-shell';
 /** Original seamless pixel maps. No downloaded textures or game assets. */
 export class TextureLibrary {
   private maps = new Map<Surface, THREE.CanvasTexture>();
@@ -65,6 +65,15 @@ export class TextureLibrary {
         v = 166 + grain * 26 + fine; rgb = [v, v * .76, v * .53]; h = .5 + grain * .14;
       } else if (surface === 'leaves') {
         const vein = (x + y * 2) % 7 === 0; v = 183 + fine + coarse + (vein ? 25 : 0); rgb = [v * .85, v, v * .87]; h = .5;
+      } else if (surface === 'spirit-fur') {
+        const tuft = noise(Math.floor(x / 2), Math.floor(y / 3), 75) > .72;
+        v = 218 + fine + coarse * .5 - (tuft ? 18 : 0) + (y % 3 === 0 ? 9 : 0);
+        rgb = [v, v, v]; h = tuft ? .65 : .5;
+      } else if (surface === 'lantern-shell') {
+        const seam = (x + Math.floor(y / 8) * 4) % 16 < 2 || y % 8 < 2;
+        const speck = noise(x, y, 77) > .92;
+        v = seam ? 120 + fine : 214 + fine + (speck ? 29 : 0);
+        rgb = [v, v, v]; h = seam ? .2 : .8;
       } else if (surface === 'cloth') {
         v = 226 + (x % 2 === y % 2 ? 9 : -7) + fine;
         rgb = [v, v, v]; h = .5;

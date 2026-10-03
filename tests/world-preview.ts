@@ -6,6 +6,9 @@ import { placementReason, weaveTarget } from '../shared/weaving.js';
 import { hotbar, runePalette } from '../client/hotbar.js';
 import { ArenaAudio } from '../client/audio.js';
 import { ConstellationAtlas } from '../client/atlas.js';
+import { creatureHUD } from '../client/creature-hud.js';
+import { CREATURES, WILDLIFE, creatureNests, guardianNests, creatureClear, creatureWire, creatureCacheSize, type CreatureWire } from '../shared/creatures.js';
+import type { Creature } from '../server/ecosystem.js';
 import '../client/style.css';
 import { shardSites } from '../shared/expedition.js';
 import { BIOMES, biomeAt, type Biome } from '../shared/biomes.js';
@@ -21,6 +24,7 @@ const mobileQuery=matchMedia('(pointer: coarse), (max-width: 900px)');
 const mobileLayout=()=>document.body.classList.toggle('mobile',mobileQuery.matches);mobileLayout();mobileQuery.addEventListener('change',mobileLayout);
 const audio = new ArenaAudio(), atlas = new ConstellationAtlas(), atlasPanel = document.querySelector<HTMLElement>('#preview-atlas')!;
 let glide=false, previewLoom=false, resourceKind=0;
+let speciesKind=0,selectedCreature:Creature|undefined,shielding=false,visualPopulation:CreatureWire[]|undefined,lastCreatureHUD='';
 let weaving=false, weaveKind=0, weave=false, erase=false, jump=false, buildHudHTML='', demoBase:{x:number;y:number;z:number}|undefined;
 let dash=false, seq=0, eventId=0, tracked:number|undefined, lastAtlas=0, lastAtlasHTML='';
 let quality = 'medium', reduced=false, walking = false, previous = performance.now(), acc = 0, region = 0;
@@ -31,6 +35,7 @@ function atlasView() {
   if(lastAtlasHTML!==html){lastAtlasHTML=html;const scroll=atlasPanel.querySelector('.overlay')?.scrollTop??0;atlasPanel.innerHTML=html;atlasPanel.querySelector('.overlay')!.scrollTop=scroll;}
 }
 document.querySelector('#atlas')!.addEventListener('click',()=>{walking=false;previewLoom=false;atlasPanel.hidden=false;atlasView();});
+atlasPanel.addEventListener('click',e=>{const b=(e.target as HTMLElement).closest<HTMLElement>('[data-action]');if(b?.dataset.action==='atlas-page'&&(b.dataset.page==='map'||b.dataset.page==='guide')){atlas.page=b.dataset.page;atlasView();}if(b?.dataset.action==='release-creature'){sim.creature(p.id,'release');atlasView();}if(b?.dataset.action==='track-creature-food')atlasPanel.hidden=true;});
 atlasPanel.addEventListener('click',e=>{const button=(e.target as HTMLElement).closest<HTMLElement>('[data-action]');if(!button)return;const action=button.dataset.action,id=Number(button.dataset.waystone);if(action==='craft'){sim.craft(p.id,button.dataset.recipe);audio.enable();atlasView();}if(action==='track-supplies'){atlasPanel.hidden=true;}if(action==='warp'){audio.enable();sim.warp(p.id,id);atlasView();}if(action==='track-waystone'){tracked=id;atlasView();}if(action==='clear-track'){tracked=undefined;atlasView();}if(action==='close')atlasPanel.hidden=true;});
 document.querySelector('#biome')!.addEventListener('click',()=>{walking=false;const s=selectedSite();Object.assign(p,{realm:'wilds',x:s.x+8,z:s.z+15,y:terrainHeight(s.x+8,s.z+15,sim.world.seed),yaw:Math.atan2(8,15),pitch:.09});});
 document.querySelector('#center')!.addEventListener('click',()=>{walking=false;const s=selectedSite();Object.assign(p,{realm:'wilds',x:s.x,z:s.z,y:s.y,yaw:0,pitch:0});});
@@ -83,18 +88,35 @@ document.querySelector('#sky-flight')!.addEventListener('click',()=>{
   outer:for(let dx=12;dx<30;dx++)for(let dz=12;dz<30;dz++){const x=base.x+dx,z=base.z+dz,y=Math.ceil(terrainHeight(x+.5,z+.5,sim.world.seed));if(placementReason({x,y,z},sim.world))continue;sim.world.construction!.place({x,y,z,kind:5,owner:'flight-preview'});Object.assign(p,{realm:'wilds',x:x+.5,z:z+.5,y:y+1,grounded:true,vy:0,yaw:-Math.PI*.7,pitch:.08,glideCooldown:0,glideTime:0,glideHeld:false});break outer;}glide=true;audio.enable();buildHud();
 });
 document.querySelector('#sail-view')!.addEventListener('click',()=>{scene.perspective=scene.perspective==='first'?'rear':scene.perspective==='rear'?'front':'first';});
+function faceCreature(c:Creature){for(let n=0;n<16;n++){const a=n*Math.PI/8,x=c.x+Math.sin(a)*2.8,z=c.z+Math.cos(a)*2.8;if(!creatureClear(x,z,sim.world,false))continue;Object.assign(p,{realm:'wilds',x,z,y:terrainHeight(x,z,sim.world.seed),vy:0,vx:0,vz:0,grounded:true,yaw:Math.atan2(x-c.x,z-c.z),pitch:Math.atan2(c.y+(c.kind===4?1:.8)-terrainHeight(x,z,sim.world.seed)-1.62,2.8),glideTime:0});return;}}
+function showCreature(guardian=false){
+  walking=weaving=shielding=false;visualPopulation=undefined;sim.world.construction=new Construction();p.hp=100;p.alive=true;p.friendReadyAt=0;p.hurtTime=0;p.weapon='sword';scene.perspective='first';
+  const nests=guardian?guardianNests(sim.world.seed):Array.from({length:289},(_,n)=>creatureNests(n%17-8,Math.floor(n/17)-8,sim.world.seed)).flat().filter(n=>n.kind===speciesKind);
+  const nest=nests.sort((a,b)=>Math.hypot(a.x,a.z)-Math.hypot(b.x,b.z))[0];if(!nest)throw Error('Missing preview species');if(!guardian)speciesKind=(speciesKind+1)%4;
+  Object.assign(p,{realm:'wilds',x:nest.x,z:nest.z,y:nest.y});sim.ecosystem.clear();sim.step();selectedCreature=sim.ecosystem.creatures.get(nest.id)??sim.ecosystem.spawn(nest,sim.world);if(!selectedCreature)throw Error('Missing preview creature');faceCreature(selectedCreature);sim.damageHistory.clear();buildHud();
+}
+document.querySelector('#find-creature')!.addEventListener('click',()=>showCreature());
+document.querySelector('#creature-action')!.addEventListener('click',()=>{if(selectedCreature)faceCreature(selectedCreature);sim.creature(p.id);audio.enable();});
+document.querySelector('#find-warden')!.addEventListener('click',()=>showCreature(true));
+document.querySelector('#challenge-warden')!.addEventListener('click',()=>{sim.creature(p.id);audio.enable();});
+document.querySelector('#shield-warden')!.addEventListener('click',()=>{shielding=!shielding;if(selectedCreature)p.yaw=Math.atan2(p.x-selectedCreature.x,p.z-selectedCreature.z);});
+document.querySelector('#strike-warden')!.addEventListener('click',()=>{if(selectedCreature)faceCreature(selectedCreature);p.cooldown=0;p.weapon='sword';sim.melee(p);audio.enable();});
+document.querySelector('#creature-stress')!.addEventListener('click',()=>{walking=weaving=shielding=false;Object.assign(p,{realm:'wilds',x:22,z:-32,y:terrainHeight(22,-32,sim.world.seed),yaw:0,pitch:-.06,glideTime:0});visualPopulation=Array.from({length:WILDLIFE.limit},(_,n)=>{const x=p.x+(n%8-3.5)*3,z=p.z-4-Math.floor(n/8)*4,kind=n%5 as 0|1|2|3|4;return creatureWire({id:`visual:${n}`,kind,x,y:terrainHeight(x,z,sim.world.seed),z,yaw:Math.PI,hp:kind===4?120:100,state:kind===4?'windup':'wander',timer:.6,owner:n===0?p.id:'',aimX:x,aimZ:z});});buildHud();});
+document.querySelector('#creature-hud')!.addEventListener('click',e=>{if((e.target as HTMLElement).closest('[data-action=creature]')){sim.creature(p.id);audio.enable();}});
 function frame(now: number) {
   const elapsed = now - previous; previous = now; frames.push(elapsed); if (frames.length > 240) frames.shift();
   const dt = Math.min(.1, elapsed / 1000); acc = Math.min(.1, acc + dt);
-  while (acc >= DT) { acc -= DT; sim.input(p.id,{ ...idleInput(),seq:++seq,yaw:p.yaw,pitch:p.pitch,offhand:p.offhand,weapon:p.weapon,glide,z:walking?1:0,sprint:walking,dash,weaving,weaveKind,attack:weave,block:erase,jump });sim.step();glide=dash=weave=erase=jump=false; }
+  while (acc >= DT) { acc -= DT; sim.input(p.id,{ ...idleInput(),seq:++seq,yaw:p.yaw,pitch:p.pitch,offhand:p.offhand,weapon:p.weapon,glide,z:walking?1:0,sprint:walking,dash,weaving,weaveKind,attack:weave,block:erase||shielding,jump });sim.step();glide=dash=weave=erase=jump=false; }
   for(const e of sim.events)if(e.id>eventId){eventId=e.id;scene.event(e);audio.event(e,e.actor===p.id);}
-  audio.update(dt,p,p,true,.3,true,sim.world.seed);
+  audio.update(dt,p,p,true,.3,true,sim.world.seed,sim.ecosystem.wire());
   const snapshot=sim.snapshot(); snapshot.world.construction=sim.world.construction; snapshot.world.forage=sim.world.forage; scene.weavePreview=weaving; scene.erasePreview=erase;
+  if(visualPopulation)snapshot.creatures=visualPopulation;
+  const creature=creatureHUD(p,snapshot,mobileQuery.matches),creatureHTML=creature.prompt+creature.status;if(creatureHTML!==lastCreatureHUD){lastCreatureHUD=creatureHTML;document.querySelector('#creature-hud')!.innerHTML=creatureHTML;}
   scene.render(dt, snapshot, p, p, p.yaw, p.pitch, true, walking);
   if(!atlasPanel.hidden&&now-lastAtlas>120){lastAtlas=now;atlasView();}
   if(weaving)buildHud();
   const sorted = [...frames].sort((a, b) => a - b), p95 = sorted[Math.floor(sorted.length * .95)] ?? 0;
-  document.querySelector('#stats')!.textContent = `${scene.fps} FPS · p95 frame ${p95.toFixed(1)} ms\n${scene.terrain.chunks.size} resident chunks · ${scene.terrain.queue.length} queued\n${scene.renderer.info.render.calls} draw calls · ${scene.renderer.info.render.triangles} triangles\n${scene.renderer.info.memory.geometries} geometries · ${scene.renderer.info.memory.textures} textures\n${BIOMES[biomeAt(p.x,p.z,sim.world.seed)].name} · ${Math.round(p.x)}, ${Math.round(p.z)} · height ${p.y.toFixed(2)}\n${awakenedCount(sim.world.waystones)}/8 waystones · ${p.relics}/7 shard mask · near ${nearbyWaystone(p,sim.world.seed)?.name??'none'}\nHorizon: ${scene.terrain.horizon?'ready':'loading'} · Dash: ${(p.dashCooldown??0).toFixed(1)}s · Audio: ${audio.context?.state??'off'} / ${audio.voices} voices\nRunes: ${sim.world.construction!.size}/${BUILD.roomLimit} · ${scene.construction.visibleCount} visible · ${weaveTarget(p,sim.world)?.reason??'aim at ground'}\nWorker: ${scene.terrain.worker ? 'running' : 'fallback'} · ${scene.terrain.busy ? 'one request' : 'idle'}\nSupplies: ${sim.world.supplies!.join(" / ")} · Sky sail: ${((sim.world.upgrades ?? 0)&SKY_SAIL)?"woven":"locked"} · ${(p.glideTime ?? 0).toFixed(1)}s flight\nResources: ${scene.resources.visibleCount} patches · ${sim.world.forage!.size} regrowing · ${forageCacheSize()} cached\nCaches: ${treeCacheSize()} trees · ${terrainCacheSize()} heights`;
+  document.querySelector('#stats')!.textContent = `${scene.fps} FPS · p95 frame ${p95.toFixed(1)} ms\n${scene.terrain.chunks.size} resident chunks · ${scene.terrain.queue.length} queued\n${scene.renderer.info.render.calls} draw calls · ${scene.renderer.info.render.triangles} triangles\n${scene.renderer.info.memory.geometries} geometries · ${scene.renderer.info.memory.textures} textures\n${BIOMES[biomeAt(p.x,p.z,sim.world.seed)].name} · ${Math.round(p.x)}, ${Math.round(p.z)} · height ${p.y.toFixed(2)}\n${awakenedCount(sim.world.waystones)}/8 waystones · ${p.relics}/7 shard mask · near ${nearbyWaystone(p,sim.world.seed)?.name??'none'}\nHorizon: ${scene.terrain.horizon?'ready':'loading'} · Dash: ${(p.dashCooldown??0).toFixed(1)}s · Audio: ${audio.context?.state??'off'} / ${audio.voices} voices\nRunes: ${sim.world.construction!.size}/${BUILD.roomLimit} · ${scene.construction.visibleCount} visible · ${weaveTarget(p,sim.world)?.reason??'aim at ground'}\nWorker: ${scene.terrain.worker ? 'running' : 'fallback'} · ${scene.terrain.busy ? 'one request' : 'idle'}\nSupplies: ${sim.world.supplies!.join(" / ")} · Sky sail: ${((sim.world.upgrades ?? 0)&SKY_SAIL)?"woven":"locked"} · ${(p.glideTime ?? 0).toFixed(1)}s flight\nResources: ${scene.resources.visibleCount} patches · ${sim.world.forage!.size} regrowing · ${forageCacheSize()} cached\nCreatures: ${snapshot.creatures?.length??0}/${WILDLIFE.limit}${visualPopulation?" visual stress":" authoritative"} · ${creatureCacheSize()} groves cached · ${selectedCreature?.kind!==undefined?(selectedCreature.kind===4?"Shade Warden":CREATURES[selectedCreature.kind].name):"none"} · ${selectedCreature?.state??""}\nGuide: ${sim.world.bonds??0} bonds · ${sim.world.guardians??0} Wardens mask\nCaches: ${treeCacheSize()} trees · ${terrainCacheSize()} heights`;
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);

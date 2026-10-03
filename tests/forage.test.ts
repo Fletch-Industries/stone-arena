@@ -108,7 +108,7 @@ test('damage and realm travel fold sails while rematches retain world supplies a
   sim.phase='waiting';p.ready=guest.ready=true;assert(sim.start(p.id));assert.deepEqual(sim.world.supplies,[12,24,8]);assert.equal(sim.world.upgrades,3);assert.equal(p.glideTime,0);assert.equal(p.glideCooldown,0);
 });
 test('new saves preserve the pantry/upgrades, legacy saves load, and malformed progress is rejected', () => {
-  const {sim}=explorers();sim.world.supplies=[21,30,7];sim.world.upgrades=3;const saved=saveWorld(sim.world,'Wings and warmth');assert.equal(saved.version,2);const restored=restoreWorld(saved)!;assert.deepEqual(restored.supplies,[21,30,7]);assert.equal(restored.upgrades,3);assert.deepEqual(saveWorld(restored,saved.title),saved);
+  const {sim}=explorers();sim.world.supplies=[21,30,7];sim.world.upgrades=3;const saved=saveWorld(sim.world,'Wings and warmth');assert.equal(saved.version,3);const restored=restoreWorld(saved)!;assert.deepEqual(restored.supplies,[21,30,7]);assert.equal(restored.upgrades,3);assert.deepEqual(saveWorld(restored,saved.title),saved);
   const legacy={...saved,version:1 as const};delete legacy.supplies;delete legacy.upgrades;const old=restoreWorld(legacy)!;assert(old);assert.deepEqual(old.supplies,[0,0,0]);assert.equal(old.upgrades,0);
   for(const patch of [{supplies:[9999,0,0]},{supplies:[0,-1,0]},{supplies:[0,0]},{supplies:undefined},{upgrades:4},{upgrades:.5},{upgrades:undefined}])assert.equal(parseWorldSave(JSON.stringify({...saved,...patch})),undefined);
   const {blocks,...header}=saved, upload=new WorldImport();assert(upload.begin(header,0,0));assert.deepEqual(upload.finish(1),saved);
