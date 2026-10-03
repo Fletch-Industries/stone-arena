@@ -34,8 +34,8 @@ distance appear on the HUD. Discovery persists through rematches and reconnects.
 Travel preserves health, equipment and supplies. Combat works between players in
 the same area. Capture-the-flag objectives stay in the citadel: entering the tunnel
 drops a carried flag. Gather magical supplies, craft shared exploration upgrades,
-weave original structures, befriend creatures, and keep a portable world save.
-Terrain mining is still ahead.
+weave original structures, sing tunnels through the hills, befriend creatures,
+and keep a portable world save.
 
 Follow the **Dawn, Tide and Dusk skyshard beacons** in the Wilds. Touch each
 floating rune to collect it. Find all three to earn a **Warden aura** visible to
@@ -156,22 +156,43 @@ courses, elevated paths and hidden sky lodges possible. Rune effects, wand arcs,
 and gentle weave/erase sounds use the existing bounded animation and audio pools.
 
 Each explorer has room for **512 runes**, with **4,096 per world**. Erasing refunds
-space. Build above ground and below 64 blocks high. The arrival clearing,
+space. Build above ground or inside excavated caves, from −12 to below 64 blocks high. The arrival clearing,
 skyshards, waystones, native trees and other players remain clear. Construction
 rests for five seconds after damage. In co-op, friends can erase shared builds;
 competitive players erase their own runes, and the host can tidy any structure.
 Rune structures remain in the room across rematches and reconnects.
 
+Craft **Echo chisel** at an awakened waystone for **8 Lumen reeds, 16 Gleamstone
+and 4 Emberblooms**. Press **X / Shape stone** to hold its singing crystal fork.
+Hold left mouse / **Mine** to open native ground and cave walls within six blocks;
+hold right mouse / **Mend** at an excavated edge to restore it. A tracing glyph,
+beam, rising stone song and small hand motion show progress. Rootstone opens in
+0.65 seconds, Echo shale in 0.9 seconds, and glowing seams in 1.2 seconds.
+Lumen, Gleam and Emberglass seams form seeded deposits beneath the hills and
+yield four shared supplies per cell on their first mining. Mending and re-mining
+cannot renew that reward. Mending takes half a second and leaves room for players,
+reconnecting explorers, companions and woven runes.
+
+Each explorer can shape **2,048 openings**, with **8,192 per world** and **2,048
+rewarded seam cells**. Mending refunds opening space. The deepstone foundation at
+−12, tree roots and landmark foundations stay whole. Co-op friends can mend shared
+openings; competitive explorers mend their own, and hosts can tidy any opening.
+Damage pauses shaping for five seconds. Real cave floors and roofs block movement,
+jumps, dashes, arrows, melee and third-person cameras. This is bounded terrain
+shaping: water does not flow into excavations and stone has no collapse simulation.
+
 Open **Saved worlds** in the lobby or Settings. The host's browser automatically
 keeps up to **three recent worlds**, saving changes about every ten seconds and
 when leaving normally. **Download this world** makes a portable JSON file that
-contains terrain seed, buildings, shared supplies/upgrades, the open door,
+contains terrain seed, excavations, spent seams, buildings, shared supplies/upgrades, the open door,
 awakened waystones, field guide discoveries and freed Wardens. Restore a
 recent world or open its file **as a lobby host**, then everyone readies again.
 Health, arrows and personal skyshards start fresh; player names and combat stats
 are excluded. Resource patches regrow when restoring a world. Earlier version-1
 world files remain supported, with an empty pantry and upgrades ready to craft.
 Version-2 files keep supplies and upgrades; both earlier formats start a fresh field guide.
+Version-3 files keep the field guide. New version-4 files also retain mines and
+underground buildings; earlier files begin with intact native terrain.
 Restored structures belong to the world; the host and co-op friends
 can edit them. Browser storage can be cleared or unavailable: keep a downloaded
 file for anything you want to retain. Rooms are still temporary and server restarts

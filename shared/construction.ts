@@ -9,7 +9,7 @@ export const RUNE_KINDS = [
   { name: 'Windlift', color: '#76ddcd', glyph: '↑' },
   { name: 'Hearthstone', color: '#ffb77f', glyph: '♥' },
 ] as const;
-export const BUILD = { reach: 6, cooldown: 15, roomLimit: 4096, playerLimit: 512, maxHeight: 64, chunk: 16, windJump: 4 } as const;
+export const BUILD = { reach: 6, cooldown: 15, roomLimit: 4096, playerLimit: 512, minHeight: -12, maxHeight: 64, chunk: 16, windJump: 4 } as const;
 export interface RuneBlock { x: number; y: number; z: number; kind: number; owner: string }
 export type RuneTuple = [number, number, number, number, string];
 export type RuneEdit = [number, number, number, number, number | null, string?];
@@ -17,7 +17,7 @@ export interface ConstructionState { seed: number; revision: number; blocks: Run
 export interface ConstructionChanges { seed: number; revision: number; edits: RuneEdit[] }
 export const runeKey = (x: number, y: number, z: number) => `${x},${y},${z}`;
 const region = (x: number, z: number) => `${Math.floor(x / BUILD.chunk)},${Math.floor(z / BUILD.chunk)}`;
-export const validCell = (x: number, y: number, z: number) => [x, y, z].every(Number.isInteger) && Math.abs(x) < 4096 && Math.abs(z) < 4096 && y >= 0 && y < BUILD.maxHeight;
+export const validCell = (x: number, y: number, z: number) => [x, y, z].every(Number.isInteger) && Math.abs(x) < 4096 && Math.abs(z) < 4096 && y >= BUILD.minHeight && y < BUILD.maxHeight;
 export const validKind = (kind: unknown): kind is number => Number.isInteger(kind) && (kind as number) >= 0 && (kind as number) < RUNE_KINDS.length;
 const validOwner = (owner: unknown): owner is string => typeof owner === 'string' && /^[a-zA-Z0-9_:-]{1,40}$/.test(owner);
 const validRevision = (n: unknown): n is number => Number.isSafeInteger(n) && (n as number) >= 0 && (n as number) < 2 ** 31;

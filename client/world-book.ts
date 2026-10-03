@@ -1,4 +1,4 @@
-import { parseWorldSave, saveWorld, type WorldSave } from '../shared/world-save.js';
+import { parseWorldSave, saveWorld, SAVE_BYTES, type WorldSave } from '../shared/world-save.js';
 import type { WorldState } from '../shared/world.js';
 
 interface Memory { savedAt: number; world: WorldSave }
@@ -9,7 +9,7 @@ export class WorldBook {
   constructor() {
     try {
       const stored = localStorage.getItem('stone-world-book-v1');
-      if (!stored || stored.length > 600_000) return;
+      if (!stored || stored.length > SAVE_BYTES * 3 + 4096) return;
       const list = JSON.parse(stored); if (!Array.isArray(list) || list.length > 3) return;
       for (const memory of list) if (Number.isFinite(memory?.savedAt) && memory.savedAt > 0) { const world = parseWorldSave(JSON.stringify(memory.world)); if (world) this.entries.push({ savedAt: memory.savedAt, world }); }
     } catch { this.available = false; }

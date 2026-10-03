@@ -110,3 +110,5 @@ button.offhand{background:#111d25bd;border:1px solid #ffffff38;padding:3px 6px;m
   .mobile .hud.ctf:has(.warden-hud) .creature-hint{left:25%}
   .mobile .hud:has(.warden-hud) .creature-hint>b,.mobile .hud:has(.warden-hud) .creature-hint>small{display:none}
 }
+
+.stone-tool-card{display:flex;align-items:center;gap:12px;padding:9px 12px;border:1px solid #79c8b8;background:#142d32e8;border-radius:8px;max-width:480px;margin:auto}.stone-tool-card>span{font-size:38px;color:#a4f6e2}.stone-tool-card b,.stone-tool-card small{display:block}.stone-tool-card small{color:#b1ced0;font-size:12px}.stone-tool-card button{min-height:44px;margin-left:auto}

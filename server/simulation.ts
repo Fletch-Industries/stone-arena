@@ -1,6 +1,8 @@
 import { shardSites, shardCount } from '../shared/expedition.js';
 import { BUILD, Construction } from '../shared/construction.js';
 import { weaveTarget } from '../shared/weaving.js';
+import { Excavation, ECHO_CHISEL, SCULPT, stoneKey } from '../shared/excavation.js';
+import { sculptTarget } from '../shared/mining.js';
 import { restoreWorld } from '../shared/world-save.js';
 import { FORAGE, Forage, gatherTarget, SUPPLIES } from '../shared/forage.js';
 import { craftReason, hearthNear, recipeFor } from '../shared/crafting.js';
@@ -15,8 +17,33 @@ interface WorldActor { worldEnemy: true; id: string; name: string; x: number; z:
 export class Simulation {
   world: WorldState;
   ecosystem = new Ecosystem();
+  private stoneSongs = new Map<string, { key: string; ticks: number }>();
   private ecologyHooks: EcosystemHooks = { event: e => this.event(e), hurt: (p, c, n) => this.worldStrike(p, c, n), reward: (p, n, damage) => { if (damage) p.damage += n; this.earnXp(p, n); } };
-  constructor(seed = 7919) { this.world = { seed: seed >>> 0, doorOpen: false, waystones: 1, construction: new Construction(), forage: new Forage(), supplies: [0, 0, 0], upgrades: 0, bonds: 0, guardians: 0 }; }
+  constructor(seed = 7919) { this.world = { seed: seed >>> 0, doorOpen: false, waystones: 1, construction: new Construction(), excavation: new Excavation(), forage: new Forage(), supplies: [0, 0, 0], upgrades: 0, bonds: 0, guardians: 0 }; }
+  private clearSong(p: Player) { this.stoneSongs.delete(p.id); p.sculptProgress = 0; p.sculptCell = undefined; p.sculptMending = false; }
+  private sculpt(p: Player, held: boolean, mend: boolean): (() => void) | undefined {
+    if (!held || !p.sculpting || this.phase !== 'active' || !p.alive || !p.connected || p.realm !== 'wilds' || p.hurtTime > 0 || !this.rested(p.id)) { this.clearSong(p); return; }
+    const target = sculptTarget(p, this.world, mend, [...this.players.values(), ...this.ecosystem.creatures.values()], this.mode === 'expedition' || p.id === this.host);
+    if (!target?.valid) { this.clearSong(p); return; }
+    const key = `${stoneKey(target.x, target.y, target.z)}:${mend}`, duration = mend ? 30 : target.stratum.ticks;
+    let song = this.stoneSongs.get(p.id); if (song?.key !== key) { song = { key, ticks: 0 }; this.stoneSongs.set(p.id, song); }
+    song.ticks++; p.sculptCell = [target.x, target.y, target.z]; p.sculptMending = mend; p.sculptProgress = Math.min(100, Math.round(song.ticks / duration * 100));
+    if (song.ticks < duration) return;
+    // Completion follows combat so a same-tick death, hit or totem cancels the song.
+    return () => {
+      if (!p.alive || !p.connected || !p.sculpting || p.realm !== 'wilds' || !this.rested(p.id) || this.stoneSongs.get(p.id)?.key !== key) { this.clearSong(p); return; }
+      const current = sculptTarget(p, this.world, mend, [...this.players.values(), ...this.ecosystem.creatures.values()], this.mode === 'expedition' || p.id === this.host);
+      if (!current?.valid || `${stoneKey(current.x, current.y, current.z)}:${mend}` !== key) { this.clearSong(p); return; }
+      const cuts = this.world.excavation!, vein = current.stratum.vein, first = vein !== undefined && !cuts.claimed(current.x, current.y, current.z);
+      const changed = mend ? cuts.mend(current.x, current.y, current.z) : cuts.dig({ x: current.x, y: current.y, z: current.z, owner: p.id }, vein !== undefined);
+      if (changed) {
+        let text: string | undefined;
+        if (!mend && first) { const amount = Math.min(4, FORAGE.stockLimit - this.world.supplies![vein!]); this.world.supplies![vein!] += amount; text = `${current.stratum.name} sang · +${amount} ${SUPPLIES[vein!].name}`; }
+        p.immuneUntil = 0; this.event({ type: mend ? 'mend' : 'mine', actor: p.id, realm: 'wilds', text, position: { x: current.x + .5, y: current.y + .5, z: current.z + .5 } });
+      }
+      this.clearSong(p);
+    };
+  }
   creature(id: string, action?: unknown) {
     const p = this.players.get(id);
     if (this.phase !== 'active' || !p?.alive || !p.connected || p.realm !== 'wilds' || p.block || p.charge > 0 || action !== 'release' && this.tick < (p.friendReadyAt ?? 0) || p.hurtTime > 0 || !this.rested(id)) return false;
@@ -49,7 +76,7 @@ export class Simulation {
   restore(id: string, save: unknown) {
     if (id !== this.host || this.phase !== 'waiting' || !this.players.get(id)?.connected) return false;
     const world = restoreWorld(save); if (!world) return false;
-    this.world = world; this.ecosystem.clear(); this.history = []; this.arrows = []; this.resetFlags();
+    this.world = world; this.ecosystem.clear(); this.stoneSongs.clear(); this.history = []; this.arrows = []; this.resetFlags();
     for (const p of this.players.values()) { p.ready = false; this.inputs.set(p.id, { ...idleInput(), seq: p.ack }); this.lastInput.delete(p.id); }
     this.positionPlayers(); return true;
   }
@@ -71,7 +98,7 @@ export class Simulation {
     if ([...(this.damageHistory.get(id)?.values() ?? [])].some(at => this.tick - at < 300)) return false;
     const target = destination === 0 ? HOME_WAYSTONE : waystoneSites(this.world.seed).find(s => s.id === destination)!;
     if (target.id === source.id) return false;
-    Object.assign(p, { glideTime: 0, glideHeld: false, x: target.x, y: target.y, z: target.z, vx: 0, vz: 0, vy: 0, grounded: true, weaving: false, warpTick: this.tick, warpReadyAt: this.tick + 120, yaw: 0, pitch: 0, dashTime: 0, dashHeld: false, block: false, shieldRaise: 0, charge: 0, moveSpeed: 0, sprinting: false, sprintLocked: false, immuneUntil: 0 });
+    this.clearSong(p); Object.assign(p, { sculpting: false, glideTime: 0, glideHeld: false, x: target.x, y: target.y, z: target.z, vx: 0, vz: 0, vy: 0, grounded: true, weaving: false, warpTick: this.tick, warpReadyAt: this.tick + 120, yaw: 0, pitch: 0, dashTime: 0, dashHeld: false, block: false, shieldRaise: 0, charge: 0, moveSpeed: 0, sprinting: false, sprintLocked: false, immuneUntil: 0 });
     this.inputs.set(id, { ...idleInput(), seq: p.ack, offhand: p.offhand }); this.lastInput.delete(id); this.lastAttack.set(id, false); this.attackPress.delete(id); this.attackRelease.delete(id);
     this.arrows = this.arrows.filter(a => a.owner !== id);
     for (const frame of this.history) frame.players.delete(id);
@@ -88,7 +115,7 @@ export class Simulation {
     const back = p.realm === 'wilds' && p.z > 8 && p.z < 12 && Math.abs(p.x) < 1.6 && p.y < 2;
     if (!out && !back) return false;
     this.dropFlag(p.id);
-    Object.assign(p, { glideTime: 0, glideHeld: false, weaving: false, realm: out ? 'wilds' : 'arena', x: out ? 0 : SECRET.x, y: 0, z: out ? 0 : -61, vy: 0, vx: 0, vz: 0, grounded: true, yaw: out ? 0 : Math.PI, pitch: 0, block: false, charge: 0, sprinting: false, sprintLocked: false, immuneUntil: 0 });
+    this.clearSong(p); Object.assign(p, { sculpting: false, glideTime: 0, glideHeld: false, weaving: false, realm: out ? 'wilds' : 'arena', x: out ? 0 : SECRET.x, y: 0, z: out ? 0 : -61, vy: 0, vx: 0, vz: 0, grounded: true, yaw: out ? 0 : Math.PI, pitch: 0, block: false, charge: 0, sprinting: false, sprintLocked: false, immuneUntil: 0 });
     this.inputs.set(p.id, { ...idleInput(), seq: p.ack, yaw: p.yaw, offhand: p.offhand }); this.lastInput.delete(p.id); this.lastAttack.set(p.id, false); this.attackPress.delete(p.id); this.attackRelease.delete(p.id);
     this.arrows = this.arrows.filter(a => a.owner !== p.id);
     this.event({ type: 'travel', actor: p.id, text: out ? 'You discovered the Wilds · The return tunnel is behind you' : 'Back inside the Stone Citadel' }); return true;
@@ -130,7 +157,7 @@ export class Simulation {
   }
   spawn(p: Player, index: number) {
     const s = !isTeamMode(this.mode) ? SPAWNS[(index + this.round * 2) % SPAWNS.length] : [p.team === 'red' ? -43 : 43, (index - 1) * 5];
-    Object.assign(p, { glideTime: 0, glideCooldown: 0, glideHeld: false, gatherReadyAt: 0, craftReadyAt: 0, friendReadyAt: 0, weaving: false, weaveReadyAt: 0, warpTick: -1000, warpReadyAt: 0, dashTime: 0, dashHeld: false, dashCooldown: 0, realm: 'arena', x: s[0], z: s[1], y: 0, vy: 0, vx: 0, vz: 0, grounded: true, sprinting: false, sprintLocked: false, yaw: Math.atan2(s[0], s[1]), pitch: 0 });
+    this.clearSong(p); Object.assign(p, { sculpting: false, glideTime: 0, glideCooldown: 0, glideHeld: false, gatherReadyAt: 0, craftReadyAt: 0, friendReadyAt: 0, weaving: false, weaveReadyAt: 0, warpTick: -1000, warpReadyAt: 0, dashTime: 0, dashHeld: false, dashCooldown: 0, realm: 'arena', x: s[0], z: s[1], y: 0, vy: 0, vx: 0, vz: 0, grounded: true, sprinting: false, sprintLocked: false, yaw: Math.atan2(s[0], s[1]), pitch: 0 });
   }
   positionPlayers() { let n = 0; const teams = { red: 0, blue: 0 }; for (const p of this.players.values()) this.spawn(p, !isTeamMode(this.mode) ? n++ : teams[p.team]++); }
   dropFlag(id: string) {
@@ -189,9 +216,10 @@ export class Simulation {
     for (const p of ps) { Object.assign(p, { relics: 0, respawnAt: 0, immuneUntil: 0, captures: 0, flagReturns: 0, hp: 100, xp: 0, alive: true, weapon: 'sword', offhand: 'shield', block: false, ammo: 20, apples: APPLE.count, totems: TOTEM.count, kills: 0, damage: 0, assists: 0, cooldown: 0, charge: 0, loaded: false, shieldDisabled: 0, hurtTime: 0, lastDamage: 0, shieldRaise: 0, swingWait: 0, moveSpeed: 0, vx: 0, vz: 0, sprinting: false, sprintLocked: false, eliminatedAt: 0, ack: 0 }); this.inputs.set(p.id, idleInput()); this.lastAttack.set(p.id, false); }
     this.history = []; this.attackPress.clear(); this.attackRelease.clear(); this.positionPlayers(); return true;
   }
-  disconnect(id: string) { this.dropFlag(id); const p = this.players.get(id); if (p) { p.connected = false; p.ready = false; p.charge = 0; p.glideTime = 0; p.glideHeld = false; this.inputs.set(id, { ...idleInput(), offhand: p.offhand }); this.lastAttack.set(id, false); } this.transferHost(); }
+  disconnect(id: string) { this.dropFlag(id); const p = this.players.get(id); if (p) { this.clearSong(p); p.sculpting = false; p.connected = false; p.ready = false; p.charge = 0; p.glideTime = 0; p.glideHeld = false; this.inputs.set(id, { ...idleInput(), offhand: p.offhand }); this.lastAttack.set(id, false); } this.transferHost(); }
   transferHost() { if (!this.players.get(this.host)?.connected) this.host = [...this.players.values()].find(p => p.connected)?.id ?? ''; }
   removePlayer(id: string) {
+    this.stoneSongs.delete(id);
     this.departed.delete(id); this.players.delete(id); this.inputs.delete(id); this.lastInput.delete(id); this.lastAttack.delete(id);
     this.attackPress.delete(id); this.attackRelease.delete(id); this.rewindTicks.delete(id); this.damageHistory.delete(id);
     for (const damage of this.damageHistory.values()) damage.delete(id);
@@ -272,7 +300,7 @@ export class Simulation {
     const original = amount, immune = !hit.force && target.hurtTime > 0;
     if (immune) { if (amount <= target.lastDamage) return false; amount -= target.lastDamage; }
     else if (!hit.force) target.hurtTime = .5;
-    target.lastDamage = original; target.craftReadyAt = Math.max(target.craftReadyAt ?? 0, this.tick + 300); target.gatherReadyAt = Math.max(target.gatherReadyAt ?? 0, this.tick + 300); target.friendReadyAt = Math.max(target.friendReadyAt ?? 0, this.tick + 300); target.glideTime = 0; target.glideCooldown = Math.max(target.glideCooldown ?? 0, 5);
+    target.lastDamage = original; this.clearSong(target); target.craftReadyAt = Math.max(target.craftReadyAt ?? 0, this.tick + 300); target.gatherReadyAt = Math.max(target.gatherReadyAt ?? 0, this.tick + 300); target.friendReadyAt = Math.max(target.friendReadyAt ?? 0, this.tick + 300); target.glideTime = 0; target.glideCooldown = Math.max(target.glideCooldown ?? 0, 5);
     if (!hit.force) amount *= 1 - armorTier(this.combatXp?.get(target.id) ?? target.xp).reduction;
     const before = target.hp;
     const saved = !hit.force && amount > 0 && target.offhand === 'totem' && target.totems > 0 && before - amount <= TOTEM.health;
@@ -347,6 +375,7 @@ export class Simulation {
     // Gather attacks before resolving them so attacks initiated in one tick are simultaneous.
     const attacks: (() => void)[] = [];
     const meals: { player: Player; totems: number }[] = [];
+    const stoneWork: (() => void)[] = [];
     for (const p of this.players.values()) {
       if (!p.alive) continue;
       const stale = this.tick - (this.lastInput.get(p.id) ?? -1000) > 15 || !p.connected;
@@ -356,8 +385,9 @@ export class Simulation {
       p.hurtTime = Math.max(0, p.hurtTime - DT); p.swingWait = Math.max(0, p.swingWait - DT);
       p.cooldown = Math.max(0, p.cooldown - DT); p.shieldDisabled = Math.max(0, p.shieldDisabled - DT);
       p.weaving = i.weaving === true && p.realm === 'wilds' && !stale; p.weaveKind = i.weaveKind ?? 0;
-      if (p.weaving) p.charge = 0;
-      p.offhand = i.offhand; p.block = !p.weaving && i.block && p.offhand === 'shield' && p.shieldDisabled <= 0;
+      p.sculpting = i.sculpting === true && p.realm === 'wilds' && !stale && !!((this.world.upgrades ?? 0) & ECHO_CHISEL);
+      if (p.weaving || p.sculpting) p.charge = 0;
+      p.offhand = i.offhand; p.block = !p.weaving && !p.sculpting && i.block && p.offhand === 'shield' && p.shieldDisabled <= 0;
       p.shieldRaise = p.block ? Math.min(.25, p.shieldRaise + DT) : 0;
       const oldX = p.x, oldZ = p.z, wasDashing = (p.dashTime ?? 0) > 0, wasGliding = (p.glideTime ?? 0) > 0, wasGrounded = p.grounded;
       move(p, { ...i, block: p.block }, DT, p.charge > 0, this.world);
@@ -377,7 +407,9 @@ export class Simulation {
       }
       p.moveSpeed = Math.hypot(p.x - oldX, p.z - oldZ) / DT;
       const pressed = !stale && (this.attackPress.has(p.id) || (i.attack && !this.lastAttack.get(p.id))), released = this.attackRelease.has(p.id) || (!i.attack && !!this.lastAttack.get(p.id));
-      if (p.weaving) { if (i.attack || i.block) this.weave(p, i.block); }
+      const sculpt = this.sculpt(p, (i.attack || i.block) && !stale, i.block); if (sculpt) stoneWork.push(sculpt);
+      if (p.sculpting) { /* The singing chisel never attacks or raises a shield. */ }
+      else if (p.weaving) { if (i.attack || i.block) this.weave(p, i.block); }
       else if (p.block) p.charge = 0;
       else if (p.weapon === 'apple') {
         if (i.attack && p.apples > 0 && p.hp < 100) {
@@ -411,9 +443,10 @@ export class Simulation {
         if (creature) this.ecosystem.hurt(creature, owner, amount, this.world, this.ecologyHooks);
         else this.damage(target!, owner, amount, false, { projectile: true, source: old, critical: a.critical });
       }
-      return !Number.isFinite(nearest) && a.age < 4 && a.y > 0 && Math.abs(a.x) < (a.realm === 'wilds' ? WORLD_LIMIT : LIMIT) && (a.realm === 'wilds' ? Math.abs(a.z) < WORLD_LIMIT : a.z > SECRET.end - 1 && a.z < LIMIT);
+      return !Number.isFinite(nearest) && a.age < 4 && a.y > (a.realm === 'wilds' ? SCULPT.minHeight - 1 : 0) && Math.abs(a.x) < (a.realm === 'wilds' ? WORLD_LIMIT : LIMIT) && (a.realm === 'wilds' ? Math.abs(a.z) < WORLD_LIMIT : a.z > SECRET.end - 1 && a.z < LIMIT);
     });
     this.ecosystem.step([...this.players.values()], this.world, this.tick, this.ecologyHooks);
+    for (const work of stoneWork) work();
     this.combatXp = undefined;
     // Food cannot revive a same-tick death or finish a bite cancelled by a totem save.
     for (const { player: p, totems } of meals) if (p.totems === totems && p.alive && p.connected && p.apples > 0 && p.hp < 100) {
@@ -425,5 +458,5 @@ export class Simulation {
     }
     this.updateFlags(); this.checkWinner();
   }
-  snapshot(): Snapshot { return { world: { seed: this.world.seed, doorOpen: this.world.doorOpen, waystones: this.world.waystones, title: this.world.title, buildRevision: this.world.construction!.revision, forageRevision: this.world.forage!.revision, supplies: [...this.world.supplies!], upgrades: this.world.upgrades, bonds: this.world.bonds, guardians: this.world.guardians }, creatures: this.ecosystem.wire(), mode: this.mode, winnerTeam: this.winnerTeam, scores: { ...this.scores }, flags: this.flags.map(f => ({ ...f })), tick: this.tick, phase: this.phase, countdown: this.countdown, result: this.result, winner: this.winner, round: this.round, host: this.host, practice: this.practice, players: [...this.players.values()].map(p => ({ ...p, buildCount: this.world.construction!.count(p.id) })), arrows: this.arrows.map(a => ({ ...a })), events: this.events }; }
+  snapshot(): Snapshot { return { world: { seed: this.world.seed, doorOpen: this.world.doorOpen, waystones: this.world.waystones, title: this.world.title, buildRevision: this.world.construction!.revision, excavationRevision: this.world.excavation!.revision, forageRevision: this.world.forage!.revision, supplies: [...this.world.supplies!], upgrades: this.world.upgrades, bonds: this.world.bonds, guardians: this.world.guardians }, creatures: this.ecosystem.wire(), mode: this.mode, winnerTeam: this.winnerTeam, scores: { ...this.scores }, flags: this.flags.map(f => ({ ...f })), tick: this.tick, phase: this.phase, countdown: this.countdown, result: this.result, winner: this.winner, round: this.round, host: this.host, practice: this.practice, players: [...this.players.values()].map(p => ({ ...p, buildCount: this.world.construction!.count(p.id) })), arrows: this.arrows.map(a => ({ ...a })), events: this.events }; }
 }

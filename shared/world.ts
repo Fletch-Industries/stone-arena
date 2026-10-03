@@ -6,8 +6,9 @@ export { hash } from './noise.js';
 import { BOXES, LIMIT, type Box } from './arena.js';
 import type { Construction } from './construction.js';
 import type { Forage, Supplies } from './forage.js';
+import type { Excavation } from './excavation.js';
 export type Realm = 'arena' | 'wilds';
-export interface WorldState { seed: number; doorOpen: boolean; waystones?: number; title?: string; buildRevision?: number; construction?: Construction; forageRevision?: number; forage?: Forage; supplies?: Supplies; upgrades?: number; bonds?: number; guardians?: number }
+export interface WorldState { seed: number; doorOpen: boolean; waystones?: number; title?: string; buildRevision?: number; construction?: Construction; excavationRevision?: number; excavation?: Excavation; forageRevision?: number; forage?: Forage; supplies?: Supplies; upgrades?: number; bonds?: number; guardians?: number }
 export const SECRET = { x: -26, z: -48, halfWidth: 2, end: -65 } as const;
 export const WORLD_LIMIT = 4096;
 export const CHUNK_SIZE = 24;

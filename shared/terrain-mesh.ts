@@ -1,8 +1,10 @@
 import { CHUNK_SIZE, terrainVertex, terrainHeight, treesIn, hash, type Tree } from './world.js';
 import { biomeAt, terrainColor, type Biome } from './biomes.js';
+import { buildRiverMesh, buildStoneMesh, editedSurface, openTerrain, type StoneMesh } from './stone-mesh.js';
+import type { TerrainEdits } from './excavation.js';
 export interface Plant { x: number; y: number; z: number; size: number; biome: Biome }
-export interface TerrainChunk { key: string; seed: number; cx: number; cz: number; positions: Float32Array; normals: Float32Array; colors: Float32Array; uv: Float32Array; indices: Uint16Array; trees: Tree[]; plants: Plant[] }
-export function buildTerrainChunk(cx: number, cz: number, seed: number): TerrainChunk {
+export interface TerrainChunk { key: string; seed: number; cx: number; cz: number; positions: Float32Array; normals: Float32Array; colors: Float32Array; uv: Float32Array; indices: Uint16Array; trees: Tree[]; plants: Plant[]; caves?: StoneMesh; river?: StoneMesh; shaped?: boolean }
+export function buildTerrainChunk(cx: number, cz: number, seed: number, edits?: TerrainEdits): TerrainChunk {
   const side = CHUNK_SIZE + 1, count = side * side, positions = new Float32Array(count * 3), normals = new Float32Array(count * 3), colors = new Float32Array(count * 3), uv = new Float32Array(count * 2), indices = new Uint16Array(CHUNK_SIZE * CHUNK_SIZE * 6);
   const ox = cx * CHUNK_SIZE, oz = cz * CHUNK_SIZE;
   for (let z = 0; z < side; z++) for (let x = 0; x < side; x++) {
@@ -21,9 +23,11 @@ export function buildTerrainChunk(cx: number, cz: number, seed: number): Terrain
   const plants: Plant[] = [];
   for (let x = 0; x < 4; x++) for (let z = 0; z < 4; z++) {
     const gx = cx * 4 + x, gz = cz * 4 + z, wx = ox + x * 6 + 1 + hash(gx, gz, seed ^ 61) * 4, wz = oz + z * 6 + 1 + hash(gx, gz, seed ^ 67) * 4;
-    const y = terrainHeight(wx, wz, seed);
+    const y = edits?.cuts.length ? editedSurface(wx, wz, seed, edits) : terrainHeight(wx, wz, seed);
     if (y < .75 || Math.hypot(wx, wz) < 15 || hash(gx, gz, seed ^ 73) < .3) continue;
     plants.push({ x: wx, z: wz, y, size: .65 + hash(gx, gz, seed ^ 79) * .8, biome: biomeAt(wx, wz, seed) });
   }
-  return { key: `${cx},${cz}`, seed, cx, cz, positions, normals, colors, uv, indices, trees, plants };
+  const chunk: TerrainChunk = { key: `${cx},${cz}`, seed, cx, cz, positions, normals, colors, uv, indices, trees, plants };
+  if (edits?.cuts.length) { chunk.shaped = true; openTerrain(chunk, cx, cz, edits); chunk.caves = buildStoneMesh(cx, cz, seed, edits); if (positions.some((v, n) => n % 3 === 1 && v < .65)) chunk.river = buildRiverMesh(cx, cz, seed); }
+  return chunk;
 }

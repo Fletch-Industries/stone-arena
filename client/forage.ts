@@ -1,7 +1,8 @@
 import * as THREE from 'three';
-import { gatherTarget, suppliesNear, SUPPLIES, type SupplyNode } from '../shared/forage.js';
+import { gatherTarget, suppliesNear, supplyPosition, SUPPLIES, type SupplyNode } from '../shared/forage.js';
 import { hash, type WorldState } from '../shared/world.js';
 import { TextureLibrary } from './textures.js';
+import type { Excavation } from '../shared/excavation.js';
 
 /** Five shared instanced draws; one reusable selection halo, no resource lights. */
 export class ForageRenderer {
@@ -9,6 +10,7 @@ export class ForageRenderer {
   target?: SupplyNode;
   visibleCount = 0;
   private last = '';
+  private excavation?: Excavation;
   private time = { value: 0 };
   private matrix = new THREE.Matrix4();
   private position = new THREE.Vector3();
@@ -32,13 +34,14 @@ export class ForageRenderer {
   }
   update(world: WorldState, p: { x: number; y: number; z: number; yaw: number; pitch: number; realm?: string }, tick: number, time: number, quality: string, reduced: boolean) {
     this.time.value = reduced ? 0 : time;
-    const key = `${world.seed}:${world.forage?.revision ?? 0}:${Math.floor(p.x / 24)}:${Math.floor(p.z / 24)}:${quality}`;
-    if (key !== this.last) {
-      this.last = key; this.visibleCount = 0; const counts = [0, 0, 0, 0, 0];
+    const key = `${world.seed}:${world.forage?.revision ?? 0}:${world.excavation?.revision ?? 0}:${Math.floor(p.x / 24)}:${Math.floor(p.z / 24)}:${quality}`;
+    if (key !== this.last || this.excavation !== world.excavation) {
+      this.last = key; this.excavation = world.excavation; this.visibleCount = 0; const counts = [0, 0, 0, 0, 0];
       const add = (mesh: number, x: number, y: number, z: number, sx = 1, sy = 1, sz = 1, yaw = 0, tilt = 0) => {
         this.position.set(x, y, z); this.angle.set(tilt, yaw, 0); this.rotation.setFromEuler(this.angle); this.scale.set(sx, sy, sz); this.matrix.compose(this.position, this.rotation, this.scale); this.meshes[mesh].setMatrixAt(counts[mesh]++, this.matrix);
       };
-      for (const n of suppliesNear(p.x, p.z, world.seed, quality === 'low' ? 72 : quality === 'high' ? 120 : 96)) {
+      for (const raw of suppliesNear(p.x, p.z, world.seed, quality === 'low' ? 72 : quality === 'high' ? 120 : 96)) {
+        const n = supplyPosition(raw, world);
         if (world.forage && !world.forage.available(n, tick)) continue; this.visibleCount++;
         for (let part = 0; part < 3; part++) {
           const angle = part * Math.PI * 2 / 3 + hash(n.cx, n.cz, world.seed) * 6;

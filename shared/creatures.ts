@@ -1,3 +1,4 @@
+import { floorHeight, nativeBox } from './terrain-collision.js';
 import { biomeAt, type Biome } from './biomes.js';
 import { direction, EYE, wallHit, segmentBox, type Player } from './game.js';
 import { hash, terrainHeight, worldBoxes, type WorldState } from './world.js';
@@ -25,9 +26,9 @@ export interface CreatureNest { id: string; kind: CreatureKind; x: number; y: nu
 const nests = new Map<string, CreatureNest[]>();
 export const creatureCacheSize = () => nests.size;
 export const habitatKind = (biome: Biome): CreatureKind => Math.max(0, CREATURES.findIndex(s => s.biome === biome)) as CreatureKind;
-export function creatureClear(x: number, z: number, world: WorldState, landmarks = true) {
-  const y = terrainHeight(x,z,world.seed);
-  return Math.abs(x) < 4090 && Math.abs(z) < 4090 && y >= .6 && (!landmarks || !protectedRuneSite(x,z,world.seed)) && !worldBoxes(x-.7,z-.7,x+.7,z+.7,'wilds',world).some(b => Math.abs(x-b.x)<b.w/2+.7 && Math.abs(z-b.z)<b.d/2+.7 && y < (b.y??0)+b.h && y+1.8 > (b.y??0));
+export function creatureClear(x: number, z: number, world: WorldState, landmarks = true, fromY = Infinity, radius = .7) {
+  const y = floorHeight(x,z,fromY,world), underground = Number.isFinite(fromY) && !!world.excavation?.column(x,z);
+  return Math.abs(x) < 4090 && Math.abs(z) < 4090 && (underground || y >= .6) && (!landmarks || !protectedRuneSite(x,z,world.seed)) && (!underground || !nativeBox(x-radius,y+.03,z-radius,x+radius,y+1.8,z+radius,world)) && !worldBoxes(x-radius,z-radius,x+radius,z+radius,'wilds',world).some(b => Math.abs(x-b.x)<b.w/2+radius && Math.abs(z-b.z)<b.d/2+radius && y < (b.y??0)+b.h && y+1.8 > (b.y??0));
 }
 export function creatureNests(cx: number, cz: number, seed: number) {
   if (!Number.isInteger(cx)||!Number.isInteger(cz)||Math.abs(cx)>64||Math.abs(cz)>64) return [];

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-export type Surface = 'stone' | 'brick' | 'cobble' | 'paving' | 'wood' | 'metal' | 'cloth' | 'grass' | 'bark' | 'leaves' | 'rune' | 'wind-rune' | 'hearth-rune' | 'spirit-fur' | 'lantern-shell';
+export type Surface = 'stone' | 'brick' | 'cobble' | 'paving' | 'wood' | 'metal' | 'cloth' | 'grass' | 'bark' | 'leaves' | 'rune' | 'wind-rune' | 'hearth-rune' | 'spirit-fur' | 'lantern-shell' | 'strata';
 /** Original seamless pixel maps. No downloaded textures or game assets. */
 export class TextureLibrary {
   private maps = new Map<Surface, THREE.CanvasTexture>();
@@ -33,6 +33,13 @@ export class TextureLibrary {
         const mark = surface === 'hearth-rune' ? heart : surface === 'wind-rune' ? arrow : diamond || corner;
         v = edge ? 91 : mark ? 238 : 156 + fine + coarse * .4;
         rgb = [v, v, v]; h = edge ? .25 : mark ? .85 : .65;
+      } else if (surface === 'strata') {
+        const wave = Math.round(Math.sin(x * Math.PI / 16) * 2 + Math.sin(x * Math.PI / 8)), layer = (y - wave + 64) % 8;
+        const fault = (x + Math.round(Math.sin(y * Math.PI / 16) * 4) + 64) % 32 === 9;
+        const crack = layer === 0 && noise(Math.floor(x / 4), Math.floor(y / 8), 102) > .25 || fault;
+        const glint = noise(x, y, 101) > .981;
+        v = 171 + fine + coarse * .7 + (layer < 4 ? 6 : -6) - (crack ? 29 : 0) + (glint ? 34 : 0);
+        rgb = [v, v, v]; h = crack ? .35 : glint ? .79 : .66;
       } else if (surface === 'paving') {
         const row = Math.floor(y / 16), xx = (x + row * 8) % 16, yy = y % 16;
         const seam = xx === 0 || yy === 0, bevel = xx === 1 || yy === 1;

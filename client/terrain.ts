@@ -4,6 +4,8 @@ import { TextureLibrary } from './textures.js';
 import * as THREE from 'three';
 import { CHUNK_SIZE, chunkRadius, wantedChunks } from '../shared/world.js';
 import { buildTerrainChunk, type TerrainChunk } from '../shared/terrain-mesh.js';
+import type { Excavation } from '../shared/excavation.js';
+import type { StoneMesh } from '../shared/stone-mesh.js';
 /** One worker request and one mesh upload at a time; no unbounded cache or queue. */
 export class TerrainStreamer {
   horizon?: THREE.Group; horizonKey = ''; horizonReady?: TerrainChunk; time = { value: 0 };
@@ -11,13 +13,17 @@ export class TerrainStreamer {
   worker?: Worker; busy = false; epoch = 0; seed = -1; center = ''; wanted = new Set<string>();
   queue: { x: number; z: number; key: string }[] = []; ready?: TerrainChunk;
   quality = 'medium';
+  dirty = new Set<string>(); private excavation?: Excavation; private excavationRevision = 0;
   box = new THREE.BoxGeometry(1, 1, 1);
   grass = new THREE.MeshLambertMaterial({ vertexColors: true });
+  stone = new THREE.MeshLambertMaterial({ vertexColors: true, emissive: '#8295b3', emissiveIntensity: .12 });
   bark = new THREE.MeshLambertMaterial({ color: '#755238' }); leaves = new THREE.MeshLambertMaterial({ color: '#ffffff' }); canopy = new THREE.IcosahedronGeometry(.65, 0);
   spire = new THREE.ConeGeometry(1, 1, 5); blossom = blossomGeometry(); flowers = new THREE.MeshLambertMaterial({ side: THREE.DoubleSide });
   water = new THREE.MeshPhongMaterial({ color: '#318da7', specular:'#9fdbeb', shininess:95, transparent:true, opacity:.8 });
   constructor() {
     const textures = new TextureLibrary(); this.grass.map = textures.get('grass'); this.grass.normalMap=textures.normal('grass');this.grass.normalScale.set(.14,.14); this.bark.map = textures.get('bark'); this.leaves.map = textures.get('leaves');
+    this.stone.map = textures.get('strata'); this.stone.normalMap = textures.normal('strata'); this.stone.normalScale.set(.18, .18);
+    this.stone.onBeforeCompile = shader => { shader.vertexShader = 'attribute vec3 stoneGlow;\nvarying vec3 vStoneGlow;\n'+shader.vertexShader.replace('#include <begin_vertex>','#include <begin_vertex>\n vStoneGlow = stoneGlow;'); shader.fragmentShader = 'varying vec3 vStoneGlow;\n'+shader.fragmentShader.replace('#include <opaque_fragment>','outgoingLight += vStoneGlow;\n#include <opaque_fragment>'); }; this.stone.customProgramCacheKey = () => 'stone-seam-glow-v1';
     this.leaves.onBeforeCompile = shader => { shader.uniforms.windTime = this.time; shader.vertexShader = 'uniform float windTime;\n' + shader.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
       #ifdef USE_INSTANCING
       transformed.x += sin(windTime * .8 + instanceMatrix[3].x * .18 + instanceMatrix[3].z * .12) * .018 * (position.y + .65);
@@ -37,12 +43,17 @@ export class TerrainStreamer {
     const group = this.chunks.get(key); if (!group) return;
     this.dispose(group); this.chunks.delete(key);
   }
-  clear() { this.epoch++; this.ready = undefined; for (const key of this.chunks.keys()) this.forget(key); this.queue = []; this.wanted.clear(); this.center = ''; this.horizonReady = undefined; this.horizonKey = ''; if (this.horizon) this.dispose(this.horizon); this.horizon = undefined; }
+  clear() { this.epoch++; this.ready = undefined; for (const key of this.chunks.keys()) this.forget(key); this.queue = []; this.wanted.clear(); this.dirty.clear(); this.excavation = undefined; this.excavationRevision = 0; this.center = ''; this.horizonReady = undefined; this.horizonKey = ''; if (this.horizon) this.dispose(this.horizon); this.horizon = undefined; }
+  private shapedMesh(data: StoneMesh, material: THREE.Material) {
+    const geometry = new THREE.BufferGeometry(); geometry.setAttribute('position', new THREE.BufferAttribute(data.positions, 3)); geometry.setAttribute('normal', new THREE.BufferAttribute(data.normals, 3)); geometry.setAttribute('color', new THREE.BufferAttribute(data.colors, 3)); geometry.setAttribute('uv', new THREE.BufferAttribute(data.uv, 2)); geometry.setAttribute('stoneGlow', new THREE.BufferAttribute(data.glow, 3)); geometry.setIndex(new THREE.BufferAttribute(data.indices, 1)); geometry.computeBoundingSphere(); return new THREE.Mesh(geometry, material);
+  }
   add(c: TerrainChunk) {
     const group = new THREE.Group(); group.position.set(c.cx * CHUNK_SIZE, 0, c.cz * CHUNK_SIZE);
     const geometry = new THREE.BufferGeometry(); geometry.setAttribute('position', new THREE.BufferAttribute(c.positions, 3)); geometry.setAttribute('normal', new THREE.BufferAttribute(c.normals, 3)); geometry.setAttribute('color', new THREE.BufferAttribute(c.colors, 3)); geometry.setAttribute('uv', new THREE.BufferAttribute(c.uv, 2)); geometry.setIndex(new THREE.BufferAttribute(c.indices, 1)); geometry.computeBoundingSphere();
     group.add(new THREE.Mesh(geometry, this.grass));
-    if (c.key !== 'horizon' && c.positions.some((y, i) => i % 3 === 1 && y < .65) && Math.hypot(c.cx, c.cz) > 1) {
+    if (c.caves) group.add(this.shapedMesh(c.caves, this.stone));
+    if (c.river && Math.hypot(c.cx, c.cz) > 1) group.add(this.shapedMesh(c.river, this.water));
+    if (!c.shaped && c.key !== 'horizon' && c.positions.some((y, i) => i % 3 === 1 && y < .65) && Math.hypot(c.cx, c.cz) > 1) {
       const water = new THREE.Mesh(new THREE.PlaneGeometry(CHUNK_SIZE, CHUNK_SIZE), this.water); water.rotation.x = -Math.PI / 2; water.position.set(CHUNK_SIZE / 2, .65, CHUNK_SIZE / 2); group.add(water);
     }
     if(c.key==='horizon'){const pos=new Float32Array(c.positions);for(let i=1;i<pos.length;i+=3)pos[i]=.65;const waterGeometry=new THREE.BufferGeometry();waterGeometry.setAttribute('position',new THREE.BufferAttribute(pos,3));waterGeometry.setIndex(new THREE.BufferAttribute(new Uint16Array(c.indices),1));waterGeometry.computeVertexNormals();waterGeometry.computeBoundingSphere();group.add(new THREE.Mesh(waterGeometry,this.water));}
@@ -72,26 +83,36 @@ export class TerrainStreamer {
     }
     this.group.add(group); if (c.key === 'horizon') { if (this.horizon) this.dispose(this.horizon); this.horizon = group; } else this.chunks.set(c.key, group);
   }
-  update(x: number, z: number, seed: number, quality: string, visible: boolean) {
+  update(x: number, z: number, seed: number, quality: string, visible: boolean, excavation?: Excavation) {
     if (!visible) { if (this.group.visible) this.clear(); this.group.visible = false; return; }
     this.group.visible = true;
     const detail = this.worker ? quality : 'low';
     if (this.quality !== detail) { this.clear(); this.quality = detail; }
     if (seed !== this.seed) { this.clear(); this.seed = seed; }
+    const revision = excavation?.revision ?? 0;
+    if (excavation !== this.excavation || revision !== this.excavationRevision) {
+      const changes = excavation === this.excavation ? excavation?.changedSince(this.excavationRevision) : undefined;
+      if (!changes) for (const key of this.chunks.keys()) this.dirty.add(key);
+      else for (const [x, z] of changes) for (const dx of [-1, 0, 1]) for (const dz of [-1, 0, 1]) { const key = `${Math.floor((x + dx) / CHUNK_SIZE)},${Math.floor((z + dz) / CHUNK_SIZE)}`; if (this.wanted.has(key)) this.dirty.add(key); }
+      this.excavation = excavation; this.excavationRevision = revision; this.epoch++; this.ready = undefined;
+      this.queue = wantedChunks(x, z, chunkRadius(detail)).filter(c => !this.chunks.has(c.key) || this.dirty.has(c.key));
+    }
     const radius = chunkRadius(this.worker ? quality : 'low'), center = `${Math.floor(x / CHUNK_SIZE)},${Math.floor(z / CHUNK_SIZE)}:${radius}`;
     if (center !== this.center) {
       this.center = center; const wanted = wantedChunks(x, z, radius); this.wanted = new Set(wanted.map(c => c.key));
       for (const key of this.chunks.keys()) if (!this.wanted.has(key)) this.forget(key);
+      for (const key of this.dirty) if (!this.wanted.has(key)) this.dirty.delete(key);
       if (this.ready && !this.wanted.has(this.ready.key)) this.ready = undefined;
-      this.queue = wanted.filter(c => !this.chunks.has(c.key));
+      this.queue = wanted.filter(c => !this.chunks.has(c.key) || this.dirty.has(c.key));
     }
     if (this.horizonReady) { this.add(this.horizonReady); this.horizonReady = undefined; }
-    else if (this.ready) { if (this.wanted.has(this.ready.key) && !this.chunks.has(this.ready.key)) this.add(this.ready); this.ready = undefined; }
+    else if (this.ready) { if (this.wanted.has(this.ready.key) && (!this.chunks.has(this.ready.key) || this.dirty.has(this.ready.key))) { this.forget(this.ready.key); this.dirty.delete(this.ready.key); this.add(this.ready); } this.ready = undefined; }
     if (!this.busy) {
-      let next; while ((next = this.queue.shift()) && this.chunks.has(next.key)) { /* Skip previously completed jobs after a center change. */ }
+      let next; while ((next = this.queue.shift()) && this.chunks.has(next.key) && !this.dirty.has(next.key)) { /* Skip previously completed jobs after a center change. */ }
       if (next) {
-        if (this.worker) { this.busy = true; this.worker.postMessage({ cx: next.x, cz: next.z, seed, epoch: this.epoch }); }
-        else this.ready = buildTerrainChunk(next.x, next.z, seed);
+        const edits = excavation?.geometry(next.x * CHUNK_SIZE - 1, next.z * CHUNK_SIZE - 1, (next.x + 1) * CHUNK_SIZE, (next.z + 1) * CHUNK_SIZE);
+        if (this.worker) { this.busy = true; this.worker.postMessage({ cx: next.x, cz: next.z, seed, epoch: this.epoch, edits }); }
+        else this.ready = buildTerrainChunk(next.x, next.z, seed, edits);
       } else if (this.horizonKey !== this.center && !this.ready && !this.horizonReady) {
         const cx = Math.floor(x / CHUNK_SIZE), cz = Math.floor(z / CHUNK_SIZE);
         if (this.worker) { this.busy = true; this.worker.postMessage({ cx, cz, seed, epoch: this.epoch, radius, quality, horizon: this.center }); }

@@ -1,5 +1,6 @@
 import { direction, EYE, wallHit } from './game.js';
 import { hash, terrainHeight, worldBoxes, type WorldState } from './world.js';
+import { surfaceHeight } from './terrain-collision.js';
 import { protectedRuneSite } from './weaving.js';
 
 export const SUPPLIES = [
@@ -46,11 +47,13 @@ export function suppliesNear(x: number, z: number, seed: number, radius = 96) {
   }
   return nodes;
 }
+export function supplyPosition(node: SupplyNode, world: WorldState) { if (!world.excavation?.column(node.x, node.z)) return node; const y = surfaceHeight(node.x, node.z, world); return Math.abs(y - node.y) < .0001 ? node : { ...node, y }; }
 export function gatherTarget(p: { x: number; y: number; z: number; yaw: number; pitch: number; realm?: string }, world: WorldState, tick: number) {
   if (p.realm !== 'wilds') return;
   const a = { x: p.x, y: p.y + EYE, z: p.z }, aim = direction(p.yaw, p.pitch);
   let result: SupplyNode | undefined, score = Infinity;
-  for (const node of suppliesNear(p.x, p.z, world.seed, FORAGE.reach)) {
+  for (const raw of suppliesNear(p.x, p.z, world.seed, FORAGE.reach)) {
+    const node = supplyPosition(raw, world);
     if (!world.forage?.available(node, tick) || (world.supplies?.[node.kind] ?? 0) >= FORAGE.stockLimit) continue;
     const b = { x: node.x, y: node.y + .9, z: node.z }, dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z, distance = Math.hypot(dx, dy, dz);
     if (distance > FORAGE.reach + .5 || distance < .01 || (dx * aim.x + dy * aim.y + dz * aim.z) / distance < .72 || wallHit(a, b, 'wilds', world) < .98) continue;

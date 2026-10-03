@@ -118,8 +118,8 @@ test('lost challenges reset after five seconds and freed guardians remain peacef
   const {sim,p,guest,c}=fixture(true);assert(sim.creature(p.id));p.realm='arena';ticks(sim,330);assert(c.state==='dormant'||!sim.ecosystem.creatures.has(c.id));
   sim.world.guardians=1<<c.ruin;sim.world.bonds=15;sim.phase='waiting';p.ready=guest.ready=true;assert(sim.start(p.id));assert.equal(sim.ecosystem.creatures.size,0);assert.equal(sim.world.bonds,15);assert.equal(sim.world.guardians,1<<c.ruin);const freed=sim.ecosystem.spawn({...c,ruin:c.ruin},sim.world)!;assert(freed);assert.equal(freed.state,'cleared');assert.equal(freed.hp,0);
 });
-test('version-three worlds preserve discoveries, accept legacy one/two, and reject malformed or missing masks',()=>{
-  const {sim}=fixture();sim.world.bonds=15;sim.world.guardians=510;const save=saveWorld(sim.world);assert.equal(save.version,3);assert.equal(restoreWorld(save)!.bonds,15);assert.equal(restoreWorld(save)!.guardians,510);
+test('version-four worlds preserve discoveries, accept legacy one/two, and reject malformed or missing masks',()=>{
+  const {sim}=fixture();sim.world.bonds=15;sim.world.guardians=510;const save=saveWorld(sim.world);assert.equal(save.version,4);assert.equal(restoreWorld(save)!.bonds,15);assert.equal(restoreWorld(save)!.guardians,510);
   const {blocks,...header}=save,upload=new WorldImport();assert(upload.begin(header,0,0));assert.deepEqual(upload.finish(1),save);
   for(const patch of [{bonds:-1},{bonds:16},{bonds:1.5},{bonds:undefined},{guardians:1},{guardians:512},{guardians:.5},{guardians:undefined}])assert.equal(restoreWorld({...save,...patch}),undefined);
   for(const version of [1,2]as const){const legacy={...save,version};delete legacy.bonds;delete legacy.guardians;const old=restoreWorld(legacy)!;assert(old);assert.equal(old.bonds,0);assert.equal(old.guardians,0);assert.deepEqual(old.supplies,save.supplies);}

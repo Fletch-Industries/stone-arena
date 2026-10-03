@@ -31,10 +31,10 @@ export class TouchControls {
     find('[aria-label="Open game menu"]').addEventListener('click', actions.menu);
     find('[aria-label="Open scoreboard"]').addEventListener('click', actions.scores);
   }
-  item(apple: boolean, weaving = false) { const button = this.root.querySelector('.touch-attack')!; const label = weaving ? 'Weave' : apple ? 'Eat' : 'Attack'; if (button.textContent !== label) { button.textContent = label; button.setAttribute('aria-label', weaving ? 'Weave rune' : apple ? 'Eat golden apple' : 'Attack'); } }
-  offhand(totem: boolean, weaving = false) {
+  item(apple: boolean, weaving = false, sculpting = false) { const button = this.root.querySelector('.touch-attack')!; const label = sculpting ? 'Mine' : weaving ? 'Weave' : apple ? 'Eat' : 'Attack'; if (button.textContent !== label) { button.textContent = label; button.setAttribute('aria-label', sculpting ? 'Hold to mine stone' : weaving ? 'Weave rune' : apple ? 'Eat golden apple' : 'Attack'); } }
+  offhand(totem: boolean, weaving = false, sculpting = false) {
     const shield = this.root.querySelector<HTMLButtonElement>('.touch-shield')!;
-    shield.disabled = totem && !weaving; shield.textContent = weaving ? 'Erase' : 'Shield'; shield.setAttribute('aria-label', weaving ? 'Erase woven rune' : totem ? 'Shield unavailable while holding totem' : 'Hold shield');
+    shield.disabled = totem && !weaving && !sculpting; shield.textContent = sculpting ? 'Mend' : weaving ? 'Erase' : 'Shield'; shield.setAttribute('aria-label', sculpting ? 'Hold to mend an opening' : weaving ? 'Erase woven rune' : totem ? 'Shield unavailable while holding totem' : 'Hold shield');
     this.root.querySelector('.touch-offhand')!.setAttribute('aria-label', `Swap left hand to ${totem ? 'shield' : 'totem'}`);
   }
   perspective(label: string) { const button = this.root.querySelector('.touch-view')!; button.setAttribute('aria-label', `Change perspective: ${label}`); button.setAttribute('title', label); }

@@ -2,11 +2,12 @@ import { CREATURES, WILDLIFE, WARDEN, creatureClear, creatureNests, guardianNest
 import { FORAGE, suppliesNear, SUPPLIES } from '../shared/forage.js';
 import { DT, WALK_SPEED, idleInput, move, knockback, wallHit, type Body, type GameEvent, type Player } from '../shared/game.js';
 import { hash, terrainHeight, worldBoxes, type WorldState } from '../shared/world.js';
+import { floorHeight, nativeBox, surfaceHeight } from '../shared/terrain-collision.js';
 
 export interface Creature extends CreatureView, Body {
   realm: 'wilds'; homeX: number; homeZ: number; ruin: number;
   goalX: number; goalZ: number; steerYaw: number; steerAt: number;
-  scoutReadyAt: number; wanderAt: number; challengers: Set<string>; lost: number;
+  scoutReadyAt: number; wanderAt: number; challengers: Set<string>; lost: number; blinkAt: number;
 }
 export interface EcosystemHooks {
   event(e: Omit<GameEvent,'id'>): void;
@@ -26,7 +27,7 @@ export class Ecosystem {
     const cleared=n.kind===4&&!!((world.guardians??0)&1<<n.ruin);
     const c:Creature={...n,y:terrainHeight(n.x,n.z,world.seed),realm:'wilds',homeX:n.x,homeZ:n.z,yaw:hash(Math.floor(n.x),Math.floor(n.z),world.seed)*6,
       hp:n.kind===4?(cleared?0:WARDEN.health):100,state:n.kind===4?(cleared?'cleared':'dormant'):'idle',timer:0,owner:'',aimX:n.x,aimZ:n.z,
-      goalX:n.x,goalZ:n.z,steerYaw:0,steerAt:0,scoutReadyAt:0,wanderAt:0,challengers:new Set(),lost:0,vy:0,grounded:true};
+      goalX:n.x,goalZ:n.z,steerYaw:0,steerAt:0,scoutReadyAt:0,wanderAt:0,challengers:new Set(),lost:0,blinkAt:0,vy:0,grounded:true};
     this.creatures.set(n.id,c);return c;
   }
   private maintain(players:Player[],world:WorldState) {
@@ -76,8 +77,9 @@ export class Ecosystem {
   private steer(c:Creature,world:WorldState,tick:number) {
     const dx=c.goalX-c.x,dz=c.goalZ-c.z;if(Math.hypot(dx,dz)<.4)return false;
     if(tick>=c.steerAt){c.steerAt=tick+6;const desired=Math.atan2(-dx,-dz);let best=Infinity,chosen:number|undefined;
-      for(const offset of [0,.5,-.5,1,-1,1.6,-1.6,2.2,-2.2]){const yaw=desired+offset,x=c.x-Math.sin(yaw)*1.2,z=c.z-Math.cos(yaw)*1.2,y=terrainHeight(x,z,world.seed);
-        if(y<.3||y-c.y>.6||Math.abs(x)>4090||Math.abs(z)>4090)continue;
+      for(const offset of [0,.5,-.5,1,-1,1.6,-1.6,2.2,-2.2]){const yaw=desired+offset,x=c.x-Math.sin(yaw)*1.2,z=c.z-Math.cos(yaw)*1.2,y=floorHeight(x,z,c.y+.4,world);
+        if((y<.3&&!world.excavation?.column(x,z))||y-c.y>.6||Math.abs(x)>4090||Math.abs(z)>4090)continue;
+        if(world.excavation?.near(Math.min(c.x,x)-.35,Math.min(c.z,z)-.35,Math.max(c.x,x)+.35,Math.max(c.z,z)+.35)&&nativeBox(x-.35,y+.05,z-.35,x+.35,y+1.8,z+.35,world))continue;
         if(worldBoxes(Math.min(c.x,x)-.35,Math.min(c.z,z)-.35,Math.max(c.x,x)+.35,Math.max(c.z,z)+.35,'wilds',world).some(b=>Math.abs(x-b.x)<b.w/2+.35&&Math.abs(z-b.z)<b.d/2+.35&&y<(b.y??0)+b.h&&y+1.8>(b.y??0)))continue;
         const score=Math.hypot(c.goalX-x,c.goalZ-z)+Math.abs(offset)*.35;if(score<best){best=score;chosen=yaw;}}
       if(chosen===undefined){c.steerAt=0;return false;}c.steerYaw=chosen;
@@ -85,8 +87,8 @@ export class Ecosystem {
     c.yaw=c.steerYaw;return true;
   }
   private blink(c:Creature,owner:Player,world:WorldState,hooks:EcosystemHooks) {
-    for(let n=0;n<12;n++){const a=n*Math.PI/6,x=owner.x+Math.sin(a)*2.8,z=owner.z+Math.cos(a)*2.8;if(!creatureClear(x,z,world,false))continue;
-      Object.assign(c,{x,y:terrainHeight(x,z,world.seed),z,vy:0,vx:0,vz:0,grounded:true,state:'follow',timer:1});
+    for(const radius of [2.8,1.4,.7])for(let n=0;n<12;n++){const a=n*Math.PI/6,x=owner.x+Math.sin(a)*radius,z=owner.z+Math.cos(a)*radius,y=floorHeight(x,z,owner.y+.4,world);if(Math.abs(y-owner.y)>2||!creatureClear(x,z,world,false,owner.y+.4,.35))continue;
+      Object.assign(c,{x,y,z,vy:0,vx:0,vz:0,grounded:true,state:'follow',timer:1});
       hooks.event({type:'creature_blink',actor:owner.id,target:c.id,realm:'wilds',position:{x,y:c.y+.6,z}});return true;}return false;
   }
   step(players:Player[],world:WorldState,tick:number,hooks:EcosystemHooks) {
@@ -102,7 +104,7 @@ export class Ecosystem {
           if(c.lost>5){c.challengers.clear();c.hp=WARDEN.health;c.state='dormant';c.timer=0;}
           else if(c.state==='windup'&&c.timer===0){
             for(const p of explorers)if(distance(p,{x:c.aimX,z:c.aimZ})<WARDEN.pulseRadius&&Math.abs(p.y-c.y)<2.2&&wallHit({x:c.x,y:c.y+1,z:c.z},{x:p.x,y:p.y+1,z:p.z},'wilds',world)>=.99)hooks.hurt(p,c,WARDEN.damage);
-            hooks.event({type:'creature_pulse',realm:'wilds',position:{x:c.aimX,y:terrainHeight(c.aimX,c.aimZ,world.seed)+.1,z:c.aimZ}});c.state='recover';c.timer=WARDEN.recover;
+            hooks.event({type:'creature_pulse',realm:'wilds',position:{x:c.aimX,y:surfaceHeight(c.aimX,c.aimZ,world)+.1,z:c.aimZ}});c.state='recover';c.timer=WARDEN.recover;
           }else if(c.state==='recover'&&c.timer===0){c.state='chase';}
           else if(c.state==='chase'&&target){c.goalX=target.x;c.goalZ=target.z;c.yaw=Math.atan2(c.x-target.x,c.z-target.z);speed=2.6;
             if(distance(c,target)<4&&Math.abs(c.y-target.y)<2.2&&c.timer===0&&wallHit({x:c.x,y:c.y+1,z:c.z},{x:target.x,y:target.y+1,z:target.z},'wilds',world)>=.99){c.state='windup';c.timer=WARDEN.windup;c.aimX=target.x;c.aimZ=target.z;}
@@ -113,7 +115,7 @@ export class Ecosystem {
       }else if(c.owner){
         const owner=players.find(p=>p.id===c.owner);
         if(owner?.connected&&owner.alive&&owner.realm==='wilds'){
-          if(distance(c,owner)>24&&this.blink(c,owner,world,hooks))continue;
+          if((distance(c,owner)>24||Math.abs(c.y-owner.y)>4)&&tick>=c.blinkAt){c.blinkAt=tick+120;if(this.blink(c,owner,world,hooks))continue;}
           if(c.state==='scout'&&c.timer>0&&distance(c,owner)<14){moving=distance(c,{x:c.goalX,z:c.goalZ})>1.5;speed=2.5;}
           else{c.state='follow';c.goalX=owner.x;c.goalZ=owner.z;moving=distance(c,owner)>2.8;speed=distance(c,owner)>7?3.5:2.5;}
           if(!moving)c.yaw=Math.atan2(c.x-owner.x,c.z-owner.z);

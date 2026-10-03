@@ -3,10 +3,12 @@ import type { Supplies } from './forage.js';
 import { EYE, segmentBox, wallHit, type Player } from './game.js';
 import { nearbyWaystone } from './waystones.js';
 import type { WorldState } from './world.js';
+import { ECHO_CHISEL } from './excavation.js';
 
 export const RECIPES = [
   { id: 'sail', name: 'Sky sail', glyph: '⋈', cost: [12, 8, 4] as Supplies, unlock: SKY_SAIL, description: 'Unfold crystal wings for the whole party. G or Glide launches a hop; Windlift runes and high ledges give you longer flights.' },
   { id: 'hearth', name: 'Hearthstone', glyph: '♥', cost: [8, 12, 8] as Supplies, unlock: HEARTHSTONE, description: 'Unlock a seventh building rune. Rest beside its warmth to recover three HP each second after combat.' },
+  { id: 'chisel', name: 'Echo chisel', glyph: '⟡', cost: [8, 16, 4] as Supplies, unlock: ECHO_CHISEL, description: 'Shape the hills for your whole party. X or Shape stone equips a singing chisel: hold Mine to carve real tunnels and crystal seams; hold Mend to restore an open edge.' },
   { id: 'arrows', name: 'Arrow bundle', glyph: '➶', cost: [3, 2, 0] as Supplies, unlock: 0, description: 'Weave 12 arrows for your quiver, up to 40. Your party supplies pay for this bundle.' },
 ] as const;
 export type Recipe = typeof RECIPES[number];

@@ -1,4 +1,6 @@
+import { creatureView } from '../shared/creatures.js';
 import { RuneConstruction } from './construction.js';
+import { StoneSculpture } from './sculpture.js';
 import { ForageRenderer } from './forage.js';
 import { CreatureRenderer } from './creatures.js';
 import { SkySails } from './sail.js';
@@ -29,7 +31,7 @@ export class ArenaScene {
   viewRealm = 'arena'; dashTrailTime = 0; lastWeaponYaw = 0; landingKick = 0; wasGrounded = true;
   bases = new Map<Team, THREE.Group>(); flags = new Map<Team, THREE.Group>();
   avatars = new Map<string, THREE.Group>(); arrowMeshes = new Map<number, THREE.Mesh>(); weapon = new THREE.Group(); leftHand = new THREE.Group();
-  textures = new TextureLibrary(); construction = new RuneConstruction(this.textures); weavePreview = false; erasePreview = false; surfaceMaterials = new Map<string, THREE.MeshLambertMaterial>();
+  textures = new TextureLibrary(); construction = new RuneConstruction(this.textures); sculpture = new StoneSculpture(); sculptPreview = false; mendPreview = false; weavePreview = false; erasePreview = false; surfaceMaterials = new Map<string, THREE.MeshLambertMaterial>();
   resources = new ForageRenderer(this.textures); sails = new SkySails(this.textures); flightTips = this.sails.make();
   creatures = new CreatureRenderer(this.textures);
   flameAtlas = new FlameAtlas(); flames: THREE.MeshBasicMaterial[] = [];
@@ -60,7 +62,7 @@ export class ArenaScene {
     Object.assign(this.sun.shadow.camera, { left: -72, right: 72, top: 72, bottom: -72, near: .5, far: 180 });
     this.sun.shadow.bias = -.00015; this.sun.shadow.normalBias = .035;
     this.scene.add(this.sun, this.sun.target, this.contactShadows);
-    this.worldDecor.add(this.construction.group, this.resources.group, this.creatures.group); this.scene.add(this.arena, this.terrain.group, this.worldDecor); this.worldDecor.visible = false;
+    this.worldDecor.add(this.construction.group, this.sculpture.group, this.resources.group, this.creatures.group); this.scene.add(this.arena, this.terrain.group, this.worldDecor); this.worldDecor.visible = false;
     const floorGeo = new THREE.PlaneGeometry(ARENA_SIZE, ARENA_SIZE); this.repeatUV(floorGeo, ARENA_SIZE/3, ARENA_SIZE/3);
     const floor = new THREE.Mesh(floorGeo, this.surface('paving')); floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; this.arena.add(floor);
     // Unit masonry keeps a consistent pixel density. All wall blocks share one draw call.
@@ -215,7 +217,7 @@ export class ArenaScene {
     const mesh = new THREE.Mesh(this.boxGeo, this.armorMaterials[0]); mesh.scale.set(...size as [number, number, number]); mesh.position.set(...position as [number, number, number]);
     mesh.userData.armor = true; mesh.castShadow = mesh.receiveShadow = parent !== this.weapon; parent.add(mesh); return mesh;
   }
-  setWeapon(name: Weapon | 'weaver', xp: number) {
+  setWeapon(name: Weapon | 'weaver' | 'chisel', xp: number) {
     const level = armorTier(xp).level, key = `${name}:${level}`; if (key === this.lastWeapon) return; this.lastWeapon = key;
     this.buildWeapon(this.weapon, name);
     if (level > 1) { const glove = this.plate(this.weapon, [.19, .22, .18], [0, -.18, .03]); glove.material = this.armorMaterials[level - 2]; }
@@ -230,15 +232,23 @@ export class ArenaScene {
   }
   setOffhand(p: Player) {
     const level = armorTier(p.xp).level, key = `${p.offhand}:${p.totems}:${level}`;
-    if (key === this.lastOffhand) return; this.lastOffhand = key; this.leftHand.clear();
+    if (key === this.lastOffhand) return; this.lastOffhand = key; this.clearHeld(this.leftHand);
     if (p.offhand === 'totem') { if (p.totems > 0) this.buildTotem(this.leftHand); else return; }
     else { this.box(this.leftHand, [.55, .67, .12], [0, .08, 0], '#8a673c', 'wood'); this.box(this.leftHand, [.09, .67, .14], [0, .08, -.02], '#b6b6a3', 'metal'); }
     this.box(this.leftHand,[.18,.2,.2],[0,-.14,.16],'#dab48b');this.box(this.leftHand,[.16,.27,.17],[0,-.34,.23],'#355b65','cloth');
     if (level > 1) { const glove = this.plate(this.leftHand, [.19, .22, .18], [0, -.18, .03]); glove.material = this.armorMaterials[level - 2]; }
     this.leftHand.traverse(o => { if (o instanceof THREE.Mesh) o.castShadow = o.receiveShadow = false; });
   }
-  buildWeapon(group: THREE.Group, name: Weapon | 'weaver') {
-    group.clear();
+  private clearHeld(group: THREE.Group) { group.traverse(o => { if (o instanceof THREE.Mesh && ![this.swordGeo, this.appleGeo, this.runeGeometry, this.totemGeo].includes(o.geometry)) o.geometry.dispose(); }); group.clear(); }
+  buildWeapon(group: THREE.Group, name: Weapon | 'weaver' | 'chisel') {
+    this.clearHeld(group);
+    if (name === 'chisel') {
+      this.box(group, [.1, .5, .1], [0, .1, 0], '#756796', 'wood');
+      for (const x of [-.14, .14]) { const fork = this.box(group, [.05, .36, .08], [x, .49, 0], '#b6dcd5', 'metal'); fork.rotation.z = x > 0 ? -.18 : .18; }
+      this.box(group, [.32, .065, .09], [0, .32, 0], '#d8c8e8', 'metal');
+      const heart = new THREE.Mesh(this.runeGeometry, this.auraMaterial); heart.scale.set(.55, 1.1, .55); heart.position.y = .58; group.add(heart);
+      this.box(group, [.16, .045, .14], [0, .03, 0], '#b1ffe4');
+    }
     if (name === 'weaver') {
       this.box(group, [.09, .62, .09], [0, .1, 0], '#8f6446', 'wood');
       for (const x of [-.13, .13]) { const prong = this.box(group, [.045, .26, .045], [x, .49, 0], '#d6be88', 'metal'); prong.rotation.z = x > 0 ? -.35 : .35; }
@@ -273,8 +283,8 @@ export class ArenaScene {
   event(e: GameEvent) {
     this.creatures.event(e);
     if(e.realm&&e.realm!==this.viewRealm)return;
-    if (e.type === 'swing' || e.type === 'shot' || e.type === 'weave' || e.type === 'erase' || e.type === 'gather') { const rig = e.actor && this.rigs.get(e.actor); if (rig) rig.swing = 1; }
-    if (e.position && this.viewRealm === 'wilds' && !this.reduced && ['weave', 'erase', 'windlift', 'gather', 'craft', 'hearth', 'creature_bond', 'creature_blink', 'creature_clear', 'creature_hit'].includes(e.type)) this.sparks.burst(e.position.x, e.position.y, e.position.z, e.type === 'creature_hit' ? '#ddaeff' : e.type === 'weave' || e.type === 'gather' || e.type.startsWith('creature_') ? '#9affde' : '#ffd59d', e.type === 'hearth' ? 4 : e.type === 'creature_clear' ? 35 : 12);
+    if (e.type === 'swing' || e.type === 'shot' || e.type === 'weave' || e.type === 'erase' || e.type === 'gather' || e.type === 'mine' || e.type === 'mend') { const rig = e.actor && this.rigs.get(e.actor); if (rig) rig.swing = 1; }
+    if (e.position && this.viewRealm === 'wilds' && !this.reduced && ['weave', 'erase', 'mine', 'mend', 'windlift', 'gather', 'craft', 'hearth', 'creature_bond', 'creature_blink', 'creature_clear', 'creature_hit'].includes(e.type)) this.sparks.burst(e.position.x, e.position.y, e.position.z, e.type === 'creature_hit' ? '#ddaeff' : e.type === 'weave' || e.type === 'gather' || e.type === 'mend' || e.type.startsWith('creature_') ? '#9affde' : '#ffd59d', e.type === 'hearth' ? 4 : e.type === 'creature_clear' ? 35 : 12);
     const g = this.avatars.get(e.target ?? e.actor ?? ''); if (g?.userData.realm === this.viewRealm && !this.reduced && ['hit','relic','totem','dash','level','flag_capture','waystone','warp'].includes(e.type)) this.sparks.burst(g.position.x,g.position.y+1,g.position.z,e.type === 'hit' ? e.blocked ? '#bdeaff' : '#ffcd83' : '#6dfff0',e.type === 'relic' ? 45 : 16);
   }
   render(dt: number, snapshot: Snapshot | undefined, me: Player | undefined, local: Body | undefined, yaw: number, pitch: number, playing: boolean, moving: boolean) {
@@ -306,12 +316,13 @@ export class ArenaScene {
     const realm = inRound ? follow?.realm ?? 'arena' : 'arena', wild = realm === 'wilds';
     this.arena.visible = !wild; this.worldDecor.visible = wild; this.contactShadows.visible = !wild && this.quality === 'low'; this.renderer.shadowMap.enabled = !wild && this.quality !== 'low';
     if(this.viewRealm!==realm)this.sparks.clear(); this.viewRealm = realm; this.terrain.time.value = this.reduced ? 0 : this.time;
-    this.terrain.update(this.camera.position.x, this.camera.position.z, snapshot?.world.seed ?? 0, this.quality, wild);
+    this.terrain.update(this.camera.position.x, this.camera.position.z, snapshot?.world.seed ?? 0, this.quality, wild, snapshot?.world.excavation);
     const fog = this.scene.fog as THREE.Fog; fog.near = wild ? vistaDistance(this.terrain.worker ? this.quality : 'low') * .48 : 80; fog.far = wild ? vistaDistance(this.terrain.worker ? this.quality : 'low') : 200;
     this.atmosphere.update(this.camera,this.time,this.reduced); this.sparks.update(dt,!this.reduced);
     if (snapshot && wild) { this.runeLandmarks.build(snapshot.world.seed); this.runeLandmarks.update(this.time,me?.relics ?? 0,this.reduced); }
     if (snapshot && wild) { this.waystoneLandmarks.build(snapshot.world.seed); this.waystoneLandmarks.update(this.camera.position.x,this.camera.position.z,this.time,snapshot.world.waystones ?? 1,this.reduced,vistaDistance(this.terrain.worker ? this.quality : 'low')); }
     if (snapshot) this.construction.update(snapshot.world, me && local ? { ...local, id: me.id, weaveKind: me.weaveKind, yaw, pitch } : follow, this.quality, this.time, wild && this.weavePreview && playing && !!me?.alive, this.erasePreview, snapshot.players, snapshot.mode === 'expedition' || snapshot.host === me?.id);
+    if (snapshot) this.sculpture.update(snapshot.world, me && local ? { ...me, ...local, yaw, pitch } : follow, this.time, this.reduced, wild && this.sculptPreview && playing && !!me?.alive, this.mendPreview, [...snapshot.players, ...(snapshot.creatures ?? []).map(creatureView).map(c => ({ ...c, realm: 'wilds' as const }))], snapshot.mode === 'expedition' || snapshot.host === me?.id);
     if (snapshot && wild && follow) this.resources.update(snapshot.world, local && follow.id === me?.id ? { ...local, yaw, pitch } : follow, snapshot.tick, this.time, this.quality, this.reduced);
     if(snapshot)this.creatures.update(snapshot.creatures??[],snapshot.world,this.camera,me?.id??'',this.time,dt,this.reduced,wild);
     this.flightTips.visible = !!me?.alive && !thirdPerson && !inspecting && wild && ((local?.glideTime ?? me?.glideTime ?? 0) > 0);
@@ -321,13 +332,13 @@ export class ArenaScene {
     const fov = inspecting ? 55 : this.configuredFov;
     if (this.camera.fov !== fov) { this.camera.fov = fov; this.camera.updateProjectionMatrix(); }
     if (inspecting && me) { const angle = this.reduced ? Math.PI + me.yaw : this.time * .3; this.camera.position.copy(clipCamera({ x: me.x, y: me.y + EYE, z: me.z }, { x: me.x + Math.sin(angle) * 3.8, y: me.y + 1.8, z: me.z + Math.cos(angle) * 3.8 }, .22, me.realm, snapshot?.world)); this.camera.lookAt(me.x, me.y + .85, me.z); }
-    this.weapon.visible = !thirdPerson && !inspecting && !!inRound && !!me?.alive && snapshot?.phase !== 'results' && (me.weaving || me.weapon !== 'apple' || me.apples > 0);
-    if (me) { this.setWeapon(me.weaving ? 'weaver' : me.weapon, me.xp); this.setOffhand(me); this.swing = Math.max(0, this.swing - dt * 5); const arc = Math.sin(this.swing * Math.PI), sway = this.reduced ? 0 : Math.max(-.16,Math.min(.16,yaw-this.lastWeaponYaw)); this.lastWeaponYaw=yaw; this.weapon.rotation.set(-arc * 1.25, -arc * .65-sway, -.2 - arc * .9); this.weapon.position.y = -.43 - (!me.weaving && (me.weapon === 'sword' || me.weapon === 'axe') ? (1 - attackStrength(me)) * .1 : 0) + (moving && local?.grounded && !this.reduced ? Math.sin(this.cameraDistance * 5) * .02 : 0); this.weapon.position.z = -.65 + me.charge * .035; }
+    this.weapon.visible = !thirdPerson && !inspecting && !!inRound && !!me?.alive && snapshot?.phase !== 'results' && (me.sculpting || me.weaving || me.weapon !== 'apple' || me.apples > 0);
+    if (me) { this.setWeapon(me.sculpting ? 'chisel' : me.weaving ? 'weaver' : me.weapon, me.xp); this.setOffhand(me); this.swing = Math.max(0, this.swing - dt * 5); const arc = Math.sin(this.swing * Math.PI), sway = this.reduced ? 0 : Math.max(-.16,Math.min(.16,yaw-this.lastWeaponYaw)); this.lastWeaponYaw=yaw; this.weapon.rotation.set(-arc * 1.25, -arc * .65-sway, -.2 - arc * .9); this.weapon.position.y = -.43 - (!me.weaving && !me.sculpting && (me.weapon === 'sword' || me.weapon === 'axe') ? (1 - attackStrength(me)) * .1 : 0) + (moving && local?.grounded && !this.reduced ? Math.sin(this.cameraDistance * 5) * .02 : 0); this.weapon.position.z = -.65 + me.charge * .035; if (me.sculpting) { this.weapon.rotation.x = -.24 + (this.reduced || !me.sculptProgress ? 0 : Math.sin(this.time * 22) * .035); this.weapon.rotation.z = -.08; }  }
     if (local && !this.reduced) { if (!this.wasGrounded && local.grounded) this.landingKick = .08; this.wasGrounded=local.grounded; this.landingKick*=Math.exp(-dt*14); this.weapon.position.y-=this.landingKick; this.weapon.rotation.z+=(local.dashTime ?? 0)>0 ? -.22 : 0; if ((local.dashTime ?? 0)>0 && (this.dashTrailTime+=dt)>.025) { this.dashTrailTime=0; this.sparks.burst(local.x,local.y+.6,local.z,'#66e8df',3); } }
-    this.leftHand.visible = !thirdPerson && !inspecting && !!inRound && !!me?.alive && snapshot?.phase !== 'results' && !me.weaving && (me.offhand === 'shield' || me.totems > 0);
+    this.leftHand.visible = !thirdPerson && !inspecting && !!inRound && !!me?.alive && snapshot?.phase !== 'results' && !me.weaving && !me.sculpting && (me.offhand === 'shield' || me.totems > 0);
     this.leftHand.position.set(me?.block ? -.2 : -.36, me?.block ? -.12 : this.weapon.position.y, me?.block ? -.5 : -.65);
     this.leftHand.rotation.set(0, me?.block ? -.1 : .1, .1);
-    const eating = me?.weapon === 'apple' && me.charge > 0;
+    const eating = !me?.sculpting && !me?.weaving && me?.weapon === 'apple' && me.charge > 0;
     this.weapon.position.x = eating ? .15 : .36;
     if (eating) { this.weapon.position.y += .18 + (this.reduced ? 0 : Math.sin(this.time * 18) * .025); this.weapon.position.z += .2; this.weapon.rotation.z = -.4; }
     const ids = new Set(snapshot?.players.map(p => p.id));
@@ -354,15 +365,15 @@ export class ArenaScene {
       rig.leftLeg.rotation.x = pose.leftLeg; rig.rightLeg.rotation.x = pose.rightLeg;
       rig.leftArm.rotation.x = p.block ? -1.1 : pose.leftArm;
       rig.swing = Math.max(0, rig.swing - dt / .3);
-      rig.rightArm.rotation.x = p.weaving && rig.swing === 0 ? -.35 + p.pitch * .65 : rig.swing > 0 ? -Math.sin(rig.swing * Math.PI) * 1.8 : p.weapon === 'apple' && p.charge > 0 ? 1.65 + (this.reduced ? 0 : Math.sin(this.time * 18) * .06) : p.charge > 0 || (p.weapon === 'crossbow' && p.loaded) ? -1.3 + p.pitch : pose.rightArm;
+      rig.rightArm.rotation.x = p.sculpting && rig.swing === 0 ? -.5 + p.pitch * .65 + (this.reduced || !p.sculptProgress ? 0 : Math.sin(this.time * 22) * .035) : p.weaving && rig.swing === 0 ? -.35 + p.pitch * .65 : rig.swing > 0 ? -Math.sin(rig.swing * Math.PI) * 1.8 : p.weapon === 'apple' && p.charge > 0 ? 1.65 + (this.reduced ? 0 : Math.sin(this.time * 18) * .06) : p.charge > 0 || (p.weapon === 'crossbow' && p.loaded) ? -1.3 + p.pitch : pose.rightArm;
       rig.leftArm.rotation.z = p.block ? -.2 : Math.sin(rig.distance*1.3)*.04; rig.rightArm.rotation.z = rig.swing>0 ? -.4*Math.sin(rig.swing*Math.PI) : .04;
       const sail = g.getObjectByName('sky-sail') as THREE.Group; sail.visible = (body.glideTime ?? 0) > 0;
       if (sail.visible) { this.sails.animate(sail, this.time + p.color, this.reduced); g.rotation.x = -.12; if (!p.block) rig.leftArm.rotation.z = -.55; if (!p.charge && rig.swing === 0) rig.rightArm.rotation.z = .55; }
-      rig.tool.visible = !!p.weaving || p.weapon !== 'apple' || p.apples > 0;
-      rig.tool.rotation.x = p.weapon === 'apple' && p.charge > 0 ? -1.65 : 0;
-      const shield = g.getObjectByName('shield')!; shield.visible = !p.weaving && p.offhand === 'shield';
-      g.getObjectByName('totem')!.visible = !p.weaving && p.offhand === 'totem' && p.totems > 0;
-      const toolName = p.weaving ? 'weaver' : p.weapon; if (rig.toolName !== toolName) { rig.toolName = toolName; this.buildWeapon(rig.tool, toolName); }
+      rig.tool.visible = !!p.sculpting || !!p.weaving || p.weapon !== 'apple' || p.apples > 0;
+      rig.tool.rotation.x = !p.weaving && !p.sculpting && p.weapon === 'apple' && p.charge > 0 ? -1.65 : 0;
+      const shield = g.getObjectByName('shield')!; shield.visible = !p.weaving && !p.sculpting && p.offhand === 'shield';
+      g.getObjectByName('totem')!.visible = !p.weaving && !p.sculpting && p.offhand === 'totem' && p.totems > 0;
+      const toolName = p.sculpting ? 'chisel' : p.weaving ? 'weaver' : p.weapon; if (rig.toolName !== toolName) { rig.toolName = toolName; this.buildWeapon(rig.tool, toolName); }
       g.traverse(o => { if (o instanceof THREE.Mesh) { o.userData.baseMaterial ??= o.material; if (o.userData.armor) { const level = armorTier(p.xp).level; o.visible = level > 1; o.material = p.hurtTime > 0 ? this.material('#e77979') : this.armorMaterials[Math.max(0, level - 2)]; } else o.material = p.hurtTime > 0 ? this.material('#e77979') : o.userData.baseMaterial; } });
     }
     const arrowIds = new Set(snapshot?.arrows.map(a => a.id));

@@ -3,6 +3,7 @@ import { direction, EYE, HEIGHT, RADIUS, segmentBox, terrainHit } from './game.j
 import { shardSites } from './expedition.js';
 import { waystoneSites } from './waystones.js';
 import { terrainHeight, worldBoxes, type WorldState, type Realm } from './world.js';
+import { floorHeight, nativeBox } from './terrain-collision.js';
 
 export interface Weaver { x: number; y: number; z: number; yaw: number; pitch: number; realm?: Realm; weaveKind?: number }
 export interface WeaveTarget { x: number; y: number; z: number; existing?: RuneBlock; valid: boolean; reason: string }
@@ -17,9 +18,9 @@ export function placementReason(cell: { x: number; y: number; z: number }, world
   const natural = worldBoxes(x, z, x + 1, z + 1, 'wilds', { ...world, construction: undefined });
   if (natural.some(b => x < b.x + b.w / 2 - .001 && x + 1 > b.x - b.w / 2 + .001 && z < b.z + b.d / 2 - .001 && z + 1 > b.z - b.d / 2 + .001 && y < (b.y ?? 0) + b.h - .001 && y + 1 > (b.y ?? 0) + .001)) return 'Give trees and ancient ruins room';
   if (players.some(p => p.realm === 'wilds' && p.alive !== false && p.x + RADIUS > x - .04 && p.x - RADIUS < x + 1.04 && p.z + RADIUS > z - .04 && p.z - RADIUS < z + 1.04 && p.y + HEIGHT > y - .04 && p.y < y + 1.04)) return 'Leave room for your friends';
-  const floor = terrainHeight(x + .5, z + .5, world.seed);
-  if (y + 1 <= floor + .05) return 'Aim above the ground';
-  const supported = floor >= y - .08 || [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]].some(([dx, dy, dz]) => world.construction?.get(x + dx, y + dy, z + dz));
+  const cut = world.excavation?.has(x, y, z), floor = floorHeight(x + .5, z + .5, y, world);
+  if (!cut && y + 1 <= terrainHeight(x + .5, z + .5, world.seed) + .05) return 'Aim above the ground or carve a cave first';
+  const supported = floor >= y - .08 || [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]].some(([dx, dy, dz]) => world.construction?.get(x + dx, y + dy, z + dz) || cut && nativeBox(x + dx + .001, y + dy + .001, z + dz + .001, x + dx + .999, y + dy + .999, z + dz + .999, world));
   return !requireSupport || supported ? '' : 'Begin on the ground or beside another rune';
 }
 /** Server and preview choose the same nearest surface; clients never submit a cell. */
@@ -27,7 +28,7 @@ export function weaveTarget(p: Weaver, world: WorldState, erase = false, players
   if (p.realm !== 'wilds') return;
   const a = { x: p.x, y: p.y + EYE, z: p.z }, d = direction(p.yaw, p.pitch);
   const b = { x: a.x + d.x * BUILD.reach, y: a.y + d.y * BUILD.reach, z: a.z + d.z * BUILD.reach };
-  let nearest = terrainHit(a, b, world.seed), hitBox: ReturnType<typeof worldBoxes>[number] | undefined;
+  let nearest = terrainHit(a, b, world.seed, world.excavation), hitBox: ReturnType<typeof worldBoxes>[number] | undefined;
   for (const box of worldBoxes(Math.min(a.x, b.x), Math.min(a.z, b.z), Math.max(a.x, b.x), Math.max(a.z, b.z), 'wilds', world)) {
     const t = segmentBox(a, b, [box.x - box.w / 2, box.y ?? 0, box.z - box.d / 2], [box.x + box.w / 2, (box.y ?? 0) + box.h, box.z + box.d / 2]);
     if (t < nearest) { nearest = t; hitBox = box; }
@@ -38,11 +39,13 @@ export function weaveTarget(p: Weaver, world: WorldState, erase = false, players
   if (erase) return existing ? { x: existing.x, y: existing.y, z: existing.z, existing, valid: true, reason: '' } : { x: Math.floor(hit.x), y: Math.floor(hit.y), z: Math.floor(hit.z), valid: false, reason: 'Only woven runes can be erased' };
   if (hitBox && !existing) return { x: Math.floor(hit.x), y: Math.floor(hit.y), z: Math.floor(hit.z), valid: false, reason: 'Aim at open ground or a woven rune' };
   let normal = { x: 0, y: 1, z: 0 };
-  if (existing) {
+  const nativeCell = !hitBox && world.excavation?.size && Math.abs(hit.y - terrainHeight(hit.x, hit.z, world.seed)) > .03 ? { x: Math.floor(hit.x + d.x * .004), y: Math.floor(hit.y + d.y * .004), z: Math.floor(hit.z + d.z * .004) } : undefined;
+  const solid = existing ?? nativeCell;
+  if (solid) {
     const faces = [
-      { distance: Math.abs(hit.x - existing.x), x: -1, y: 0, z: 0 }, { distance: Math.abs(hit.x - existing.x - 1), x: 1, y: 0, z: 0 },
-      { distance: Math.abs(hit.y - existing.y), x: 0, y: -1, z: 0 }, { distance: Math.abs(hit.y - existing.y - 1), x: 0, y: 1, z: 0 },
-      { distance: Math.abs(hit.z - existing.z), x: 0, y: 0, z: -1 }, { distance: Math.abs(hit.z - existing.z - 1), x: 0, y: 0, z: 1 },
+      { distance: Math.abs(hit.x - solid.x), x: -1, y: 0, z: 0 }, { distance: Math.abs(hit.x - solid.x - 1), x: 1, y: 0, z: 0 },
+      { distance: Math.abs(hit.y - solid.y), x: 0, y: -1, z: 0 }, { distance: Math.abs(hit.y - solid.y - 1), x: 0, y: 1, z: 0 },
+      { distance: Math.abs(hit.z - solid.z), x: 0, y: 0, z: -1 }, { distance: Math.abs(hit.z - solid.z - 1), x: 0, y: 0, z: 1 },
     ]; normal = faces.sort((u, v) => u.distance - v.distance)[0];
   }
   const cell = { x: Math.floor(hit.x + normal.x * .02), y: Math.floor(hit.y + normal.y * .02), z: Math.floor(hit.z + normal.z * .02) };

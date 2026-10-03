@@ -196,6 +196,57 @@ Portable world uploads retain the 4KiB inbound WebSocket ceiling by sending up t
 replacing a lobby; landmarks, terrain and native geometry remain protected. The
 host's optional three-world browser book is bounded and stores no player names.
 
+## Native terrain shaping
+
+Sparse removed cells in `shared/excavation.ts` supplement the existing continuous
+height field; untouched terrain allocates no native voxel actors. Removed cells
+are indexed by columns and 16m regions, capped at 8,192 per room and 2,048 per
+explorer. A separate 2,048-cell spent-seam ledger survives mending. The seed
+deterministically places three-block crystal deposits, reusing the shared pantry.
+Only authenticated held aim selects a cell and advances its stone song. Completion
+follows combat, so same-tick damage cancels it. Protected roots/landmarks, world
+bounds, headroom, ownership, room quotas and vein credit are rechecked on completion.
+
+`shared/terrain-collision.ts` queries native density, floors and ceilings. Exact
+cell/triangle crossings make roofs and thin walls obstruct the same movement,
+projectile, melee and camera rays. Underground runes use the same native support
+and headroom. Companions follow cave floors and may blink to a clear space near an
+owner; mending checks their bodies too. Resource patches and small plants drop to
+the remaining surface if excavated. Water stays a static river footprint and the
+terrain has no structural collapse or fluid propagation.
+
+The worker clips edited surface triangles and builds only exposed cave faces.
+Neighbor openings discard internal faces, including across negative chunk edges.
+Edits rebuild nearby resident chunks, keeping each old mesh visible until its
+replacement arrives. One worker request/upload remains the limit, and old buffers
+are disposed. A 256-change history bounds invalidation; missed history rebuilds
+only the resident neighborhood. Terrain is still an approximate height field in
+the distant horizon; caves render within the detailed resident chunks.
+
+Original fractured shale textures, normal maps, directional vertex shading and
+faint vertex-colored seam emission share one stone material. Seam glow needs no
+extra lights. The fork model, tracing glyph and two-point beam use fixed reusable
+geometry. Original mining/mending cues and periodic progress notes stay within the
+32-voice sound pool; cave ambience is quieter and lower in pitch. Reduced motion
+holds the glyph still and suppresses the hand oscillation and existing sparks.
+
+Protocol 15 snapshots carry a terrain revision and active song progress; terrain
+stays in its separate ordered change stream. Large full states use captured
+revisions, 128-row parts and at most four parts per 50ms update. The client stages
+parts and intervening edits before replacing collision atomically. Partial,
+malformed, oversized or expired transfers leave the prior collision store intact.
+The existing 4KiB inbound and 256KB slow-client buffer limits remain. Portable
+version-4 saves upload builds, openings and spent seams in separate 64-row streams,
+validate everything before replacing a lobby and retain versions 1–3. Files are
+capped at 384KB; three browser memories remain optional rather than server storage.
+
+The M4 desktop preview at 1280×720 held about 120 FPS after settling, with a frame
+p95 of roughly 10ms at High for 8,192 openings (81 chunks, about 297K visible
+triangles) and roughly 9ms at Low with reduced motion (25 chunks). Terrain updates
+and changes of quality released the old geometry, textures stayed bounded, and
+the browser reported no shader errors. These are desktop measurements; physical
+phone performance and playtesting with children remain unverified.
+
 
 ## Shared supplies and Sky sails
 
