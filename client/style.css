@@ -63,3 +63,4 @@ button.offhand{background:#111d25bd;border:1px solid #ffffff38;padding:3px 6px;m
 
 .ctf .feed,.mobile .ctf .feed { top:224px; }
 @media(max-height:500px) { .mobile .flag-hud { top:54px; } .mobile .ctf .feed { top:154px; max-width:220px; } }
+.mobile .hud.ctf ~ .perspective-hint { display:none; }
