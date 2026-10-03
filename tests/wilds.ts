@@ -26,15 +26,15 @@ async function walk(r: Room, x: number, z: number, stop = () => Math.hypot(me(r)
   }, 33);
   try { await until(stop); } finally { clearInterval(timer); timer = undefined; if (r.connection.isOpen) controls(r); }
 }
-function wildRoute(from: {x:number;z:number}, target:{x:number;z:number}, seed:number) {
+function wildRoute(from: {x:number;z:number}, target:{x:number;z:number}, seed:number, construction?:Construction) {
   const key=(x:number,z:number)=>`${x},${z}`, start=[Math.round(from.x/2),Math.round(from.z/2)], goal=[Math.round(target.x/2),Math.round(target.z/2)], queue=[start], parents=new Map<string,number[]|null>([[key(start[0],start[1]),null]]);
   const minX=Math.min(start[0],goal[0])-12,maxX=Math.max(start[0],goal[0])+12,minZ=Math.min(start[1],goal[1])-12,maxZ=Math.max(start[1],goal[1])+12;
   let found:number[]|undefined;
-  for(let n=0;n<queue.length;n++){const v=queue[n];if(Math.hypot(v[0]-goal[0],v[1]-goal[1])<1.5){found=v;break;}for(const [dx,dz] of [[1,0],[-1,0],[0,1],[0,-1]]){const x=v[0]+dx,z=v[1]+dz,k=key(x,z);if(x<minX||x>maxX||z<minZ||z>maxZ||parents.has(k))continue;// Keep an outdoor route out of the return portal; enter it explicitly after reaching the clearing.
-      if(Math.abs(x*2)<3.5&&z*2>=3&&z*2<=13)continue;const y=terrainHeight(x*2,z*2,seed);if(worldBoxes(x*2,z*2,x*2,z*2,'wilds',{seed,doorOpen:true}).some(b=>Math.abs(x*2-b.x)<b.w/2+1&&Math.abs(z*2-b.z)<b.d/2+1&&y+1.8>(b.y??0)&&y<(b.y??0)+b.h))continue;parents.set(k,v);queue.push([x,z]);}}
+  for(let n=0;n<queue.length;n++){const v=queue[n];if(Math.hypot(v[0]-goal[0],v[1]-goal[1])<1.5){found=v;break;}for(const [dx,dz] of [[1,0],[-1,0],[0,1],[0,-1]]){const x=v[0]+dx,z=v[1]+dz,k=key(x,z);if(x<minX||x>maxX||z<minZ||z>maxZ||parents.has(k))continue;// Avoid complete obstacle columns: downhill headroom can differ from the next cell's floor. Keep the return portal out of outdoor routes.
+      if(Math.abs(x*2)<3.5&&z*2>=3&&z*2<=13)continue;const y=terrainHeight(x*2,z*2,seed);if(worldBoxes(x*2,z*2,x*2,z*2,'wilds',{seed,doorOpen:true,construction}).some(b=>Math.abs(x*2-b.x)<b.w/2+1&&Math.abs(z*2-b.z)<b.d/2+1))continue;parents.set(k,v);queue.push([x,z]);}}
   if(!found)throw Error('No route to the skyshard');const route=[found];while(parents.get(key(route[0][0],route[0][1])))route.unshift(parents.get(key(route[0][0],route[0][1]))!);return route.map(v=>[v[0]*2,v[1]*2]);
 }
-async function followWildRoute(r:Room,target:{x:number;z:number},stop:()=>boolean=()=>Math.hypot(me(r).x-target.x,me(r).z-target.z)<1){const route=wildRoute(me(r),target,states.get(r)!.world.seed);let point=0;timer=setInterval(()=>{const p=me(r);while(point<route.length-1&&Math.hypot(p.x-route[point][0],p.z-route[point][1])<.65)point++;const goal=point===route.length-1?[target.x,target.z]:route[point],d=Math.hypot(p.x-goal[0],p.z-goal[1]);controls(r,{yaw:Math.atan2(p.x-goal[0],p.z-goal[1]),z:1,sprint:true,dash:d>7&&(p.dashCooldown??0)<=0});for(const other of rooms)if(other!==r&&other.connection.isOpen)other.send('ping',Date.now());},33);try{await until(stop,100);}finally{clearInterval(timer);timer=undefined;controls(r);}}
+async function followWildRoute(r:Room,target:{x:number;z:number},stop:()=>boolean=()=>Math.hypot(me(r).x-target.x,me(r).z-target.z)<1){const route=wildRoute(me(r),target,states.get(r)!.world.seed,states.get(r)!.world.construction);let point=0;timer=setInterval(()=>{const p=me(r);while(point<route.length-1&&Math.hypot(p.x-route[point][0],p.z-route[point][1])<.65)point++;const goal=point===route.length-1?[target.x,target.z]:route[point],d=Math.hypot(p.x-goal[0],p.z-goal[1]);controls(r,{yaw:Math.atan2(p.x-goal[0],p.z-goal[1]),z:1,sprint:true,dash:d>7&&(p.dashCooldown??0)<=0});for(const other of rooms)if(other!==r&&other.connection.isOpen)other.send('ping',Date.now());},33);try{await until(stop,100);}finally{clearInterval(timer);timer=undefined;controls(r);}}
 async function constructionChecks(host: Room, guest: Room) {
   const seed=states.get(host)!.world.seed;
   let aim:{yaw:number;pitch:number}|undefined;
@@ -49,7 +49,7 @@ async function constructionChecks(host: Room, guest: Room) {
   assert([...constructions.get(guest)!.values()].some(b=>b.kind===5));assert.deepEqual({hp:me(host).hp,ammo:me(host).ammo,apples:me(host).apples,totems:me(host).totems},beforeSupplies);
   console.log('PASS: ordinary aim built two shared runes, including Windlift, without consuming combat supplies');
   await walk(guest,-26,-46);await walk(guest,-26,-65,()=>me(guest).realm==='wilds',false);
-  await followWildRoute(guest,{x:me(host).x+2,z:me(host).z+2});
+  await followWildRoute(guest,{x:me(host).x,z:me(host).z});
   await wait(120);const gx=block.x+.5-me(guest).x,gz=block.z+.5-me(guest).z, eraseAim={yaw:Math.atan2(-gx,-gz),pitch:Math.atan2(block.y+.8-me(guest).y-1.62,Math.hypot(gx,gz))};
   const selected=weaveTarget({...me(guest),...eraseAim},states.get(guest)!.world,true,states.get(guest)!.players);assert(selected?.valid&&selected.existing);
   controls(guest,{...eraseAim,weaving:true,weaveKind:0,block:true});
@@ -74,6 +74,11 @@ try {
   const host = track(await client.create('arena', { name: 'Wilds explorer', version: VERSION, private: true }));
   let guest = track(await client.joinById(host.roomId, { name: 'Terrain observer', version: VERSION }));
   await until(() => rooms.every(r => states.get(r)?.players.length === 2)); assert.equal(states.get(host)!.world.seed, states.get(guest)!.world.seed);
+  if (process.env.TEST_WORLD_SEED !== undefined) {
+    const seed=Number(process.env.TEST_WORLD_SEED);assert(Number.isInteger(seed)&&seed>=0&&seed<=0xffffffff);
+    host.send('worldRestore',{type:'begin',header:{format:'stone-arena-world',version:1,title:'Terrain route regression',seed,doorOpen:false,waystones:1},count:0});host.send('worldRestore',{type:'commit'});
+    await until(()=>[host,guest].every(r=>states.get(r)?.world.seed===seed));
+  }
   if (expedition || waystones || building) { host.send('mode', { mode: 'expedition' }); await until(() => rooms.every(r => states.get(r)?.mode === 'expedition')); }
   host.send('ready'); guest.send('ready'); await until(() => states.get(host)!.players.every(p => p.ready)); host.send('start'); await until(() => states.get(host)?.phase === 'active');
   guest.send('interact'); await wait(100); assert(!states.get(host)!.world.doorOpen);
@@ -95,7 +100,7 @@ try {
   let target = { x: 0, z: -38 };
   for (let n = 0; n < 32; n++) {
     const candidate = { x: Math.sin(n * Math.PI / 16) * 38, z: -Math.cos(n * Math.PI / 16) * 38 };
-    const clear = Array.from({ length: 38 }, (_, step) => ({ x: candidate.x * step / 38, z: candidate.z * step / 38 })).every(v => !worldBoxes(v.x, v.z, v.x, v.z, 'wilds', states.get(host)!.world).some(b => Math.abs(v.x - b.x) < b.w / 2 + .5 && Math.abs(v.z - b.z) < b.d / 2 + .5 && terrainHeight(v.x, v.z, states.get(host)!.world.seed) + 1.8 > (b.y ?? 0)));
+    const clear = Array.from({ length: 38 }, (_, step) => ({ x: candidate.x * step / 38, z: candidate.z * step / 38 })).every(v => !worldBoxes(v.x, v.z, v.x, v.z, 'wilds', states.get(host)!.world).some(b => Math.abs(v.x - b.x) < b.w / 2 + .5 && Math.abs(v.z - b.z) < b.d / 2 + .5));
     if (clear && terrainHeight(candidate.x, candidate.z, states.get(host)!.world.seed) > .5) { target = candidate; break; }
   }
   await walk(host, target.x, target.z, undefined, false);
