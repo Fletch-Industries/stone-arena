@@ -1,9 +1,10 @@
 import { WINDSTEP } from './expedition.js';
 import { BUILD, validKind } from './construction.js';
+import { SAIL, SKY_SAIL } from './sailing.js';
 import { LIMIT } from './arena.js';
 import { movementLimit, terrainHeight, worldBoxes, type Realm, type WorldState } from './world.js';
 export { BOXES, LIMIT, SPAWNS, ARENA_SIZE, type Box } from './arena.js';
-export const VERSION = 12;
+export const VERSION = 13;
 export type Mode = 'ffa' | 'teams' | 'ctf' | 'expedition';
 export type Team = 'red' | 'blue';
 export const MODES = { ffa: 'Free for all', teams: 'Team survival', ctf: 'Capture the flag', expedition: 'Co-op expedition' } as const;
@@ -38,11 +39,11 @@ export type Weapon = 'sword' | 'axe' | 'bow' | 'crossbow' | 'apple';
 export const WEAPONS: Weapon[] = ['sword', 'axe', 'bow', 'crossbow', 'apple'];
 export const COLORS = ['#f3b85b', '#6adbc8', '#a8a0ff', '#f58f9c', '#8ece6b'];
 export type Phase = 'waiting' | 'countdown' | 'active' | 'results';
-export interface Input { seq: number; x: number; z: number; yaw: number; pitch: number; jump: boolean; dash?: boolean; weaving?: boolean; weaveKind?: number; sprint: boolean; block: boolean; attack: boolean; weapon: Weapon; offhand: Offhand }
+export interface Input { seq: number; x: number; z: number; yaw: number; pitch: number; jump: boolean; dash?: boolean; glide?: boolean; weaving?: boolean; weaveKind?: number; sprint: boolean; block: boolean; attack: boolean; weapon: Weapon; offhand: Offhand }
 export const idleInput = (): Input => ({ seq: 0, x: 0, z: 0, yaw: 0, pitch: 0, jump: false, dash: false, sprint: false, block: false, attack: false, weapon: 'sword', offhand: 'shield' });
-export interface Body { dashTime?: number; dashCooldown?: number; dashYaw?: number; dashHeld?: boolean; realm?: Realm; x: number; y: number; z: number; vy: number; grounded: boolean; vx?: number; vz?: number; sprinting?: boolean; sprintLocked?: boolean }
+export interface Body { glideTime?: number; glideCooldown?: number; glideHeld?: boolean; hurtTime?: number; dashTime?: number; dashCooldown?: number; dashYaw?: number; dashHeld?: boolean; realm?: Realm; x: number; y: number; z: number; vy: number; grounded: boolean; vx?: number; vz?: number; sprinting?: boolean; sprintLocked?: boolean }
 export interface Player extends Body {
-  weaving?: boolean; weaveKind?: number; weaveReadyAt?: number; buildCount?: number;
+  weaving?: boolean; weaveKind?: number; weaveReadyAt?: number; buildCount?: number; gatherReadyAt?: number; craftReadyAt?: number;
   warpTick?: number; warpReadyAt?: number;
   relics: number; realm: Realm; team: Team; respawnAt: number; immuneUntil: number; captures: number; flagReturns: number;
   id: string; name: string; color: number; yaw: number; pitch: number; hp: number; alive: boolean;
@@ -51,7 +52,7 @@ export interface Player extends Body {
   hurtTime: number; lastDamage: number; shieldRaise: number; swingWait: number; moveSpeed: number; cooldown: number; charge: number; loaded: boolean; shieldDisabled: number; eliminatedAt: number;
 }
 export interface Arrow { realm?: Realm; id: number; owner: string; x: number; y: number; z: number; vx: number; vy: number; vz: number; damage: number; age: number; critical?: boolean }
-export interface GameEvent { id: number; type: 'hit' | 'kill' | 'shot' | 'swing' | 'start' | 'result' | 'level' | 'heal' | 'totem' | 'flag_pickup' | 'flag_drop' | 'flag_return' | 'flag_capture' | 'door' | 'travel' | 'dash' | 'relic' | 'waystone' | 'warp' | 'weave' | 'erase' | 'windlift'; actor?: string; target?: string; team?: Team; text?: string; position?: { x: number; y: number; z: number }; blocked?: boolean; critical?: boolean; sprintHit?: boolean; sweep?: boolean }
+export interface GameEvent { id: number; type: 'hit' | 'kill' | 'shot' | 'swing' | 'start' | 'result' | 'level' | 'heal' | 'totem' | 'flag_pickup' | 'flag_drop' | 'flag_return' | 'flag_capture' | 'door' | 'travel' | 'dash' | 'relic' | 'waystone' | 'warp' | 'weave' | 'erase' | 'windlift' | 'gather' | 'craft' | 'glide' | 'hearth'; actor?: string; target?: string; team?: Team; text?: string; position?: { x: number; y: number; z: number }; blocked?: boolean; critical?: boolean; sprintHit?: boolean; sweep?: boolean }
 export interface Snapshot { world: WorldState; mode: Mode; winnerTeam: Team | ''; scores: Record<Team, number>; flags: Flag[]; tick: number; phase: Phase; countdown: number; result: string; winner: string; round: number; host: string; practice: boolean; players: Player[]; arrows: Arrow[]; events: GameEvent[] }
 export function validInput(a: unknown): a is Input {
   if (!a || typeof a !== 'object') return false;
@@ -59,7 +60,7 @@ export function validInput(a: unknown): a is Input {
   return Number.isSafeInteger(i.seq) && i.seq >= 0 && i.seq < 2 ** 31 &&
     [i.x, i.z, i.yaw, i.pitch].every(Number.isFinite) && Math.abs(i.x) <= 1 && Math.abs(i.z) <= 1 &&
     Math.abs(i.yaw) <= Math.PI * 2 && Math.abs(i.pitch) <= 1.5 && WEAPONS.includes(i.weapon) && ['shield', 'totem'].includes(i.offhand) &&
-    (i.dash === undefined || typeof i.dash === 'boolean') && (i.weaving === undefined || typeof i.weaving === 'boolean') && (i.weaveKind === undefined || validKind(i.weaveKind)) && [i.jump, i.sprint, i.block, i.attack].every(v => typeof v === 'boolean');
+    (i.dash === undefined || typeof i.dash === 'boolean') && (i.glide === undefined || typeof i.glide === 'boolean') && (i.weaving === undefined || typeof i.weaving === 'boolean') && (i.weaveKind === undefined || validKind(i.weaveKind)) && [i.jump, i.sprint, i.block, i.attack].every(v => typeof v === 'boolean');
 }
 export function direction(yaw: number, pitch = 0) { return { x: -Math.sin(yaw) * Math.cos(pitch), y: Math.sin(pitch), z: -Math.cos(yaw) * Math.cos(pitch) }; }
 // Velocity impulses share the same collision path as ordinary input on client/server.
@@ -72,25 +73,36 @@ export function knockback(body: Body, dx: number, dz: number, strength = 8) {
 export function move(body: Body, i: Input, dt = DT, slow = false, world?: WorldState) {
   body.dashCooldown = Math.max(0, (body.dashCooldown ?? 0) - dt);
   body.dashTime = Math.max(0, (body.dashTime ?? 0) - dt);
-  if (i.dash && !body.dashHeld && body.realm === 'wilds' && body.dashCooldown === 0 && !slow && !i.block) { body.dashTime = WINDSTEP.duration; body.dashCooldown = WINDSTEP.cooldown; body.dashYaw = i.yaw; }
+  body.glideCooldown = Math.max(0, (body.glideCooldown ?? 0) - dt);
+  body.glideTime = Math.max(0, (body.glideTime ?? 0) - dt);
+  if (body.realm !== 'wilds' || slow || i.block || (body.hurtTime ?? 0) > 0) body.glideTime = 0;
+  const sailPress = i.glide && !body.glideHeld;
+  const launch = sailPress && body.glideTime === 0 && body.realm === 'wilds' && !!((world?.upgrades ?? 0) & SKY_SAIL) && body.glideCooldown === 0 && !slow && !i.block && (body.hurtTime ?? 0) === 0;
+  if (sailPress && body.glideTime > 0) body.glideTime = 0;
+  else if (launch) { body.glideTime = SAIL.seconds; body.glideCooldown = SAIL.cooldown; body.dashTime = 0; }
+  body.glideHeld = i.glide === true;
+  if (i.dash && !body.dashHeld && body.glideTime === 0 && body.realm === 'wilds' && body.dashCooldown === 0 && !slow && !i.block) { body.dashTime = WINDSTEP.duration; body.dashCooldown = WINDSTEP.cooldown; body.dashYaw = i.yaw; }
   body.dashHeld = i.dash === true;
   if (!i.sprint || i.z <= 0) body.sprintLocked = false;
   body.sprinting = i.sprint && i.z > 0 && !slow && !i.block && !body.sprintLocked;
   const length = Math.max(1, Math.hypot(i.x, i.z));
   const speed = (body.sprinting ? SPRINT_SPEED : WALK_SPEED) * (i.block || slow ? .3 : 1);
-  if (i.jump && body.grounded) {
+  if ((i.jump || launch) && body.grounded) {
     const wind = body.realm === 'wilds' && world?.construction?.boxes(body.x - RADIUS, body.z - RADIUS, body.x + RADIUS, body.z + RADIUS).some(b => b.runeKind === 5 && Math.abs(body.y - (b.y! + 1)) < .03);
     body.vy = Math.sqrt(2 * GRAVITY * (wind ? BUILD.windJump : JUMP_HEIGHT)); body.grounded = false;
     if (body.sprinting) { const d = direction(i.yaw); body.vx = (body.vx ?? 0) + d.x * 4; body.vz = (body.vz ?? 0) + d.z * 4; }
   }
-  const dash = (body.dashTime ?? 0) > 0 && body.realm === 'wilds';
-  const dx = ((dash ? -Math.sin(body.dashYaw ?? i.yaw) * WINDSTEP.speed : (i.x * Math.cos(i.yaw) - i.z * Math.sin(i.yaw)) / length * speed) + (body.vx ?? 0)) * dt;
-  const dz = ((dash ? -Math.cos(body.dashYaw ?? i.yaw) * WINDSTEP.speed : (-i.x * Math.sin(i.yaw) - i.z * Math.cos(i.yaw)) / length * speed) + (body.vz ?? 0)) * dt;
+  const dash = (body.dashTime ?? 0) > 0 && body.realm === 'wilds', gliding = (body.glideTime ?? 0) > 0 && body.realm === 'wilds';
+  const dx = ((gliding ? -Math.sin(i.yaw) * SAIL.speed + i.x * Math.cos(i.yaw) * 2 : dash ? -Math.sin(body.dashYaw ?? i.yaw) * WINDSTEP.speed : (i.x * Math.cos(i.yaw) - i.z * Math.sin(i.yaw)) / length * speed) + (body.vx ?? 0)) * dt;
+  const dz = ((gliding ? -Math.cos(i.yaw) * SAIL.speed - i.x * Math.sin(i.yaw) * 2 : dash ? -Math.cos(body.dashYaw ?? i.yaw) * WINDSTEP.speed : (-i.x * Math.sin(i.yaw) - i.z * Math.cos(i.yaw)) / length * speed) + (body.vz ?? 0)) * dt;
   const realm = body.realm ?? 'arena';
   const boxes = worldBoxes(Math.min(body.x, body.x + dx), Math.min(body.z, body.z + dz), Math.max(body.x, body.x + dx), Math.max(body.z, body.z + dz), realm, world);
   const ground = realm === 'wilds' ? terrainHeight(body.x, body.z, world?.seed ?? 0) : 0;
   const oldY = body.y;
-  body.y += body.vy * dt - .5 * GRAVITY * dt * dt; body.vy -= GRAVITY * dt;
+  if (gliding && body.vy < -SAIL.fall) body.vy = -SAIL.fall;
+  const gravity = gliding && body.vy <= 0 ? body.vy > -SAIL.fall ? 4 : 0 : GRAVITY;
+  body.y += body.vy * dt - .5 * gravity * dt * dt; body.vy -= gravity * dt;
+  if (gliding && body.vy < -SAIL.fall) body.vy = -SAIL.fall;
   body.grounded = false;
   if (body.y <= ground) { body.y = ground; body.vy = 0; body.grounded = true; }
   for (const b of boxes) {
@@ -124,6 +136,7 @@ export function move(body: Body, i: Input, dt = DT, slow = false, world?: WorldS
     body[axis] = next;
   }
   if (realm === 'wilds') { const floor = terrainHeight(body.x, body.z, world?.seed ?? 0); if (body.y <= floor || body.grounded && Math.abs(body.y - floor) < .41 && !boxes.some(b => 'runeKey' in b && Math.abs(body.x - b.x) < b.w / 2 + RADIUS && Math.abs(body.z - b.z) < b.d / 2 + RADIUS && Math.abs(body.y - ((b.y ?? 0) + b.h)) < .001)) { body.y = floor; body.vy = 0; body.grounded = true; } }
+  if (body.grounded) body.glideTime = 0;
   const friction = Math.pow(body.grounded ? .546 : .91, dt * 20);
   body.vx = (body.vx ?? 0) * friction; body.vz = (body.vz ?? 0) * friction;
   if (Math.abs(body.vx) < .001) body.vx = 0;

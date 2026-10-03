@@ -33,8 +33,9 @@ distance appear on the HUD. Discovery persists through rematches and reconnects.
 
 Travel preserves health, equipment and supplies. Combat works between players in
 the same area. Capture-the-flag objectives stay in the citadel: entering the tunnel
-drops a carried flag. Weave original structures in the Wilds and keep a portable
-world save; mining and survival crafting are still ahead.
+drops a carried flag. Gather magical supplies, craft shared exploration upgrades,
+weave original structures, and keep a portable world save. Terrain mining and
+creature encounters are still ahead.
 
 Follow the **Dawn, Tide and Dusk skyshard beacons** in the Wilds. Touch each
 floating rune to collect it. Find all three to earn a **Warden aura** visible to
@@ -86,11 +87,43 @@ skyshard chimes. Sound starts after a play gesture. Settings offers volume and a
 **Ambient melody** toggle. Attack arcs, held hands, moving scarves, landing motion,
 rune spark effects and a rotating Warden aura bring movement and combat to life.
 
+## Gather, craft and glide
+
+Look for glowing **Lumen reeds, Gleamstone clusters and Emberblooms**. Aim at a
+nearby patch and press **E**, or tap **Gather**. Each patch adds up to four supplies
+to your party's shared pantry and regrows after two minutes. The pantry holds up
+to 999 of each supply. The server checks aim, reach and cover; collecting supplies
+does not alter the terrain.
+
+Press **C** or tap **Rune loom** beside an awakened waystone to craft:
+
+| Recipe | Lumen reed | Gleamstone | Emberbloom | Result |
+| --- | --- | --- | --- | --- |
+| Sky sail | 12 | 8 | 4 | Gliding for the whole party |
+| Hearthstone | 8 | 12 | 8 | A seventh building rune for the whole party |
+| Arrow bundle | 3 | 2 | 0 | 12 arrows for your quiver, up to 40 |
+
+**Find missing supplies** guides your compass toward nearby patches. Crafting
+requires five damage-free seconds. Shared upgrades are paid for once; arrow
+bundles use party supplies but fill only the crafter's quiver.
+
+With Sky sail woven, press **G** or tap **Glide** to hop and unfold faceted kite
+wings. Steer with your view, glide for up to ten seconds, and press again to fold.
+High ledges and Windlift runes give longer flights; the sail follows ordinary
+terrain and cover collision. Landing or damage folds it, and launches rest for
+twelve seconds. This movement is available only in the Wilds.
+
+Build **Hearthstone** with rune slot **7** after crafting it. Its warm heart glyph
+marks a resting place: living explorers within three blocks recover three HP per
+second after five damage-free seconds. Cover blocks its effect. It cannot revive
+players. Shared supplies and upgrades survive rematches, reconnects and world saves;
+arrows and personal flight state reset each round.
+
 ## Weave your own world
 
 Press **B** or tap **Rune build** in the Wilds to hold a crystal weaving wand.
 Choose **Runestone, Sunwood, Moon glass, Mossstone, Glow rune or Windlift** with
-1–6, the wheel, or the touch palette. Aim within six blocks: left mouse / Weave
+1–6, plus Hearthstone on 7 after crafting, the wheel, or the touch palette. Aim within six blocks: left mouse / Weave
 places a rune on ground or beside an existing rune, and right mouse / Erase
 removes it. Switch B again to use your tools. Rune cover blocks players, arrows,
 melee sightlines and third-person cameras using the same authoritative geometry.
@@ -108,10 +141,12 @@ Rune structures remain in the room across rematches and reconnects.
 Open **Saved worlds** in the lobby or Settings. The host's browser automatically
 keeps up to **three recent worlds**, saving changes about every ten seconds and
 when leaving normally. **Download this world** makes a portable JSON file that
-contains terrain seed, buildings, the open door and awakened waystones. Restore a
+contains terrain seed, buildings, shared supplies/upgrades, the open door and awakened waystones. Restore a
 recent world or open its file **as a lobby host**, then everyone readies again.
-Health, supplies and personal skyshards start fresh; player names and combat stats
-are excluded. Restored structures belong to the world; the host and co-op friends
+Health, arrows and personal skyshards start fresh; player names and combat stats
+are excluded. Resource patches regrow when restoring a world. Earlier version-1
+world files remain supported, with an empty pantry and upgrades ready to craft.
+Restored structures belong to the world; the host and co-op friends
 can edit them. Browser storage can be cleared or unavailable: keep a downloaded
 file for anything you want to retain. Rooms are still temporary and server restarts
 do not restore them automatically.

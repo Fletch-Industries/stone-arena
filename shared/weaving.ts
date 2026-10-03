@@ -4,7 +4,7 @@ import { shardSites } from './expedition.js';
 import { waystoneSites } from './waystones.js';
 import { terrainHeight, worldBoxes, type WorldState, type Realm } from './world.js';
 
-export interface Weaver { x: number; y: number; z: number; yaw: number; pitch: number; realm?: Realm }
+export interface Weaver { x: number; y: number; z: number; yaw: number; pitch: number; realm?: Realm; weaveKind?: number }
 export interface WeaveTarget { x: number; y: number; z: number; existing?: RuneBlock; valid: boolean; reason: string }
 export function protectedRuneSite(x: number, z: number, seed: number) {
   return Math.hypot(x + .5, z + .5) < 24 || shardSites(seed).some(s => Math.hypot(x + .5 - s.x, z + .5 - s.z) < 10) || waystoneSites(seed).some(s => Math.hypot(x + .5 - s.x, z + .5 - s.z) < 12);

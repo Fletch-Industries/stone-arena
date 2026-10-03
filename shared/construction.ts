@@ -7,6 +7,7 @@ export const RUNE_KINDS = [
   { name: 'Mossstone', color: '#89b58b', glyph: '❧' },
   { name: 'Glow rune', color: '#f4cf82', glyph: '✦' },
   { name: 'Windlift', color: '#76ddcd', glyph: '↑' },
+  { name: 'Hearthstone', color: '#ffb77f', glyph: '♥' },
 ] as const;
 export const BUILD = { reach: 6, cooldown: 15, roomLimit: 4096, playerLimit: 512, maxHeight: 64, chunk: 16, windJump: 4 } as const;
 export interface RuneBlock { x: number; y: number; z: number; kind: number; owner: string }

@@ -183,9 +183,9 @@ snapshots carry a revision and player counts, without full construction geometry
 Compact ordered edit packets replicate changes; joins/reconnects and gap recovery
 receive a bounded full state. The client stages only edited cells for atomic updates.
 
-`client/construction.ts` uses six fixed-capacity instanced meshes and a single
+`client/construction.ts` uses seven fixed-capacity instanced meshes and a single
 placement preview cube. Visible matrices rebuild only on edits, graphics changes
-or crossing a 16m camera region. All six materials share cube geometry; rune glyph
+or crossing a 16m camera region. All seven materials share cube geometry; rune glyph
 textures, opaque opal glass, emissive tiles and the crystal wand are original assets.
 There are no per-rune point lights, individual meshes or postprocessing passes.
 Windlift jumps share client/server physics. Placement sparks share the fixed pool;
@@ -195,3 +195,37 @@ Portable world uploads retain the 4KiB inbound WebSocket ceiling by sending up t
 64 coordinate tuples per packet. Validation checks the whole bounded world before
 replacing a lobby; landmarks, terrain and native geometry remain protected. The
 host's optional three-world browser book is bounded and stores no player names.
+
+
+## Shared supplies and Sky sails
+
+`shared/forage.ts` deterministically places three original resource kinds in
+clear patches. Supplies use one cache capped at 1,024 entries across seeds;
+resource patches never become separate network actors. The server keeps only
+at most 512 depleted patches, which regrow after 7,200 simulation ticks. Ordered
+edit packets, bounded full states, and throttled recovery requests follow the
+same replication pattern as rune construction. Small pantry counters and two
+upgrade bits accompany ordinary snapshots. Harvesting and crafting validate the
+authenticated explorer's position and state, without accepting client stock or
+world-coordinate claims.
+
+`client/forage.ts` uses five fixed-capacity instanced meshes for stems, wind-blown
+leaves, reed heads, Gleamstone spires and Emberbloom heads. One selection halo is
+reused. Matrices rebuild only on ledger edits, a 24m region crossing or quality
+changes; Low/Medium/High display patches within 72/96/120m. Resources add no point
+lights, terrain edits or texture uploads. Gather/craft/Hearthstone sparks reuse
+the existing pool and their original chimes reuse the 32-voice synthesizer.
+
+`client/sail.ts` shares two original five-vertex kite wings, edge geometry and a
+crystal between first-person tips and every avatar. Sail flex and the gliding
+pose reuse existing animation pivots; reduced motion freezes decorative flex.
+The existing wind loop responds to flight without creating another audio loop.
+Shared physics retains the ordinary jump/Windlift height, then eases descent to
+1.4m/s, with terrain/cover collision and a ten-second flight limit. Landing,
+damage, blocking, travel and realm changes fold the sail.
+
+The seventh rune uses an original 32×32 heart glyph and warm emissive material,
+sharing construction geometry and instancing. Its healing is server-authoritative
+and checks cover, health and damage-free rest. Version-2 world saves retain
+pantry/upgrades; version-1 worlds remain readable. Restoring a world renews resource
+patches and resets personal state rather than restoring mid-flight players.

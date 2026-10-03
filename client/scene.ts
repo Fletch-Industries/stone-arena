@@ -1,4 +1,6 @@
 import { RuneConstruction } from './construction.js';
+import { ForageRenderer } from './forage.js';
+import { SkySails } from './sail.js';
 import { vistaDistance } from '../shared/horizon.js';
 import { Atmosphere, SparkPool } from './atmosphere.js';
 import { RuneLandmarks } from './landmarks.js';
@@ -27,6 +29,7 @@ export class ArenaScene {
   bases = new Map<Team, THREE.Group>(); flags = new Map<Team, THREE.Group>();
   avatars = new Map<string, THREE.Group>(); arrowMeshes = new Map<number, THREE.Mesh>(); weapon = new THREE.Group(); leftHand = new THREE.Group();
   textures = new TextureLibrary(); construction = new RuneConstruction(this.textures); weavePreview = false; erasePreview = false; surfaceMaterials = new Map<string, THREE.MeshLambertMaterial>();
+  resources = new ForageRenderer(this.textures); sails = new SkySails(this.textures); flightTips = this.sails.make();
   flameAtlas = new FlameAtlas(); flames: THREE.MeshBasicMaterial[] = [];
   armorTime = { value: 0 };
   armorMaterials = [armorMaterial(this.textures.get('metal'), false, this.armorTime), armorMaterial(this.textures.get('metal'), true, this.armorTime)];
@@ -55,7 +58,7 @@ export class ArenaScene {
     Object.assign(this.sun.shadow.camera, { left: -72, right: 72, top: 72, bottom: -72, near: .5, far: 180 });
     this.sun.shadow.bias = -.00015; this.sun.shadow.normalBias = .035;
     this.scene.add(this.sun, this.sun.target, this.contactShadows);
-    this.worldDecor.add(this.construction.group); this.scene.add(this.arena, this.terrain.group, this.worldDecor); this.worldDecor.visible = false;
+    this.worldDecor.add(this.construction.group, this.resources.group); this.scene.add(this.arena, this.terrain.group, this.worldDecor); this.worldDecor.visible = false;
     const floorGeo = new THREE.PlaneGeometry(ARENA_SIZE, ARENA_SIZE); this.repeatUV(floorGeo, ARENA_SIZE/3, ARENA_SIZE/3);
     const floor = new THREE.Mesh(floorGeo, this.surface('paving')); floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; this.arena.add(floor);
     // Unit masonry keeps a consistent pixel density. All wall blocks share one draw call.
@@ -130,7 +133,7 @@ export class ArenaScene {
     const label = document.createElement('canvas'); label.width = 512; label.height = 96; const ctx = label.getContext('2d')!;
     ctx.fillStyle = '#263538'; ctx.fillRect(0, 0, 512, 96); ctx.fillStyle = '#eed09a'; ctx.font = 'bold 34px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('RETURN TO THE CITADEL', 256, 60);
     const returnSign = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(label) })); returnSign.scale.set(5, 1, 1); returnSign.position.set(0, 4.2, 3); this.worldDecor.add(returnSign);
-    this.scene.add(this.camera); this.camera.add(this.weapon, this.leftHand); this.leftHand.scale.setScalar(.55); this.leftHand.position.set(-.36, -.4, -.65); this.weapon.scale.setScalar(.55); this.weapon.position.set(.36, -.4, -.65);
+    this.scene.add(this.camera); this.camera.add(this.weapon, this.leftHand, this.flightTips); this.flightTips.position.set(0, -.45, -.7); this.flightTips.scale.setScalar(.65); this.flightTips.visible = false; this.leftHand.scale.setScalar(.55); this.leftHand.position.set(-.36, -.4, -.65); this.weapon.scale.setScalar(.55); this.weapon.position.set(.36, -.4, -.65);
     window.addEventListener('resize', () => this.resize()); this.resize();
   }
   repeatUV(geometry: THREE.BufferGeometry, u: number, v: number) {
@@ -198,6 +201,7 @@ export class ArenaScene {
     // Cloth insignia stay readable through armor so player colors remain useful.
     this.box(g, [.15, .28, .022], [0, 1.15, -.207], color, 'cloth');
     this.box(g, [.15, .28, .022], [0, 1.15, .207], color, 'cloth');
+    const sail = this.sails.make(); sail.position.set(0, 1.28, .18); sail.visible = false; g.add(sail);
     this.rigs.set(p.id, { head, leftArm, rightArm, leftLeg, rightLeg, tool, toolName: p.weapon, distance: 0, speed: 0, swing: 0, landed: 0, grounded: p.grounded });
     g.position.set(p.x, p.y, p.z);
     const c = document.createElement('canvas'); c.width = 256; c.height = 64; const ctx = c.getContext('2d')!;
@@ -265,8 +269,8 @@ export class ArenaScene {
     if(group===this.weapon){this.box(group,[.17,.19,.18],[0,-.02,.07],'#dab48b');this.box(group,[.15,.28,.17],[0,-.23,.22],'#355b65','cloth');}
   }
   event(e: GameEvent) {
-    if (e.type === 'swing' || e.type === 'shot' || e.type === 'weave' || e.type === 'erase') { const rig = e.actor && this.rigs.get(e.actor); if (rig) rig.swing = 1; }
-    if (e.position && this.viewRealm === 'wilds' && !this.reduced && (e.type === 'weave' || e.type === 'erase' || e.type === 'windlift')) this.sparks.burst(e.position.x, e.position.y, e.position.z, e.type === 'weave' ? '#9affde' : '#ffd59d', 12);
+    if (e.type === 'swing' || e.type === 'shot' || e.type === 'weave' || e.type === 'erase' || e.type === 'gather') { const rig = e.actor && this.rigs.get(e.actor); if (rig) rig.swing = 1; }
+    if (e.position && this.viewRealm === 'wilds' && !this.reduced && ['weave', 'erase', 'windlift', 'gather', 'craft', 'hearth'].includes(e.type)) this.sparks.burst(e.position.x, e.position.y, e.position.z, e.type === 'weave' || e.type === 'gather' ? '#9affde' : '#ffd59d', e.type === 'hearth' ? 4 : 12);
     const g = this.avatars.get(e.target ?? e.actor ?? ''); if (g?.userData.realm === this.viewRealm && !this.reduced && ['hit','relic','totem','dash','level','flag_capture','waystone','warp'].includes(e.type)) this.sparks.burst(g.position.x,g.position.y+1,g.position.z,e.type === 'hit' ? e.blocked ? '#bdeaff' : '#ffcd83' : '#6dfff0',e.type === 'relic' ? 45 : 16);
   }
   render(dt: number, snapshot: Snapshot | undefined, me: Player | undefined, local: Body | undefined, yaw: number, pitch: number, playing: boolean, moving: boolean) {
@@ -303,7 +307,10 @@ export class ArenaScene {
     this.atmosphere.update(this.camera,this.time,this.reduced); this.sparks.update(dt,!this.reduced);
     if (snapshot && wild) { this.runeLandmarks.build(snapshot.world.seed); this.runeLandmarks.update(this.time,me?.relics ?? 0,this.reduced); }
     if (snapshot && wild) { this.waystoneLandmarks.build(snapshot.world.seed); this.waystoneLandmarks.update(this.camera.position.x,this.camera.position.z,this.time,snapshot.world.waystones ?? 1,this.reduced,vistaDistance(this.terrain.worker ? this.quality : 'low')); }
-    if (snapshot) this.construction.update(snapshot.world, me && local ? { ...local, id: me.id, yaw, pitch } : follow, this.quality, this.time, wild && this.weavePreview && playing && !!me?.alive, this.erasePreview, snapshot.players, snapshot.mode === 'expedition' || snapshot.host === me?.id);
+    if (snapshot) this.construction.update(snapshot.world, me && local ? { ...local, id: me.id, weaveKind: me.weaveKind, yaw, pitch } : follow, this.quality, this.time, wild && this.weavePreview && playing && !!me?.alive, this.erasePreview, snapshot.players, snapshot.mode === 'expedition' || snapshot.host === me?.id);
+    if (snapshot && wild && follow) this.resources.update(snapshot.world, local && follow.id === me?.id ? { ...local, yaw, pitch } : follow, snapshot.tick, this.time, this.quality, this.reduced);
+    this.flightTips.visible = !!me?.alive && !thirdPerson && !inspecting && wild && ((local?.glideTime ?? me?.glideTime ?? 0) > 0);
+    if (this.flightTips.visible) this.sails.animate(this.flightTips, this.time, this.reduced);
     this.wildlife.update(this.camera.position.x,this.camera.position.z,snapshot?.world.seed ?? 0,this.time,this.quality,this.reduced,wild);
     this.secretDoor.position.x += ((snapshot?.world.doorOpen ? SECRET.x + 4.3 : SECRET.x) - this.secretDoor.position.x) * Math.min(1, dt * 4);
     const fov = inspecting ? 55 : this.configuredFov;
@@ -344,6 +351,8 @@ export class ArenaScene {
       rig.swing = Math.max(0, rig.swing - dt / .3);
       rig.rightArm.rotation.x = p.weaving && rig.swing === 0 ? -.35 + p.pitch * .65 : rig.swing > 0 ? -Math.sin(rig.swing * Math.PI) * 1.8 : p.weapon === 'apple' && p.charge > 0 ? 1.65 + (this.reduced ? 0 : Math.sin(this.time * 18) * .06) : p.charge > 0 || (p.weapon === 'crossbow' && p.loaded) ? -1.3 + p.pitch : pose.rightArm;
       rig.leftArm.rotation.z = p.block ? -.2 : Math.sin(rig.distance*1.3)*.04; rig.rightArm.rotation.z = rig.swing>0 ? -.4*Math.sin(rig.swing*Math.PI) : .04;
+      const sail = g.getObjectByName('sky-sail') as THREE.Group; sail.visible = (body.glideTime ?? 0) > 0;
+      if (sail.visible) { this.sails.animate(sail, this.time + p.color, this.reduced); g.rotation.x = -.12; if (!p.block) rig.leftArm.rotation.z = -.55; if (!p.charge && rig.swing === 0) rig.rightArm.rotation.z = .55; }
       rig.tool.visible = !!p.weaving || p.weapon !== 'apple' || p.apples > 0;
       rig.tool.rotation.x = p.weapon === 'apple' && p.charge > 0 ? -1.65 : 0;
       const shield = g.getObjectByName('shield')!; shield.visible = !p.weaving && p.offhand === 'shield';

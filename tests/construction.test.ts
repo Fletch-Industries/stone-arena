@@ -23,7 +23,7 @@ function aim(p: ReturnType<typeof setup>['p'], target: { x: number; y: number; z
 }
 test('rune controls reject malformed modes and forged palette values', () => {
   assert(validInput({ ...idleInput(), weaving: true, weaveKind: 5 }));
-  for (const field of [{ weaving: 1 }, { weaveKind: -1 }, { weaveKind: 6 }, { weaveKind: .5 }, { weaveKind: NaN }]) assert(!validInput({ ...idleInput(), ...field }));
+  for (const field of [{ weaving: 1 }, { weaveKind: -1 }, { weaveKind: 7 }, { weaveKind: .5 }, { weaveKind: NaN }]) assert(!validInput({ ...idleInput(), ...field }));
 });
 test('sparse construction indexes negative cells and removes empty regions', () => {
   const c = new Construction(); assert(c.place({ x: -17, y: 20, z: -16, kind: 2, owner: 'a' })); assert(c.place({ x: 200, y: 30, z: 200, kind: 0, owner: 'a' }));
@@ -37,7 +37,7 @@ test('player quota refunds erased runes; room quota bounds all builders', () => 
 });
 test('full construction restore is atomic and rejects duplicate or unbounded data', () => {
   const c = new Construction(); c.place({ x: 40, y: 5, z: 40, kind: 1, owner: 'a' }); const original = c.state(7919);
-  for (const row of [[40, 5, 40, 1, 'a'], [4096, 5, 40, 1, 'a'], [41, 64, 40, 1, 'a'], [41, 5, 40, 6, 'a'], [41, 5, 40, 1, '<script>']]) {
+  for (const row of [[40, 5, 40, 1, 'a'], [4096, 5, 40, 1, 'a'], [41, 64, 40, 1, 'a'], [41, 5, 40, 7, 'a'], [41, 5, 40, 1, '<script>']]) {
     assert(!c.restore({ ...original, blocks: [...original.blocks, row as [number, number, number, number, string]] })); assert.deepEqual(c.state(7919), original);
   }
 });

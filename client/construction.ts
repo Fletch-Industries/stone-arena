@@ -4,6 +4,7 @@ import { weaveTarget, type Weaver, type WeaveTarget } from '../shared/weaving.js
 import type { WorldState } from '../shared/world.js';
 import { vistaDistance } from '../shared/horizon.js';
 import { TextureLibrary } from './textures.js';
+import { HEARTHSTONE } from '../shared/sailing.js';
 
 /** Six shared draws, one preview cube, no per-block lights or animation objects. */
 export class RuneConstruction {
@@ -19,8 +20,8 @@ export class RuneConstruction {
   visibleCount = 0;
   constructor(textures: TextureLibrary) {
     this.meshes = RUNE_KINDS.map((rune, n) => {
-      const surface = n === 1 ? 'wood' : n === 3 ? 'cobble' : n === 5 ? 'wind-rune' : 'rune';
-      const material = new THREE.MeshLambertMaterial({ color: n === 1 ? '#ffe0ae' : rune.color, map: textures.get(surface), emissive: rune.color, emissiveIntensity: n === 4 ? .55 : n === 5 ? .24 : n === 2 ? .08 : .045 });
+      const surface = n === 1 ? 'wood' : n === 3 ? 'cobble' : n === 5 ? 'wind-rune' : n === 6 ? 'hearth-rune' : 'rune';
+      const material = new THREE.MeshLambertMaterial({ color: n === 1 ? '#ffe0ae' : rune.color, map: textures.get(surface), emissive: rune.color, emissiveIntensity: n === 4 ? .55 : n === 6 ? .45 : n === 5 ? .24 : n === 2 ? .08 : .045 });
       const mesh = new THREE.InstancedMesh(this.geometry, material, BUILD.roomLimit); mesh.count = 0;
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage); mesh.receiveShadow = true; this.group.add(mesh); return mesh;
     });
@@ -42,6 +43,7 @@ export class RuneConstruction {
     if (!this.ghost.visible) { this.target = undefined; return; }
     if (time >= this.previewAt) {
       this.previewAt = time + .05; this.target = weaveTarget(p!, world, erase, players);
+      if (this.target?.valid && !erase && p!.weaveKind === 6 && !((world.upgrades ?? 0) & HEARTHSTONE)) { this.target.valid = false; this.target.reason = 'Craft Hearthstone at a waystone loom first'; }
       if (this.target?.valid && !erase && (blocks!.size >= BUILD.roomLimit || p!.id && blocks!.count(p!.id) >= BUILD.playerLimit)) { this.target.valid = false; this.target.reason = blocks!.size >= BUILD.roomLimit ? 'This world is full · Erase a rune to make room' : 'Your rune pouch is full · Erase one of your runes'; }
       if (this.target?.valid && erase && this.target.existing?.owner !== p!.id && !allowErase) { this.target.valid = false; this.target.reason = 'This rune belongs to another explorer'; }
       if (this.target) { this.ghost.position.set(this.target.x + .5, this.target.y + .5, this.target.z + .5); (this.ghost.material as THREE.MeshBasicMaterial).color.set(this.target.valid ? erase ? '#f5c17b' : '#91ffdf' : '#ff9385'); }

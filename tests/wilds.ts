@@ -1,4 +1,6 @@
 import { Construction, type ConstructionState, type ConstructionChanges } from '../shared/construction.js';
+import { Forage, gatherTarget, suppliesNear, type ForageState, type ForageChanges } from '../shared/forage.js';
+import { SKY_SAIL, HEARTHSTONE } from '../shared/sailing.js';
 import { weaveTarget } from '../shared/weaving.js';
 import { saveWorld } from '../shared/world-save.js';
 import { Client, type Room } from '@colyseus/sdk';
@@ -9,12 +11,12 @@ import { waystoneSites } from '../shared/waystones.js';
 import { shardSites } from '../shared/expedition.js';
 import { navigator } from './navigation.js';
 const client = new Client(process.env.TEST_ENDPOINT ?? 'http://127.0.0.1:3107'), rooms: Room[] = [], states = new Map<Room, Snapshot>(), sequences = new Map<Room, number>();
-const building = process.argv.includes('--building'), constructions = new Map<Room, Construction>();
+const building = process.argv.includes('--building'), crafting = process.argv.includes('--crafting'), constructions = new Map<Room, Construction>(), fields = new Map<Room, Forage>();
 const expedition = process.argv.includes('--expedition'), waystones = process.argv.includes('--waystones'), actionErrors = new Map<Room, string[]>();
 let timer: ReturnType<typeof setInterval> | undefined;
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 async function until(check: () => boolean, seconds = 80) { const end = Date.now() + seconds * 1000; while (!check()) { if (Date.now() > end) throw Error('Wilds timed out: ' + JSON.stringify([...states.values()].map(s => ({ world: s.world, players: s.players.map(p => ({ id: p.id, realm: p.realm, x: p.x, y: p.y, z: p.z, hp: p.hp })) })))); await wait(25); } }
-function track(r: Room) { rooms.push(r); const blocks = new Construction(); constructions.set(r, blocks); r.onMessage('construction', (full: ConstructionState) => { assert(blocks.restore(full)); }); r.onMessage('constructionChanges', (delta: ConstructionChanges) => { assert(blocks.apply(delta)); }); r.onMessage('worldRestored', () => {}); r.onMessage('snapshot', (s: Snapshot) => { s.world.construction = blocks; states.set(r, s); }); r.onMessage('latency', (n: number) => r.send('latencyAck', n)); r.onMessage('pong', () => {}); r.onMessage('actionError', (message: string) => actionErrors.set(r,[...(actionErrors.get(r)??[]),message].slice(-50)));  r.reconnection.enabled = false; r.send('sync'); return r; }
+function track(r: Room) { rooms.push(r); const blocks = new Construction(); constructions.set(r, blocks); const field = new Forage(); fields.set(r, field); r.onMessage('forage', (full: ForageState) => { assert(field.restore(full)); }); r.onMessage('forageChanges', (delta: ForageChanges) => { assert(field.apply(delta)); }); r.onMessage('construction', (full: ConstructionState) => { assert(blocks.restore(full)); }); r.onMessage('constructionChanges', (delta: ConstructionChanges) => { assert(blocks.apply(delta)); }); r.onMessage('worldRestored', () => {}); r.onMessage('snapshot', (s: Snapshot) => { s.world.construction = blocks; s.world.forage = field; states.set(r, s); }); r.onMessage('latency', (n: number) => r.send('latencyAck', n)); r.onMessage('pong', () => {}); r.onMessage('actionError', (message: string) => actionErrors.set(r,[...(actionErrors.get(r)??[]),message].slice(-50)));  r.reconnection.enabled = false; r.send('sync'); return r; }
 const me = (r: Room) => states.get(r)!.players.find(p => p.id === r.sessionId)!;
 function controls(r: Room, value = {}) { const seq = (sequences.get(r) ?? me(r).ack) + 1; sequences.set(r, seq); r.send('input', { ...idleInput(), seq, ...value }); }
 async function walk(r: Room, x: number, z: number, stop = () => Math.hypot(me(r).x - x, me(r).z - z) < .5, path = true) {
@@ -70,6 +72,48 @@ async function constructionChecks(host: Room, guest: Room) {
   assert.equal(constructions.get(host)!.size,1);assert(states.get(host)!.players.every(p=>p.relics===0&&!p.weaving));assert.equal(states.get(host)!.world.seed,seed);
   console.log('PASS: reconnect retained buildings; only a lobby host restored a portable world; readiness reset and a fresh round kept the shared construction');
 }
+async function craftingChecks(host: Room, guest: Room) {
+  const seed=states.get(host)!.world.seed, goal=[24,24,12]; let firstPatch:{x:number;z:number}|undefined;
+  const errorCount=actionErrors.get(guest)?.length??0;
+  guest.send('gather',{cx:0,cz:0,kind:0,supplies:[999,999,999],id:host.sessionId});
+  guest.send('craft',{recipe:'sail',supplies:[999,999,999],id:host.sessionId});
+  await until(()=>(actionErrors.get(guest)?.length??0)>=errorCount+2,5);assert.deepEqual(states.get(host)!.world.supplies,[0,0,0]);assert.equal(states.get(host)!.world.upgrades,0);
+  for(let attempts=0;goal.some((need,n)=>(states.get(host)!.world.supplies?.[n]??0)<need);attempts++){
+    assert(attempts<25,'Enough clear supply patches should grow nearby');
+    const kind=goal.findIndex((need,n)=>(states.get(host)!.world.supplies?.[n]??0)<need), p=me(host);
+    const node=suppliesNear(p.x,p.z,seed,192).filter(n=>n.kind===kind&&fields.get(host)!.available(n,states.get(host)!.tick)).sort((a,b)=>Math.hypot(a.x-p.x,a.z-p.z)-Math.hypot(b.x-p.x,b.z-p.z))[0];assert(node);
+    firstPatch??={x:node.x,z:node.z}; await followWildRoute(host,node);
+    const here=me(host),dx=node.x-here.x,dz=node.z-here.z,aim={yaw:Math.atan2(-dx,-dz),pitch:Math.max(-1.45,Math.min(1.45,Math.atan2(node.y+.9-here.y-1.62,Math.hypot(dx,dz))))};
+    controls(host,aim);await until(()=>Math.abs(me(host).yaw-aim.yaw)<.01&&Math.abs(me(host).pitch-aim.pitch)<.01,5);
+    await until(()=>states.get(host)!.tick>=(me(host).gatherReadyAt??0),5);
+    const selected=gatherTarget(me(host),states.get(host)!.world,states.get(host)!.tick);assert(selected&&selected.cx===node.cx&&selected.cz===node.cz&&selected.kind===kind);
+    const before=states.get(host)!.world.supplies![kind];host.send('gather',{cx:999,cz:999,kind:999,id:guest.sessionId});
+    await until(()=>[host,guest].every(r=>states.get(r)!.world.supplies![kind]===before+4),5);
+    assert.deepEqual(fields.get(host)!.state(seed),fields.get(guest)!.state(seed));
+  }
+  console.log('PASS: ordinary movement and aim gathered 15 seeded patches into bounded party supplies; remote identity/stock claims were rejected');
+  await followWildRoute(host,{x:0,z:-5});const before=[...states.get(host)!.world.supplies!];host.send('craft',{recipe:'sail',id:guest.sessionId});
+  await until(()=>[host,guest].every(r=>!!((states.get(r)!.world.upgrades??0)&SKY_SAIL)),5);
+  assert.deepEqual(states.get(host)!.world.supplies,before.map((n,k)=>n-[12,8,4][k]));
+  const observer={...me(guest)},start={...me(host)};controls(host,{glide:true});await until(()=>[host,guest].every(r=>(states.get(r)!.players.find(p=>p.id===host.sessionId)?.glideTime??0)>0),5);controls(host);
+  await until(()=>Math.hypot(me(host).x-start.x,me(host).z-start.z)>3,5);assert.equal(me(guest).x,observer.x);assert.equal(me(guest).z,observer.z);assert.equal(me(guest).realm,'arena');
+  await until(()=>(me(host).glideTime??0)===0,10);assert((me(host).glideCooldown??0)>0);
+  await followWildRoute(host,{x:0,z:-5});await until(()=>states.get(host)!.tick>=(me(host).craftReadyAt??0),5);host.send('craft',{recipe:'hearth'});await until(()=>[host,guest].every(r=>!!((states.get(r)!.world.upgrades??0)&HEARTHSTONE)),5);
+  await until(()=>states.get(host)!.tick>=(me(host).craftReadyAt??0),5);host.send('craft',{recipe:'arrows',id:guest.sessionId});await until(()=>[host,guest].every(r=>states.get(r)!.players.find(p=>p.id===host.sessionId)?.ammo===32),5);assert.equal(me(guest).ammo,20);assert.deepEqual(states.get(host)!.world.supplies,[1,2,0]);
+  console.log('PASS: waystone crafting charged the shared pantry once, unlocked party sails/Hearthstone, and gave arrows only to the authenticated crafter; gliding replicated without moving the observer');
+  await followWildRoute(host,firstPatch!);let aim:{yaw:number;pitch:number}|undefined;
+  for(let n=0;n<48;n++){const candidate={yaw:n*Math.PI/24-Math.PI,pitch:-.7};if(weaveTarget({...me(host),...candidate},states.get(host)!.world,false,states.get(host)!.players)?.valid){aim=candidate;break;}}assert(aim);
+  controls(host,{...aim,weaving:true,weaveKind:6,attack:true});await until(()=>[host,guest].every(r=>constructions.get(r)!.size===1),5);controls(host);assert.equal([...constructions.get(guest)!.values()][0].kind,6);
+  const token=guest.reconnectionToken,id=guest.sessionId;guest.connection.close();await until(()=>states.get(host)!.players.find(p=>p.id===id)?.connected===false,5);guest=track(await client.reconnect(token));await until(()=>states.get(guest)?.players.some(p=>p.id===id&&p.connected)===true&&constructions.get(guest)!.size===1,5);
+  assert.deepEqual(fields.get(guest)!.state(seed),fields.get(host)!.state(seed));assert.deepEqual(states.get(guest)!.world.supplies,[1,2,0]);assert.equal(states.get(guest)!.world.upgrades,3);
+  const saved=saveWorld(states.get(host)!.world,'Wings and a warm camp');host.send('lobby');await until(()=>[host,guest].every(r=>states.get(r)?.phase==='waiting'));
+  const {blocks,...header}=saved;host.send('worldRestore',{type:'begin',header,count:blocks.length});host.send('worldRestore',{type:'chunk',offset:0,blocks});host.send('worldRestore',{type:'commit'});
+  await until(()=>[host,guest].every(r=>[...constructions.get(r)!.values()].every(b=>b.owner.startsWith('memory:'))&&fields.get(r)!.size===0),5);
+  assert.deepEqual(saveWorld(states.get(guest)!.world,saved.title),saved);
+  host.send('ready');guest.send('ready');await until(()=>states.get(host)!.players.every(p=>p.ready));host.send('start');await until(()=>[host,guest].every(r=>states.get(r)?.phase==='active'));
+  assert.equal(states.get(host)!.world.upgrades,3);assert.deepEqual(states.get(host)!.world.supplies,[1,2,0]);assert(states.get(host)!.players.every(p=>p.ammo===20&&(p.glideTime??0)===0));assert.equal(constructions.get(host)!.size,1);
+  console.log('PASS: crafted Hearthstone, supply depletion and pantry reconnected; portable restoration retained world upgrades/builds while renewing patches and resetting personal flight/arrows for a rematch');
+}
 try {
   const host = track(await client.create('arena', { name: 'Wilds explorer', version: VERSION, private: true }));
   let guest = track(await client.joinById(host.roomId, { name: 'Terrain observer', version: VERSION }));
@@ -79,7 +123,7 @@ try {
     host.send('worldRestore',{type:'begin',header:{format:'stone-arena-world',version:1,title:'Terrain route regression',seed,doorOpen:false,waystones:1},count:0});host.send('worldRestore',{type:'commit'});
     await until(()=>[host,guest].every(r=>states.get(r)?.world.seed===seed));
   }
-  if (expedition || waystones || building) { host.send('mode', { mode: 'expedition' }); await until(() => rooms.every(r => states.get(r)?.mode === 'expedition')); }
+  if (expedition || waystones || building || crafting) { host.send('mode', { mode: 'expedition' }); await until(() => rooms.every(r => states.get(r)?.mode === 'expedition')); }
   host.send('ready'); guest.send('ready'); await until(() => states.get(host)!.players.every(p => p.ready)); host.send('start'); await until(() => states.get(host)?.phase === 'active');
   guest.send('interact'); await wait(100); assert(!states.get(host)!.world.doorOpen);
   await walk(host, -26, -46); host.send('interact'); await until(() => rooms.every(r => states.get(r)?.world.doorOpen === true));
@@ -106,7 +150,7 @@ try {
   await walk(host, target.x, target.z, undefined, false);
   for (const r of rooms) { const s = states.get(r)!, p = s.players.find(p => p.id === host.sessionId)!; assert.equal(p.realm, 'wilds'); assert(Math.abs(p.y - terrainHeight(p.x, p.z, s.world.seed)) < .03); assert.equal(p.hp, 100); }
   console.log('PASS: shared procedural hills match authoritative footing for both clients');
-  if (building) { await constructionChecks(host,guest); } else {
+  if (building) { await constructionChecks(host,guest); } else if (crafting) { await craftingChecks(host,guest); } else {
   const site=shardSites(states.get(host)!.world.seed)[0]; await followWildRoute(host,site,()=>rooms.filter(r=>r.connection.isOpen).every(r=>states.get(r)?.players.some(p=>p.id===host.sessionId&&(p.relics&1)!==0)===true));
   assert.equal(me(host).relics,1);assert.equal(me(guest).relics,0);console.log('PASS: ordinary exploration discovered the Dawn skyshard for its explorer in both snapshots');
   if (waystones) {

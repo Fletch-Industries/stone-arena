@@ -10,6 +10,10 @@ export class ArenaAudio {
   noise(seconds:number,cutoff:number,gain:number){const c=this.context;if(!c||!this.master||!this.noiseBuffer||this.voices>=32)return;this.voices++;const b=c.createBufferSource(),filter=c.createBiquadFilter(),g=c.createGain(),t=c.currentTime;b.buffer=this.noiseBuffer;filter.type='lowpass';filter.frequency.value=cutoff;g.gain.setValueAtTime(gain,t);g.gain.exponentialRampToValueAtTime(.0001,t+seconds);b.connect(filter);filter.connect(g);g.connect(this.master);b.start(t,Math.random()*.7);b.stop(t+seconds+.02);b.onended=()=>{b.disconnect();filter.disconnect();g.disconnect();this.voices--;}; }
   chime(gain=.1){[293.66,369.99,440,587.33].forEach((f,i)=>this.tone(f,.65,gain,i*.11));}
   event(e:GameEvent,local:boolean,gain=1){if(!this.context)return;gain*=local?1:.35;
+    if(e.type==='gather'){this.tone(440,.2,.04*gain,0,'triangle',880);this.tone(1174,.35,.03*gain,.08);this.noise(.08,2600,.025*gain);}
+    if(e.type==='craft'){[330,440,660,880].forEach((f,n)=>this.tone(f,.4,.04*gain,n*.1));}
+    if(e.type==='glide'){this.noise(.45,2100,.08*gain);this.tone(165,.45,.045*gain,0,'sine',660);}
+    if(e.type==='hearth'&&local)this.tone(220,.5,.025,0,'sine',330);
     if(e.type==='windlift'){this.tone(220,.38,.065*gain,0,'sine',880);this.noise(.22,2800,.055*gain);}
     if(e.type==='weave'){this.tone(330,.17,.045*gain,0,'triangle',660);this.tone(990,.2,.018*gain,.04);this.noise(.06,2000,.035*gain);}
     if(e.type==='erase'){this.tone(660,.15,.035*gain,0,'sine',220);this.noise(.13,1500,.035*gain);}
@@ -23,7 +27,7 @@ export class ArenaAudio {
     if(e.type==='heal'&&local){this.tone(440,.3,.07);this.tone(660,.35,.06,.12);}
     if(e.type==='start'){[220,330,440].forEach((f,i)=>this.tone(f,.22,.09,i*.2,'triangle'));}
   }
-  update(dt:number,p:Player|undefined,body:Body|undefined,active:boolean,volume:number,music:boolean,seed=0){const c=this.context;if(!c||!this.master)return;const audible=active&&!document.hidden, habitat=p?.realm==='wilds'&&body?BIOMES[biomeAt(body.x,body.z,seed)]:undefined;this.master.gain.setTargetAtTime(Math.max(0,Math.min(1,volume)),c.currentTime,.08);this.ambient!.gain.setTargetAtTime(audible?(habitat ? .05 : .022):0,c.currentTime,.3);this.windFilter!.frequency.setTargetAtTime(habitat?550*habitat.tune:230,c.currentTime,.4);
+  update(dt:number,p:Player|undefined,body:Body|undefined,active:boolean,volume:number,music:boolean,seed=0){const c=this.context;if(!c||!this.master)return;const audible=active&&!document.hidden, habitat=p?.realm==='wilds'&&body?BIOMES[biomeAt(body.x,body.z,seed)]:undefined, sailing=(body?.glideTime??0)>0;this.master.gain.setTargetAtTime(Math.max(0,Math.min(1,volume)),c.currentTime,.08);this.ambient!.gain.setTargetAtTime(audible?(sailing ? .09 : habitat ? .05 : .022):0,c.currentTime,.3);this.windFilter!.frequency.setTargetAtTime(sailing?1250:habitat?550*habitat.tune:230,c.currentTime,.4);
     if(audible&&music&&c.currentTime>this.noteAt){const notes=[146.83,220,293.66,220,164.81,246.94,329.63,246.94];this.tone(notes[this.note++%notes.length]*(habitat?.tune??1),2.8,.018);this.noteAt=c.currentTime+2.5;}
     if(audible&&habitat&&c.currentTime>this.natureAt){const frequency=620*habitat.tune;this.tone(frequency,.18,.012,0,'sine',frequency*1.7);this.tone(frequency*1.4,.22,.009,.25,'sine',frequency*.8);this.natureAt=c.currentTime+8;}
     if(audible&&body){if(this.last&&this.last.realm===body.realm){const d=Math.hypot(body.x-this.last.x,body.z-this.last.z);if(d<2)this.stepDistance+=d;if(!this.last.grounded&&body.grounded){this.noise(.15,p?.realm==='wilds'?1000:550,.1);this.tone(65,.12,.05);}if(body.grounded&&this.stepDistance>1.9){this.stepDistance=0;this.noise(.09,p?.realm==='wilds'?1400:750,p?.sprinting ? .065 : .04);this.tone(p?.realm==='wilds'?80:115,.08,.025,0,'triangle',50);}}this.last={x:body.x,y:body.y,z:body.z,realm:body.realm,grounded:body.grounded};}else this.last=undefined;
