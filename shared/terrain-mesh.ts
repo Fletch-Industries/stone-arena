@@ -5,11 +5,11 @@ export function buildTerrainChunk(cx: number, cz: number, seed: number): Terrain
   const ox = cx * CHUNK_SIZE, oz = cz * CHUNK_SIZE;
   for (let z = 0; z < side; z++) for (let x = 0; x < side; x++) {
     const n = z * side + x, wx = ox + x, wz = oz + z, y = terrainVertex(wx, wz, seed);
-    positions.set([x, y, z], n * 3); uv.set([wx / 2, wz / 2], n * 2);
+    positions.set([x, y, z], n * 3); uv.set([wx / 3, wz / 3], n * 2);
     const dx = terrainVertex(wx - 1, wz, seed) - terrainVertex(wx + 1, wz, seed), dz = terrainVertex(wx, wz - 1, seed) - terrainVertex(wx, wz + 1, seed), length = Math.hypot(dx, 2, dz);
     normals.set([dx / length, 2 / length, dz / length], n * 3);
-    const tint = .88 + hash(wx, wz, seed ^ 6113) * .14;
-    const color = y < .85 ? [.68, .61, .39] : Math.hypot(dx, dz) > 1.5 || y > 19 ? [.46, .48, .45] : [.29, .48, .23];
+    const tint = .94 + hash(Math.floor(wx / 4), Math.floor(wz / 4), seed ^ 6113) * .08;
+    const color = y < .85 ? [.62, .53, .32] : Math.hypot(dx, dz) > 1.5 || y > 19 ? [.36, .39, .41] : [.15, .34, .19];
     colors.set(color.map(c => c * tint), n * 3);
   }
   let n = 0;

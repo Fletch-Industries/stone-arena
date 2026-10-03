@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-export type Surface = 'stone' | 'brick' | 'cobble' | 'wood' | 'metal' | 'cloth';
+export type Surface = 'stone' | 'brick' | 'cobble' | 'wood' | 'metal' | 'cloth' | 'grass' | 'bark' | 'leaves';
 /** Original seamless pixel maps. No downloaded textures or game assets. */
 export class TextureLibrary {
   private maps = new Map<Surface, THREE.CanvasTexture>();
@@ -27,12 +27,12 @@ export class TextureLibrary {
       if (surface === 'brick') {
         const row = Math.floor(y / 8), xx = (x + (row % 2) * 8) % 16, yy = y % 8;
         const seam = xx === 0 || yy === 0, edge = xx === 1 || yy === 1;
-        v = seam ? 70 + fine : 145 + fine + coarse + (edge ? 21 : xx === 15 || yy === 7 ? -18 : 0);
+        v = seam ? 104 + fine : 153 + fine + coarse + (edge ? 13 : xx === 15 || yy === 7 ? -10 : 0);
         rgb = [v, v + 2, v + 3]; h = seam ? .15 : edge ? .9 : .72;
       } else if (surface === 'cobble') {
         const nearest = cells.map((c, id) => { const dx = Math.min(Math.abs(x - c.x), size - Math.abs(x - c.x)), dy = Math.min(Math.abs(y - c.y), size - Math.abs(y - c.y)); return { id, d: dx * dx + dy * dy }; }).sort((a, b) => a.d - b.d);
         const gap = nearest[1].d - nearest[0].d, edge = gap < 6;
-        v = edge ? 67 + fine : 132 + Math.floor(noise(nearest[0].id, 5) * 6) * 5 + fine + (gap < 16 ? 13 : 0);
+        v = edge ? 94 + fine : 139 + Math.floor(noise(nearest[0].id, 5) * 6) * 5 + fine + (gap < 16 ? 13 : 0);
         rgb = [v, v + 2, v + 4]; h = edge ? .1 : Math.min(.9, .55 + gap / 100);
       } else if (surface === 'wood') {
         const seam = x % 8 === 0 || (y + Math.floor(x / 8) * 9) % 32 === 0;
@@ -42,6 +42,14 @@ export class TextureLibrary {
       } else if (surface === 'metal') {
         v = 190 + fine + (x < 2 || y < 2 ? 25 : x > 29 || y > 29 ? -30 : 0);
         rgb = [v - 8, v, v + 4]; h = .7;
+      } else if (surface === 'grass') {
+        const blade = noise(x, y, 19) > .83 && y % 4 < 2, patch = noise(Math.floor(x / 8), Math.floor(y / 8), 31);
+        v = 174 + fine + coarse + (blade ? 17 : 0) + patch * 22; rgb = [v * .9, v, v * .87]; h = .5 + noise(x, y, 8) * .1;
+      } else if (surface === 'bark') {
+        const grain = Math.sin(x * 1.6 + noise(x, Math.floor(y / 8), 51) * 2);
+        v = 166 + grain * 26 + fine; rgb = [v, v * .76, v * .53]; h = .5 + grain * .14;
+      } else if (surface === 'leaves') {
+        const vein = (x + y * 2) % 7 === 0; v = 183 + fine + coarse + (vein ? 25 : 0); rgb = [v * .85, v, v * .87]; h = .5;
       } else if (surface === 'cloth') {
         v = 226 + (x % 2 === y % 2 ? 9 : -7) + fine;
         rgb = [v, v, v]; h = .5;

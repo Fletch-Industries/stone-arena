@@ -1,3 +1,4 @@
+import { shardSites, shardCount } from '../shared/expedition.js';
 import { nearSecret, SECRET, WORLD_LIMIT, type Realm, type WorldState } from '../shared/world.js';
 import { CTF, TEAMS, LIMIT, type Mode, type Team, type Flag, APPLE, TOTEM, ARMOR_TIERS, armorTier, MELEE, attackStrength, meleeRecovery, knockback, DT, EYE, HEIGHT, SPAWNS, direction, idleInput, move, segmentBox, wallHit, type Arrow, type GameEvent, type Input, type Player, type Snapshot, type Phase } from '../shared/game.js';
 
@@ -52,12 +53,12 @@ export class Simulation {
     const color = [0, 1, 2, 3, 4].find(c => !colors.has(c))!;
     const red = [...this.players.values()].filter(p => p.team === 'red').length;
     const team: Team = red <= this.players.size - red ? 'red' : 'blue';
-    const p: Player = { realm: 'arena', team, respawnAt: 0, immuneUntil: 0, captures: 0, flagReturns: 0, id, name, color, x: 0, y: 0, z: 0, vy: 0, grounded: true, yaw: 0, pitch: 0, hp: 100, xp: 0, alive: true, connected: true, ready: false, weapon: 'sword', offhand: 'shield', block: false, ammo: 20, apples: APPLE.count, totems: TOTEM.count, kills: 0, damage: 0, assists: 0, wins: 0, ack: 0, cooldown: 0, charge: 0, loaded: false, shieldDisabled: 0, hurtTime: 0, lastDamage: 0, shieldRaise: 0, swingWait: 0, moveSpeed: 0, vx: 0, vz: 0, sprinting: false, sprintLocked: false, eliminatedAt: 0 };
+    const p: Player = { relics: 0, realm: 'arena', team, respawnAt: 0, immuneUntil: 0, captures: 0, flagReturns: 0, id, name, color, x: 0, y: 0, z: 0, vy: 0, grounded: true, yaw: 0, pitch: 0, hp: 100, xp: 0, alive: true, connected: true, ready: false, weapon: 'sword', offhand: 'shield', block: false, ammo: 20, apples: APPLE.count, totems: TOTEM.count, kills: 0, damage: 0, assists: 0, wins: 0, ack: 0, cooldown: 0, charge: 0, loaded: false, shieldDisabled: 0, hurtTime: 0, lastDamage: 0, shieldRaise: 0, swingWait: 0, moveSpeed: 0, vx: 0, vz: 0, sprinting: false, sprintLocked: false, eliminatedAt: 0 };
     this.players.set(id, p); this.inputs.set(id, idleInput()); if (!this.host) this.host = id; this.positionPlayers(); return p;
   }
   spawn(p: Player, index: number) {
     const s = this.mode === 'ffa' ? SPAWNS[(index + this.round * 2) % SPAWNS.length] : [p.team === 'red' ? -43 : 43, (index - 1) * 5];
-    Object.assign(p, { realm: 'arena', x: s[0], z: s[1], y: 0, vy: 0, vx: 0, vz: 0, grounded: true, sprinting: false, sprintLocked: false, yaw: Math.atan2(s[0], s[1]), pitch: 0 });
+    Object.assign(p, { dashTime: 0, dashHeld: false, dashCooldown: 0, realm: 'arena', x: s[0], z: s[1], y: 0, vy: 0, vx: 0, vz: 0, grounded: true, sprinting: false, sprintLocked: false, yaw: Math.atan2(s[0], s[1]), pitch: 0 });
   }
   positionPlayers() { let n = 0; const teams = { red: 0, blue: 0 }; for (const p of this.players.values()) this.spawn(p, this.mode === 'ffa' ? n++ : teams[p.team]++); }
   dropFlag(id: string) {
@@ -112,7 +113,7 @@ export class Simulation {
     if (!practice && this.mode !== 'ffa' && !this.balanced()) return false;
     this.resetFlags();
     this.practice = practice; this.round++; this.phase = 'countdown'; this.countdown = 5; this.result = ''; this.winner = ''; this.arrows = []; this.events = []; this.damageHistory.clear();
-    for (const p of ps) { Object.assign(p, { respawnAt: 0, immuneUntil: 0, captures: 0, flagReturns: 0, hp: 100, xp: 0, alive: true, weapon: 'sword', offhand: 'shield', block: false, ammo: 20, apples: APPLE.count, totems: TOTEM.count, kills: 0, damage: 0, assists: 0, cooldown: 0, charge: 0, loaded: false, shieldDisabled: 0, hurtTime: 0, lastDamage: 0, shieldRaise: 0, swingWait: 0, moveSpeed: 0, vx: 0, vz: 0, sprinting: false, sprintLocked: false, eliminatedAt: 0, ack: 0 }); this.inputs.set(p.id, idleInput()); this.lastAttack.set(p.id, false); }
+    for (const p of ps) { Object.assign(p, { relics: 0, respawnAt: 0, immuneUntil: 0, captures: 0, flagReturns: 0, hp: 100, xp: 0, alive: true, weapon: 'sword', offhand: 'shield', block: false, ammo: 20, apples: APPLE.count, totems: TOTEM.count, kills: 0, damage: 0, assists: 0, cooldown: 0, charge: 0, loaded: false, shieldDisabled: 0, hurtTime: 0, lastDamage: 0, shieldRaise: 0, swingWait: 0, moveSpeed: 0, vx: 0, vz: 0, sprinting: false, sprintLocked: false, eliminatedAt: 0, ack: 0 }); this.inputs.set(p.id, idleInput()); this.lastAttack.set(p.id, false); }
     this.history = []; this.attackPress.clear(); this.attackRelease.clear(); this.positionPlayers(); return true;
   }
   disconnect(id: string) { this.dropFlag(id); const p = this.players.get(id); if (p) { p.connected = false; p.ready = false; p.charge = 0; this.inputs.set(id, { ...idleInput(), offhand: p.offhand }); this.lastAttack.set(id, false); } this.transferHost(); }
@@ -258,9 +259,15 @@ export class Simulation {
       p.cooldown = Math.max(0, p.cooldown - DT); p.shieldDisabled = Math.max(0, p.shieldDisabled - DT);
       p.offhand = i.offhand; p.block = i.block && p.offhand === 'shield' && p.shieldDisabled <= 0;
       p.shieldRaise = p.block ? Math.min(.25, p.shieldRaise + DT) : 0;
-      const oldX = p.x, oldZ = p.z;
+      const oldX = p.x, oldZ = p.z, wasDashing = (p.dashTime ?? 0) > 0;
       move(p, { ...i, block: p.block }, DT, p.charge > 0, this.world);
-      if (this.travel(p)) continue;
+      if (!wasDashing && (p.dashTime ?? 0) > 0) this.event({ type: 'dash', actor: p.id });
+      if (this.travel(p)) { p.dashTime = 0; continue; }
+      if (p.realm === 'wilds' && p.connected) for (const site of shardSites(this.world.seed)) {
+        if (!(p.relics & 1 << site.id) && Math.hypot(p.x - site.x, p.z - site.z) < 2.6 && Math.abs(p.y - site.y) < 3) {
+          p.relics |= 1 << site.id; this.event({ type: 'relic', actor: p.id, text: shardCount(p.relics) === 3 ? `${p.name} found all three skyshards · Warden aura unlocked!` : `${p.name} discovered the ${site.name} skyshard · ${shardCount(p.relics)}/3` });
+        }
+      }
       p.moveSpeed = Math.hypot(p.x - oldX, p.z - oldZ) / DT;
       const pressed = !stale && (this.attackPress.has(p.id) || (i.attack && !this.lastAttack.get(p.id))), released = this.attackRelease.has(p.id) || (!i.attack && !!this.lastAttack.get(p.id));
       if (p.block) p.charge = 0;

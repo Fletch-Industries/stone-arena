@@ -2,6 +2,7 @@ import { Client, type Room } from '@colyseus/sdk';
 import assert from 'node:assert/strict';
 import { VERSION, idleInput, type Snapshot } from '../shared/game.js';
 import { terrainHeight, worldBoxes } from '../shared/world.js';
+import { shardSites } from '../shared/expedition.js';
 import { navigator } from './navigation.js';
 const client = new Client(process.env.TEST_ENDPOINT ?? 'http://127.0.0.1:3107'), rooms: Room[] = [], states = new Map<Room, Snapshot>(), sequences = new Map<Room, number>();
 let timer: ReturnType<typeof setInterval> | undefined;
@@ -17,6 +18,14 @@ async function walk(r: Room, x: number, z: number, stop = () => Math.hypot(me(r)
   }, 33);
   try { await until(stop); } finally { clearInterval(timer); timer = undefined; if (r.connection.isOpen) controls(r); }
 }
+function wildRoute(from: {x:number;z:number}, target:{x:number;z:number}, seed:number) {
+  const key=(x:number,z:number)=>`${x},${z}`, start=[Math.round(from.x/2),Math.round(from.z/2)], goal=[Math.round(target.x/2),Math.round(target.z/2)], queue=[start], parents=new Map<string,number[]|null>([[key(start[0],start[1]),null]]);
+  const minX=Math.min(start[0],goal[0])-12,maxX=Math.max(start[0],goal[0])+12,minZ=Math.min(start[1],goal[1])-12,maxZ=Math.max(start[1],goal[1])+12;
+  let found:number[]|undefined;
+  for(let n=0;n<queue.length;n++){const v=queue[n];if(Math.hypot(v[0]-goal[0],v[1]-goal[1])<1.5){found=v;break;}for(const [dx,dz] of [[1,0],[-1,0],[0,1],[0,-1]]){const x=v[0]+dx,z=v[1]+dz,k=key(x,z);if(x<minX||x>maxX||z<minZ||z>maxZ||parents.has(k))continue;const y=terrainHeight(x*2,z*2,seed);if(worldBoxes(x*2,z*2,x*2,z*2,'wilds',{seed,doorOpen:true}).some(b=>Math.abs(x*2-b.x)<b.w/2+1&&Math.abs(z*2-b.z)<b.d/2+1&&y+1.8>(b.y??0)&&y<(b.y??0)+b.h))continue;parents.set(k,v);queue.push([x,z]);}}
+  if(!found)throw Error('No route to the skyshard');const route=[found];while(parents.get(key(route[0][0],route[0][1])))route.unshift(parents.get(key(route[0][0],route[0][1]))!);return route.map(v=>[v[0]*2,v[1]*2]);
+}
+async function followWildRoute(r:Room,target:{x:number;z:number},stop:()=>boolean=()=>Math.hypot(me(r).x-target.x,me(r).z-target.z)<1){const route=wildRoute(me(r),target,states.get(r)!.world.seed);let point=0;timer=setInterval(()=>{const p=me(r);while(point<route.length-1&&Math.hypot(p.x-route[point][0],p.z-route[point][1])<.65)point++;const goal=point===route.length-1?[target.x,target.z]:route[point],d=Math.hypot(p.x-goal[0],p.z-goal[1]);controls(r,{yaw:Math.atan2(p.x-goal[0],p.z-goal[1]),z:1,sprint:true,dash:d>7&&(p.dashCooldown??0)<=0});for(const other of rooms)if(other!==r&&other.connection.isOpen)other.send('ping',Date.now());},33);try{await until(stop,100);}finally{clearInterval(timer);timer=undefined;controls(r);}}
 try {
   const host = track(await client.create('arena', { name: 'Wilds explorer', version: VERSION, private: true }));
   let guest = track(await client.joinById(host.roomId, { name: 'Terrain observer', version: VERSION }));
@@ -39,11 +48,13 @@ try {
   await walk(host, target.x, target.z, undefined, false);
   for (const r of rooms) { const s = states.get(r)!, p = s.players.find(p => p.id === host.sessionId)!; assert.equal(p.realm, 'wilds'); assert(Math.abs(p.y - terrainHeight(p.x, p.z, s.world.seed)) < .03); assert.equal(p.hp, 100); }
   console.log('PASS: shared procedural hills match authoritative footing for both clients');
+  const site=shardSites(states.get(host)!.world.seed)[0]; await followWildRoute(host,site,()=>rooms.filter(r=>r.connection.isOpen).every(r=>states.get(r)?.players.some(p=>p.id===host.sessionId&&(p.relics&1)!==0)===true));
+  assert.equal(me(host).relics,1);assert.equal(me(guest).relics,0);console.log('PASS: ordinary exploration discovered the Dawn skyshard for its explorer in both snapshots');
   const seed = states.get(host)!.world.seed, oldId = guest.sessionId, token = guest.reconnectionToken; guest.connection.close();
   await until(() => me(host).connected && !states.get(host)!.players.find(p => p.id === oldId)!.connected, 5); guest = track(await client.reconnect(token));
   await until(() => states.get(guest)?.players.length === 2); assert.equal(states.get(guest)!.world.seed, seed); assert(states.get(guest)!.world.doorOpen);
   assert.equal(states.get(guest)!.players.find(p => p.id === host.sessionId)!.realm, 'wilds');
-  await walk(host, 0, 0, undefined, false); await walk(host, 0, 10, () => me(host).realm === 'arena', false);
+  assert.equal(states.get(guest)!.players.find(p=>p.id===host.sessionId)!.relics,1); await followWildRoute(host,{x:0,z:0}); await walk(host, 0, 10, () => me(host).realm === 'arena', false);
   assert.equal(me(host).hp, 100); assert(Math.abs(me(host).x + 26) < .01); assert(me(host).z < -59); assert.equal(states.get(host)!.phase, 'active');
   console.log('PASS: reconnect preserved world discovery; return tunnel restored arena location and health');
 } finally { if (timer) clearInterval(timer); await Promise.all(rooms.filter(r => r.connection.isOpen).map(r => r.leave())); }

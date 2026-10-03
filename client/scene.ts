@@ -1,3 +1,6 @@
+import { vistaDistance } from '../shared/horizon.js';
+import { Atmosphere, SparkPool } from './atmosphere.js';
+import { RuneLandmarks } from './landmarks.js';
 import { SECRET, PASSAGE, RETURN_PASSAGE } from '../shared/world.js';
 import { TerrainStreamer } from './terrain.js';
 import * as THREE from 'three';
@@ -10,8 +13,11 @@ import { swordBlade, appleBody, totemBody } from './items.js';
 import { clipCamera, thirdPersonCamera, type Perspective } from './camera.js';
 
 export class ArenaScene {
-  renderer: THREE.WebGLRenderer; scene = new THREE.Scene(); camera = new THREE.PerspectiveCamera(120, 1, .05, 200);
+  renderer: THREE.WebGLRenderer; scene = new THREE.Scene(); camera = new THREE.PerspectiveCamera(120, 1, .05, 1200);
   arena = new THREE.Group(); worldDecor = new THREE.Group(); terrain = new TerrainStreamer(); secretDoor = new THREE.Group();
+  atmosphere: Atmosphere; sparks: SparkPool; runeLandmarks = new RuneLandmarks();
+  auraGeometry = new THREE.TorusGeometry(.7,.022,4,24); runeGeometry = new THREE.IcosahedronGeometry(.17,0);
+  viewRealm = 'arena'; dashTrailTime = 0; lastWeaponYaw = 0; landingKick = 0; wasGrounded = true;
   bases = new Map<Team, THREE.Group>(); flags = new Map<Team, THREE.Group>();
   avatars = new Map<string, THREE.Group>(); arrowMeshes = new Map<number, THREE.Mesh>(); weapon = new THREE.Group(); leftHand = new THREE.Group();
   textures = new TextureLibrary(); surfaceMaterials = new Map<string, THREE.MeshLambertMaterial>();
@@ -20,7 +26,7 @@ export class ArenaScene {
   armorMaterials = [armorMaterial(this.textures.get('metal'), false, this.armorTime), armorMaterial(this.textures.get('metal'), true, this.armorTime)];
   swordGeo = swordBlade(); appleGeo = appleBody(); totemGeo = totemBody();
   swordMaterial = armorMaterial(this.textures.get('metal'), true, this.armorTime);
-  sun = new THREE.DirectionalLight('#fff0d6', 2.1);
+  sun = new THREE.DirectionalLight('#ffe9bc', 1.9);
   contactShadows = new THREE.Group(); shadowGeo = new THREE.PlaneGeometry(1, 1);
   avatarShadows = new Map<string, THREE.Mesh>();
   contactMaterial = new THREE.MeshBasicMaterial({ color: '#172838', transparent: true, opacity: .2, depthWrite: false });
@@ -33,16 +39,17 @@ export class ArenaScene {
     this.swordMaterial.color.set('#a88abf');
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5)); this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping; this.renderer.toneMappingExposure = 1.05;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping; this.renderer.toneMappingExposure = .95;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.scene.background = new THREE.Color('#a5cee5'); this.scene.fog = new THREE.Fog('#a5cee5', 65, 150);
-    this.scene.add(new THREE.HemisphereLight('#d9edff', '#777467', 1.4));
+    this.scene.add(new THREE.HemisphereLight('#b8deef', '#435a44', 1.25));
+    this.atmosphere = new Atmosphere(this.scene); this.sparks = new SparkPool(this.scene); this.worldDecor.add(this.runeLandmarks.group);
     this.sun.position.set(-40, 80, 30); this.sun.castShadow = true;
     Object.assign(this.sun.shadow.camera, { left: -72, right: 72, top: 72, bottom: -72, near: .5, far: 180 });
     this.sun.shadow.bias = -.00015; this.sun.shadow.normalBias = .035;
     this.scene.add(this.sun, this.sun.target, this.contactShadows);
     this.scene.add(this.arena, this.terrain.group, this.worldDecor); this.worldDecor.visible = false;
-    const floorGeo = new THREE.PlaneGeometry(ARENA_SIZE, ARENA_SIZE); this.repeatUV(floorGeo, ARENA_SIZE, ARENA_SIZE);
+    const floorGeo = new THREE.PlaneGeometry(ARENA_SIZE, ARENA_SIZE); this.repeatUV(floorGeo, ARENA_SIZE/3, ARENA_SIZE/3);
     const floor = new THREE.Mesh(floorGeo, this.surface('cobble')); floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; this.arena.add(floor);
     // Unit masonry keeps a consistent pixel density. All wall blocks share one draw call.
     const positions: number[][] = [];
@@ -156,6 +163,7 @@ export class ArenaScene {
   makeAvatar(p: Player, mode: Mode) {
     const g = new THREE.Group(), color = playerColor(p, mode); g.userData.color = color;
     this.box(g, [.58, .7, .3], [0, 1.05, 0], color, 'cloth');
+    const scarf=new THREE.Group();scarf.name='scarf';scarf.position.set(0,1.35,.19);this.box(scarf,[.3,.12,.06],[0,0,0],'#e4bb76','cloth');for(let n=0;n<3;n++)this.box(scarf,[.14,.19,.03],[.1,-.17-n*.17,.06+n*.02],'#e4bb76','cloth');g.add(scarf);
     const pivot = (x: number, y: number) => { const joint = new THREE.Group(); joint.position.set(x, y, 0); g.add(joint); return joint; };
     const head = pivot(0, 1.4);
     this.box(head, [.48, .46, .45], [0, .24, 0], '#dab48b');
@@ -212,6 +220,7 @@ export class ArenaScene {
     if (key === this.lastOffhand) return; this.lastOffhand = key; this.leftHand.clear();
     if (p.offhand === 'totem') { if (p.totems > 0) this.buildTotem(this.leftHand); else return; }
     else { this.box(this.leftHand, [.55, .67, .12], [0, .08, 0], '#8a673c', 'wood'); this.box(this.leftHand, [.09, .67, .14], [0, .08, -.02], '#b6b6a3', 'metal'); }
+    this.box(this.leftHand,[.18,.2,.2],[0,-.14,.16],'#dab48b');this.box(this.leftHand,[.16,.27,.17],[0,-.34,.23],'#355b65','cloth');
     if (level > 1) { const glove = this.plate(this.leftHand, [.19, .22, .18], [0, -.18, .03]); glove.material = this.armorMaterials[level - 2]; }
     this.leftHand.traverse(o => { if (o instanceof THREE.Mesh) o.castShadow = o.receiveShadow = false; });
   }
@@ -240,9 +249,11 @@ export class ArenaScene {
     if (name === 'axe') { this.box(group, [.1, .8, .1], [0, .22, 0], '#7d5736', 'wood'); this.box(group, [.38, .29, .1], [-.12, .59, 0], '#b0d5d0', 'metal'); this.box(group, [.1, .38, .1], [-.32, .56, 0], '#e0e8d4', 'metal'); }
     if (name === 'bow') { for (let n = -2; n <= 2; n++) this.box(group, [.08, .17, .09], [.15 - Math.abs(n) * .065, n * .17 + .2, 0], '#be8a50', 'wood'); this.box(group, [.012, .78, .012], [-.03, .2, 0], '#e9dcbc'); }
     if (name === 'crossbow') { this.box(group, [.14, .15, .65], [0, .15, -.15], '#8d633f', 'wood'); this.box(group, [.65, .09, .12], [0, .17, -.38], '#b3b7a7', 'metal'); this.box(group, [.1, .29, .1], [0, -.01, .02], '#6e4b32', 'wood'); }
+    if(group===this.weapon){this.box(group,[.17,.19,.18],[0,-.02,.07],'#dab48b');this.box(group,[.15,.28,.17],[0,-.23,.22],'#355b65','cloth');}
   }
   event(e: GameEvent) {
     if (e.type === 'swing' || e.type === 'shot') { const rig = e.actor && this.rigs.get(e.actor); if (rig) rig.swing = 1; }
+    const g = this.avatars.get(e.target ?? e.actor ?? ''); if (g?.userData.realm === this.viewRealm && !this.reduced && ['hit','relic','totem','dash','level','flag_capture'].includes(e.type)) this.sparks.burst(g.position.x,g.position.y+1,g.position.z,e.type === 'hit' ? e.blocked ? '#bdeaff' : '#ffcd83' : '#6dfff0',e.type === 'relic' ? 45 : 16);
   }
   render(dt: number, snapshot: Snapshot | undefined, me: Player | undefined, local: Body | undefined, yaw: number, pitch: number, playing: boolean, moving: boolean) {
     this.time += dt; this.armorTime.value = this.reduced ? 0 : this.time;
@@ -272,14 +283,18 @@ export class ArenaScene {
     } else { const a = this.time * .018; this.camera.position.set(Math.sin(a + .8) * 62, 48, Math.cos(a + .8) * 62); this.camera.lookAt(0, 0, 0); }
     const realm = inRound ? follow?.realm ?? 'arena' : 'arena', wild = realm === 'wilds';
     this.arena.visible = !wild; this.worldDecor.visible = wild; this.contactShadows.visible = !wild && this.quality === 'low'; this.renderer.shadowMap.enabled = !wild && this.quality !== 'low';
+    if(this.viewRealm!==realm)this.sparks.clear(); this.viewRealm = realm; this.terrain.time.value = this.reduced ? 0 : this.time;
     this.terrain.update(this.camera.position.x, this.camera.position.z, snapshot?.world.seed ?? 0, this.quality, wild);
-    const fog = this.scene.fog as THREE.Fog; fog.near = wild ? 25 : 65; fog.far = wild ? this.quality === 'low' ? 45 : this.quality === 'high' ? 92 : 67 : 150;
+    const fog = this.scene.fog as THREE.Fog; fog.near = wild ? vistaDistance(this.terrain.worker ? this.quality : 'low') * .48 : 80; fog.far = wild ? vistaDistance(this.terrain.worker ? this.quality : 'low') : 200;
+    this.atmosphere.update(this.camera,this.time,this.reduced); this.sparks.update(dt,!this.reduced);
+    if (snapshot && wild) { this.runeLandmarks.build(snapshot.world.seed); this.runeLandmarks.update(this.time,me?.relics ?? 0,this.reduced); }
     this.secretDoor.position.x += ((snapshot?.world.doorOpen ? SECRET.x + 4.3 : SECRET.x) - this.secretDoor.position.x) * Math.min(1, dt * 4);
     const fov = inspecting ? 55 : this.configuredFov;
     if (this.camera.fov !== fov) { this.camera.fov = fov; this.camera.updateProjectionMatrix(); }
     if (inspecting && me) { const angle = this.reduced ? Math.PI + me.yaw : this.time * .3; this.camera.position.copy(clipCamera({ x: me.x, y: me.y + EYE, z: me.z }, { x: me.x + Math.sin(angle) * 3.8, y: me.y + 1.8, z: me.z + Math.cos(angle) * 3.8 }, .22, me.realm, snapshot?.world)); this.camera.lookAt(me.x, me.y + .85, me.z); }
     this.weapon.visible = !thirdPerson && !inspecting && !!inRound && !!me?.alive && snapshot?.phase !== 'results' && (me.weapon !== 'apple' || me.apples > 0);
-    if (me) { this.setWeapon(me.weapon, me.xp); this.setOffhand(me); this.swing = Math.max(0, this.swing - dt * 5); this.weapon.rotation.set(-this.swing * 1.2, 0, -.2 - this.swing * .8); this.weapon.position.y = -.43 - ((me.weapon === 'sword' || me.weapon === 'axe') ? (1 - attackStrength(me)) * .1 : 0) + (moving && local?.grounded && !this.reduced ? Math.sin(this.cameraDistance * 5) * .02 : 0); this.weapon.position.z = -.65 + me.charge * .035; }
+    if (me) { this.setWeapon(me.weapon, me.xp); this.setOffhand(me); this.swing = Math.max(0, this.swing - dt * 5); const arc = Math.sin(this.swing * Math.PI), sway = this.reduced ? 0 : Math.max(-.16,Math.min(.16,yaw-this.lastWeaponYaw)); this.lastWeaponYaw=yaw; this.weapon.rotation.set(-arc * 1.25, -arc * .65-sway, -.2 - arc * .9); this.weapon.position.y = -.43 - ((me.weapon === 'sword' || me.weapon === 'axe') ? (1 - attackStrength(me)) * .1 : 0) + (moving && local?.grounded && !this.reduced ? Math.sin(this.cameraDistance * 5) * .02 : 0); this.weapon.position.z = -.65 + me.charge * .035; }
+    if (local && !this.reduced) { if (!this.wasGrounded && local.grounded) this.landingKick = .08; this.wasGrounded=local.grounded; this.landingKick*=Math.exp(-dt*14); this.weapon.position.y-=this.landingKick; this.weapon.rotation.z+=(local.dashTime ?? 0)>0 ? -.22 : 0; if ((local.dashTime ?? 0)>0 && (this.dashTrailTime+=dt)>.025) { this.dashTrailTime=0; this.sparks.burst(local.x,local.y+.6,local.z,'#66e8df',3); } }
     this.leftHand.visible = !thirdPerson && !inspecting && !!inRound && !!me?.alive && snapshot?.phase !== 'results' && (me.offhand === 'shield' || me.totems > 0);
     this.leftHand.position.set(me?.block ? -.2 : -.36, me?.block ? -.12 : this.weapon.position.y, me?.block ? -.5 : -.65);
     this.leftHand.rotation.set(0, me?.block ? -.1 : .1, .1);
@@ -290,6 +305,8 @@ export class ArenaScene {
     for (const [id, g] of this.avatars) if (!ids.has(id) || g.userData.color !== playerColor(snapshot!.players.find(p => p.id === id)!, snapshot!.mode)) { this.scene.remove(g); g.traverse(o => { if (o instanceof THREE.Sprite) { o.material.map?.dispose(); o.material.dispose(); } }); this.avatars.delete(id); this.rigs.delete(id); const shadow = this.avatarShadows.get(id); if (shadow) this.contactShadows.remove(shadow); this.avatarShadows.delete(id); }
     for (const p of snapshot?.players ?? []) {
       const g = this.avatars.get(p.id) ?? this.makeAvatar(p, snapshot!.mode); g.visible = p.realm === realm && p.alive && (inspecting || (thirdPerson && cameraGap > .65) || p.id !== (inRound ? follow?.id : undefined));
+      g.userData.realm=p.realm;
+      let aura=g.getObjectByName('warden-aura'); if(!aura){aura=new THREE.Group();aura.name='warden-aura';const ring=new THREE.Mesh(this.auraGeometry,new THREE.MeshBasicMaterial({color:'#76fff1'}));ring.rotation.x=Math.PI/2;ring.position.y=.15;aura.add(ring);for(let n=0;n<3;n++){const shard=new THREE.Mesh(this.runeGeometry,new THREE.MeshBasicMaterial({color:['#ffcd6b','#60e1e6','#c197ff'][n]}));shard.position.set(Math.cos(n*2.094)*.8,1.4,Math.sin(n*2.094)*.8);aura.add(shard);}g.add(aura);} aura.visible=p.relics===7; aura.rotation.y=this.reduced?0:this.time*.8;
       // Hide only the followed avatar's name; it otherwise blocks the aiming area.
       for (const child of g.children) if (child instanceof THREE.Sprite) child.visible = p.id !== follow?.id || !inRound;
       const shadow = this.avatarShadows.get(p.id)!; shadow.visible = !wild && p.realm === realm && p.alive && p.y < 1.5; shadow.position.set(p.x, .014, p.z); shadow.scale.setScalar(.7 + p.y * .15);
@@ -303,11 +320,13 @@ export class ArenaScene {
       if (!rig.grounded && body.grounded) rig.landed = 1;
       rig.grounded = body.grounded; rig.landed = Math.max(0, rig.landed - dt * 6);
       g.position.y -= Math.sin(rig.landed * Math.PI) * .06;
+      const scarf=g.getObjectByName('scarf')!;scarf.rotation.x=this.reduced?0:-rig.speed*.025+Math.sin(this.time*3+p.color)*.05;scarf.rotation.z=this.reduced?0:Math.sin(this.time*2+p.color)*.04;
       g.rotation.set(pose.lean, p.id === me?.id ? yaw : p.yaw, 0); rig.head.rotation.x = p.id === me?.id ? pitch : p.pitch;
       rig.leftLeg.rotation.x = pose.leftLeg; rig.rightLeg.rotation.x = pose.rightLeg;
       rig.leftArm.rotation.x = p.block ? -1.1 : pose.leftArm;
       rig.swing = Math.max(0, rig.swing - dt / .3);
       rig.rightArm.rotation.x = rig.swing > 0 ? -Math.sin(rig.swing * Math.PI) * 1.8 : p.weapon === 'apple' && p.charge > 0 ? 1.65 + (this.reduced ? 0 : Math.sin(this.time * 18) * .06) : p.charge > 0 || (p.weapon === 'crossbow' && p.loaded) ? -1.3 + p.pitch : pose.rightArm;
+      rig.leftArm.rotation.z = p.block ? -.2 : Math.sin(rig.distance*1.3)*.04; rig.rightArm.rotation.z = rig.swing>0 ? -.4*Math.sin(rig.swing*Math.PI) : .04;
       rig.tool.visible = p.weapon !== 'apple' || p.apples > 0;
       rig.tool.rotation.x = p.weapon === 'apple' && p.charge > 0 ? -1.65 : 0;
       const shield = g.getObjectByName('shield')!; shield.visible = p.offhand === 'shield';

@@ -1,3 +1,4 @@
+import { shardSites } from './expedition.js';
 import { BOXES, LIMIT, type Box } from './arena.js';
 export type Realm = 'arena' | 'wilds';
 export interface WorldState { seed: number; doorOpen: boolean }
@@ -52,7 +53,7 @@ export function treeAt(cx: number, cz: number, seed: number): Tree | undefined {
   if (hash(cx, cz, seed ^ 9511) < .26) return;
   const x = cx * TREE_CELL + 2 + hash(cx, cz, seed ^ 541) * 8, z = cz * TREE_CELL + 2 + hash(cx, cz, seed ^ 659) * 8;
   const y = terrainHeight(x, z, seed);
-  if (Math.hypot(x, z) < 18 || y < .9 || y > 20) return;
+  if (Math.hypot(x, z) < 18 || y < .9 || y > 20 || shardSites(seed).some(s => Math.hypot(s.x - x, s.z - z) < 7)) return;
   return { x, z, y, height: 4 + hash(cx, cz, seed ^ 997) * 2, shade: hash(cx, cz, seed ^ 331) };
 }
 export function treesIn(x0: number, z0: number, x1: number, z1: number, seed: number) {

@@ -1,48 +1,55 @@
+import { buildHorizon } from '../shared/horizon.js';
+import { TextureLibrary } from './textures.js';
 import * as THREE from 'three';
 import { CHUNK_SIZE, chunkRadius, wantedChunks } from '../shared/world.js';
 import { buildTerrainChunk, type TerrainChunk } from '../shared/terrain-mesh.js';
 /** One worker request and one mesh upload at a time; no unbounded cache or queue. */
 export class TerrainStreamer {
+  horizon?: THREE.Group; horizonKey = ''; horizonReady?: TerrainChunk; time = { value: 0 };
   group = new THREE.Group(); chunks = new Map<string, THREE.Group>();
   worker?: Worker; busy = false; epoch = 0; seed = -1; center = ''; wanted = new Set<string>();
   queue: { x: number; z: number; key: string }[] = []; ready?: TerrainChunk;
   box = new THREE.BoxGeometry(1, 1, 1);
   grass = new THREE.MeshLambertMaterial({ vertexColors: true });
-  bark = new THREE.MeshLambertMaterial({ color: '#755238' }); leaves = new THREE.MeshLambertMaterial({ color: '#548243' });
-  water = new THREE.MeshLambertMaterial({ color: '#4387ab', transparent: true, opacity: .72 });
+  bark = new THREE.MeshLambertMaterial({ color: '#755238' }); leaves = new THREE.MeshLambertMaterial({ color: '#4b9a71' }); canopy = new THREE.IcosahedronGeometry(.65, 0);
+  water = new THREE.MeshPhongMaterial({ color: '#318da7', specular:'#9fdbeb', shininess:95, transparent:true, opacity:.8 });
   constructor() {
-    const canvas = document.createElement('canvas'); canvas.width = canvas.height = 16; const ctx = canvas.getContext('2d')!;
-    for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) { const v = 210 + (x * 7 + y * 13) % 40; ctx.fillStyle = `rgb(${v},${v},${v})`; ctx.fillRect(x, y, 1, 1); }
-    const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace; texture.wrapS = texture.wrapT = THREE.RepeatWrapping; texture.magFilter = THREE.NearestFilter; texture.minFilter = THREE.NearestMipmapLinearFilter; this.grass.map = texture;
+    const textures = new TextureLibrary(); this.grass.map = textures.get('grass'); this.grass.normalMap=textures.normal('grass');this.grass.normalScale.set(.14,.14); this.bark.map = textures.get('bark'); this.leaves.map = textures.get('leaves');
+    this.leaves.onBeforeCompile = shader => { shader.uniforms.windTime = this.time; shader.vertexShader = 'uniform float windTime;\n' + shader.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
+      #ifdef USE_INSTANCING
+      transformed.x += sin(windTime * .8 + instanceMatrix[3].x * .18 + instanceMatrix[3].z * .12) * .018 * (position.y + .65);
+      #endif`); }; this.leaves.customProgramCacheKey = () => 'stone-leaf-wind-v1';
+    this.water.onBeforeCompile=shader=>{shader.uniforms.windTime=this.time;shader.vertexShader='uniform float windTime;\n'+shader.vertexShader.replace('#include <begin_vertex>','#include <begin_vertex>\n transformed += normal * sin(position.x*.3+position.y*.24+windTime*.8)*.025;');};this.water.customProgramCacheKey=()=> 'stone-water-ripple-v1';
     try {
       this.worker = new Worker(new URL('./terrain-worker.ts', import.meta.url), { type: 'module' });
-      this.worker.onmessage = (e: MessageEvent<{ epoch: number; chunk: TerrainChunk }>) => { this.busy = false; if (e.data.epoch === this.epoch && this.wanted.has(e.data.chunk.key) && this.group.visible) this.ready = e.data.chunk; };
+      this.worker.onmessage = (e: MessageEvent<{ epoch: number; chunk: TerrainChunk; horizon?: string }>) => { this.busy = false; if (e.data.epoch !== this.epoch || !this.group.visible) return; if (e.data.horizon) { if (e.data.horizon === this.center) { this.horizonReady = e.data.chunk; this.horizonKey = e.data.horizon; } } else if (this.wanted.has(e.data.chunk.key)) this.ready = e.data.chunk; };
       this.worker.onerror = () => { this.worker?.terminate(); this.worker = undefined; this.busy = false; this.center = ''; };
     } catch { /* Older browsers use one small chunk per frame instead. */ }
     this.group.visible = false;
   }
+  dispose(group: THREE.Group) { group.traverse(o => { if (o instanceof THREE.InstancedMesh) o.dispose(); if (o instanceof THREE.Mesh && o.geometry !== this.box && o.geometry !== this.canopy) o.geometry.dispose(); }); this.group.remove(group); }
   forget(key: string) {
     const group = this.chunks.get(key); if (!group) return;
-    group.traverse(o => { if (o instanceof THREE.InstancedMesh) o.dispose(); if (o instanceof THREE.Mesh && o.geometry !== this.box) o.geometry.dispose(); });
-    this.group.remove(group); this.chunks.delete(key);
+    this.dispose(group); this.chunks.delete(key);
   }
-  clear() { this.epoch++; this.ready = undefined; for (const key of this.chunks.keys()) this.forget(key); this.queue = []; this.wanted.clear(); this.center = ''; }
+  clear() { this.epoch++; this.ready = undefined; for (const key of this.chunks.keys()) this.forget(key); this.queue = []; this.wanted.clear(); this.center = ''; this.horizonReady = undefined; this.horizonKey = ''; if (this.horizon) this.dispose(this.horizon); this.horizon = undefined; }
   add(c: TerrainChunk) {
     const group = new THREE.Group(); group.position.set(c.cx * CHUNK_SIZE, 0, c.cz * CHUNK_SIZE);
     const geometry = new THREE.BufferGeometry(); geometry.setAttribute('position', new THREE.BufferAttribute(c.positions, 3)); geometry.setAttribute('normal', new THREE.BufferAttribute(c.normals, 3)); geometry.setAttribute('color', new THREE.BufferAttribute(c.colors, 3)); geometry.setAttribute('uv', new THREE.BufferAttribute(c.uv, 2)); geometry.setIndex(new THREE.BufferAttribute(c.indices, 1)); geometry.computeBoundingSphere();
     group.add(new THREE.Mesh(geometry, this.grass));
-    if (c.positions.some((y, i) => i % 3 === 1 && y < .65) && Math.hypot(c.cx, c.cz) > 1) {
+    if (c.key !== 'horizon' && c.positions.some((y, i) => i % 3 === 1 && y < .65) && Math.hypot(c.cx, c.cz) > 1) {
       const water = new THREE.Mesh(new THREE.PlaneGeometry(CHUNK_SIZE, CHUNK_SIZE), this.water); water.rotation.x = -Math.PI / 2; water.position.set(CHUNK_SIZE / 2, .65, CHUNK_SIZE / 2); group.add(water);
     }
+    if(c.key==='horizon'){const pos=new Float32Array(c.positions);for(let i=1;i<pos.length;i+=3)pos[i]=.65;const waterGeometry=new THREE.BufferGeometry();waterGeometry.setAttribute('position',new THREE.BufferAttribute(pos,3));waterGeometry.setIndex(new THREE.BufferAttribute(new Uint16Array(c.indices),1));waterGeometry.computeVertexNormals();waterGeometry.computeBoundingSphere();group.add(new THREE.Mesh(waterGeometry,this.water));}
     if (c.trees.length) {
-      const trunks = new THREE.InstancedMesh(this.box, this.bark, c.trees.length), crowns = new THREE.InstancedMesh(this.box, this.leaves, c.trees.length), matrix = new THREE.Matrix4();
+      const trunks = new THREE.InstancedMesh(this.box, this.bark, c.trees.length), crowns = new THREE.InstancedMesh(this.canopy, this.leaves, c.trees.length * (c.key==='horizon'?1:2)), matrix = new THREE.Matrix4();
       c.trees.forEach((t, i) => {
         const x = t.x - c.cx * CHUNK_SIZE, z = t.z - c.cz * CHUNK_SIZE;
         matrix.makeScale(.7, t.height, .7); matrix.setPosition(x, t.y + t.height / 2, z); trunks.setMatrixAt(i, matrix);
-        matrix.makeScale(4, 3, 4); matrix.setPosition(x, t.y + t.height + .5, z); crowns.setMatrixAt(i, matrix); crowns.setColorAt(i, new THREE.Color().setScalar(.75 + t.shade * .35));
+        const layers=c.key==='horizon'?1:2; for(let n=0;n<layers;n++){matrix.makeScale(n?2.5:3.7,n?2.1:2.6,n?2.5:3.7);matrix.setPosition(x,t.y+t.height+(n?1:.1),z);crowns.setMatrixAt(i*layers+n,matrix);crowns.setColorAt(i*layers+n,new THREE.Color().setScalar((n ? .88 : .68)+t.shade*.3));}
       }); group.add(trunks, crowns);
     }
-    this.group.add(group); this.chunks.set(c.key, group);
+    this.group.add(group); if (c.key === 'horizon') { if (this.horizon) this.dispose(this.horizon); this.horizon = group; } else this.chunks.set(c.key, group);
   }
   update(x: number, z: number, seed: number, quality: string, visible: boolean) {
     if (!visible) { if (this.group.visible) this.clear(); this.group.visible = false; return; }
@@ -55,12 +62,17 @@ export class TerrainStreamer {
       if (this.ready && !this.wanted.has(this.ready.key)) this.ready = undefined;
       this.queue = wanted.filter(c => !this.chunks.has(c.key));
     }
-    if (this.ready) { if (this.wanted.has(this.ready.key) && !this.chunks.has(this.ready.key)) this.add(this.ready); this.ready = undefined; }
+    if (this.horizonReady) { this.add(this.horizonReady); this.horizonReady = undefined; }
+    else if (this.ready) { if (this.wanted.has(this.ready.key) && !this.chunks.has(this.ready.key)) this.add(this.ready); this.ready = undefined; }
     if (!this.busy) {
       let next; while ((next = this.queue.shift()) && this.chunks.has(next.key)) { /* Skip previously completed jobs after a center change. */ }
       if (next) {
         if (this.worker) { this.busy = true; this.worker.postMessage({ cx: next.x, cz: next.z, seed, epoch: this.epoch }); }
         else this.ready = buildTerrainChunk(next.x, next.z, seed);
+      } else if (this.horizonKey !== this.center && !this.ready && !this.horizonReady) {
+        const cx = Math.floor(x / CHUNK_SIZE), cz = Math.floor(z / CHUNK_SIZE);
+        if (this.worker) { this.busy = true; this.worker.postMessage({ cx, cz, seed, epoch: this.epoch, radius, quality, horizon: this.center }); }
+        else { this.horizonReady = buildHorizon(cx, cz, seed, radius, 'low'); this.horizonKey = this.center; }
       }
     }
   }

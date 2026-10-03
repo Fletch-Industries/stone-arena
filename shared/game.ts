@@ -1,7 +1,8 @@
+import { WINDSTEP } from './expedition.js';
 import { LIMIT } from './arena.js';
 import { movementLimit, terrainHeight, worldBoxes, type Realm, type WorldState } from './world.js';
 export { BOXES, LIMIT, SPAWNS, ARENA_SIZE, type Box } from './arena.js';
-export const VERSION = 8;
+export const VERSION = 9;
 export type Mode = 'ffa' | 'teams' | 'ctf';
 export type Team = 'red' | 'blue';
 export const MODES = { ffa: 'Free for all', teams: 'Team survival', ctf: 'Capture the flag' } as const;
@@ -35,18 +36,18 @@ export type Weapon = 'sword' | 'axe' | 'bow' | 'crossbow' | 'apple';
 export const WEAPONS: Weapon[] = ['sword', 'axe', 'bow', 'crossbow', 'apple'];
 export const COLORS = ['#f3b85b', '#6adbc8', '#a8a0ff', '#f58f9c', '#8ece6b'];
 export type Phase = 'waiting' | 'countdown' | 'active' | 'results';
-export interface Input { seq: number; x: number; z: number; yaw: number; pitch: number; jump: boolean; sprint: boolean; block: boolean; attack: boolean; weapon: Weapon; offhand: Offhand }
-export const idleInput = (): Input => ({ seq: 0, x: 0, z: 0, yaw: 0, pitch: 0, jump: false, sprint: false, block: false, attack: false, weapon: 'sword', offhand: 'shield' });
-export interface Body { realm?: Realm; x: number; y: number; z: number; vy: number; grounded: boolean; vx?: number; vz?: number; sprinting?: boolean; sprintLocked?: boolean }
+export interface Input { seq: number; x: number; z: number; yaw: number; pitch: number; jump: boolean; dash?: boolean; sprint: boolean; block: boolean; attack: boolean; weapon: Weapon; offhand: Offhand }
+export const idleInput = (): Input => ({ seq: 0, x: 0, z: 0, yaw: 0, pitch: 0, jump: false, dash: false, sprint: false, block: false, attack: false, weapon: 'sword', offhand: 'shield' });
+export interface Body { dashTime?: number; dashCooldown?: number; dashYaw?: number; dashHeld?: boolean; realm?: Realm; x: number; y: number; z: number; vy: number; grounded: boolean; vx?: number; vz?: number; sprinting?: boolean; sprintLocked?: boolean }
 export interface Player extends Body {
-  realm: Realm; team: Team; respawnAt: number; immuneUntil: number; captures: number; flagReturns: number;
+  relics: number; realm: Realm; team: Team; respawnAt: number; immuneUntil: number; captures: number; flagReturns: number;
   id: string; name: string; color: number; yaw: number; pitch: number; hp: number; alive: boolean;
   connected: boolean; ready: boolean; weapon: Weapon; block: boolean; ammo: number; apples: number; offhand: Offhand; totems: number;
   kills: number; damage: number; assists: number; wins: number; ack: number; xp: number;
   hurtTime: number; lastDamage: number; shieldRaise: number; swingWait: number; moveSpeed: number; cooldown: number; charge: number; loaded: boolean; shieldDisabled: number; eliminatedAt: number;
 }
 export interface Arrow { realm?: Realm; id: number; owner: string; x: number; y: number; z: number; vx: number; vy: number; vz: number; damage: number; age: number; critical?: boolean }
-export interface GameEvent { id: number; type: 'hit' | 'kill' | 'shot' | 'swing' | 'start' | 'result' | 'level' | 'heal' | 'totem' | 'flag_pickup' | 'flag_drop' | 'flag_return' | 'flag_capture' | 'door' | 'travel'; actor?: string; target?: string; team?: Team; text?: string; blocked?: boolean; critical?: boolean; sprintHit?: boolean; sweep?: boolean }
+export interface GameEvent { id: number; type: 'hit' | 'kill' | 'shot' | 'swing' | 'start' | 'result' | 'level' | 'heal' | 'totem' | 'flag_pickup' | 'flag_drop' | 'flag_return' | 'flag_capture' | 'door' | 'travel' | 'dash' | 'relic'; actor?: string; target?: string; team?: Team; text?: string; blocked?: boolean; critical?: boolean; sprintHit?: boolean; sweep?: boolean }
 export interface Snapshot { world: WorldState; mode: Mode; winnerTeam: Team | ''; scores: Record<Team, number>; flags: Flag[]; tick: number; phase: Phase; countdown: number; result: string; winner: string; round: number; host: string; practice: boolean; players: Player[]; arrows: Arrow[]; events: GameEvent[] }
 export function validInput(a: unknown): a is Input {
   if (!a || typeof a !== 'object') return false;
@@ -54,7 +55,7 @@ export function validInput(a: unknown): a is Input {
   return Number.isSafeInteger(i.seq) && i.seq >= 0 && i.seq < 2 ** 31 &&
     [i.x, i.z, i.yaw, i.pitch].every(Number.isFinite) && Math.abs(i.x) <= 1 && Math.abs(i.z) <= 1 &&
     Math.abs(i.yaw) <= Math.PI * 2 && Math.abs(i.pitch) <= 1.5 && WEAPONS.includes(i.weapon) && ['shield', 'totem'].includes(i.offhand) &&
-    [i.jump, i.sprint, i.block, i.attack].every(v => typeof v === 'boolean');
+    (i.dash === undefined || typeof i.dash === 'boolean') && [i.jump, i.sprint, i.block, i.attack].every(v => typeof v === 'boolean');
 }
 export function direction(yaw: number, pitch = 0) { return { x: -Math.sin(yaw) * Math.cos(pitch), y: Math.sin(pitch), z: -Math.cos(yaw) * Math.cos(pitch) }; }
 // Velocity impulses share the same collision path as ordinary input on client/server.
@@ -65,6 +66,10 @@ export function knockback(body: Body, dx: number, dz: number, strength = 8) {
   if (body.grounded) { body.vy = Math.min(8, body.vy / 2 + 8); body.grounded = false; }
 }
 export function move(body: Body, i: Input, dt = DT, slow = false, world?: WorldState) {
+  body.dashCooldown = Math.max(0, (body.dashCooldown ?? 0) - dt);
+  body.dashTime = Math.max(0, (body.dashTime ?? 0) - dt);
+  if (i.dash && !body.dashHeld && body.realm === 'wilds' && body.dashCooldown === 0 && !slow && !i.block) { body.dashTime = WINDSTEP.duration; body.dashCooldown = WINDSTEP.cooldown; body.dashYaw = i.yaw; }
+  body.dashHeld = i.dash === true;
   if (!i.sprint || i.z <= 0) body.sprintLocked = false;
   body.sprinting = i.sprint && i.z > 0 && !slow && !i.block && !body.sprintLocked;
   const length = Math.max(1, Math.hypot(i.x, i.z));
@@ -73,8 +78,9 @@ export function move(body: Body, i: Input, dt = DT, slow = false, world?: WorldS
     body.vy = Math.sqrt(2 * GRAVITY * JUMP_HEIGHT); body.grounded = false;
     if (body.sprinting) { const d = direction(i.yaw); body.vx = (body.vx ?? 0) + d.x * 4; body.vz = (body.vz ?? 0) + d.z * 4; }
   }
-  const dx = ((i.x * Math.cos(i.yaw) - i.z * Math.sin(i.yaw)) / length * speed + (body.vx ?? 0)) * dt;
-  const dz = ((-i.x * Math.sin(i.yaw) - i.z * Math.cos(i.yaw)) / length * speed + (body.vz ?? 0)) * dt;
+  const dash = (body.dashTime ?? 0) > 0 && body.realm === 'wilds';
+  const dx = ((dash ? -Math.sin(body.dashYaw ?? i.yaw) * WINDSTEP.speed : (i.x * Math.cos(i.yaw) - i.z * Math.sin(i.yaw)) / length * speed) + (body.vx ?? 0)) * dt;
+  const dz = ((dash ? -Math.cos(body.dashYaw ?? i.yaw) * WINDSTEP.speed : (-i.x * Math.sin(i.yaw) - i.z * Math.cos(i.yaw)) / length * speed) + (body.vz ?? 0)) * dt;
   const realm = body.realm ?? 'arena';
   const boxes = worldBoxes(Math.min(body.x, body.x + dx), Math.min(body.z, body.z + dz), Math.max(body.x, body.x + dx), Math.max(body.z, body.z + dz), realm, world);
   const ground = realm === 'wilds' ? terrainHeight(body.x, body.z, world?.seed ?? 0) : 0;

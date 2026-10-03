@@ -110,3 +110,36 @@ The production build retains its existing large-client-bundle warning.
 Tests cover seams, shared terrain footing, collision and camera rays, door proximity,
 portal return, realm isolation, flag drops and bounded schedules/caches. The ordinary
 two-client Wilds integration verifies discovery, exploration, reconnect and return.
+
+## Rune frontier iteration
+
+A bounded coarse horizon extends detailed terrain, using one worker-produced
+mesh outside the exact nearby ring, one water mesh and two instanced forest draws.
+Near collision remains unchanged; far terrain samples every 12/8/6 blocks at
+Low/Medium/High. The view ends in fog at 150/280/440 blocks. Every horizon has
+fewer than 65,536 vertices, excludes the nearby square, regenerates only on chunk
+or quality changes and disposes its predecessor. Worker fallback uses Low range.
+
+The original sky shader uses a vertical atmospheric gradient and a sun disk;
+84 instanced cloud puffs drift slowly. Grass, bark and leaf textures are locally
+generated, with softened masonry seams and larger courtyard paving. Faceted
+canopies use two nearby layers, a shared texture, per-instance tint and a subtle
+vertex wind effect; water uses inexpensive Phong highlights and vertex ripples.
+There is no bloom, screen-space reflection, downloaded art or new asset service.
+Three seeded rune landmarks reuse geometry, glow sprites and colored beam meshes.
+Rune sparks share a fixed pool of 256 points. Reduced motion freezes decorative
+wind, ripples, cloud drift, rune rotation and reward aura, and suppresses sparks.
+
+First-person hands hold the tools; swing arcs combine rotation on three axes,
+small aim sway and landing motion. Third-person scarves move with running and
+wind. The Warden aura uses shared ring/crystal geometry. These effects preserve
+authoritative hit rays and movement.
+
+`client/audio.ts` synthesizes original tones and filtered noise. It has one loop
+for ambient wind, at most 32 transient voices, a master volume and a compressor.
+Transient sources disconnect when finished. Footsteps follow traveled distance,
+landings follow grounded transitions, and distant same-area events are quieter.
+A user gesture creates/resumes audio; background tabs fade ambience and stop
+scheduling music. There are no downloaded samples, always-running intervals or
+autoplay prompts. The development world preview includes sound/dash/rune/aura
+controls and reports context state and voice count.
