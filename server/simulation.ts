@@ -1,6 +1,25 @@
+import { nearSecret, SECRET, WORLD_LIMIT, type Realm, type WorldState } from '../shared/world.js';
 import { CTF, TEAMS, LIMIT, type Mode, type Team, type Flag, APPLE, TOTEM, ARMOR_TIERS, armorTier, MELEE, attackStrength, meleeRecovery, knockback, DT, EYE, HEIGHT, SPAWNS, direction, idleInput, move, segmentBox, wallHit, type Arrow, type GameEvent, type Input, type Player, type Snapshot, type Phase } from '../shared/game.js';
 
 export class Simulation {
+  world: WorldState;
+  constructor(seed = 7919) { this.world = { seed: seed >>> 0, doorOpen: false }; }
+  interact(id: string) {
+    const p = this.players.get(id);
+    if (this.phase !== 'active' || !p?.alive || !p.connected || !nearSecret(p)) return false;
+    if (!this.world.doorOpen) { this.world.doorOpen = true; this.event({ type: 'door', actor: id, text: 'The stone wall slides aside…' }); }
+    return true;
+  }
+  travel(p: Player) {
+    const out = p.realm === 'arena' && this.world.doorOpen && p.z < SECRET.end + 1 && Math.abs(p.x - SECRET.x) < 1.7 && p.y < 2;
+    const back = p.realm === 'wilds' && p.z > 8 && p.z < 12 && Math.abs(p.x) < 1.6 && p.y < 2;
+    if (!out && !back) return false;
+    this.dropFlag(p.id);
+    Object.assign(p, { realm: out ? 'wilds' : 'arena', x: out ? 0 : SECRET.x, y: 0, z: out ? 0 : -61, vy: 0, vx: 0, vz: 0, grounded: true, yaw: out ? 0 : Math.PI, pitch: 0, block: false, charge: 0, sprinting: false, sprintLocked: false, immuneUntil: 0 });
+    this.inputs.set(p.id, { ...idleInput(), seq: p.ack, yaw: p.yaw, offhand: p.offhand }); this.lastInput.delete(p.id); this.lastAttack.set(p.id, false); this.attackPress.delete(p.id); this.attackRelease.delete(p.id);
+    this.arrows = this.arrows.filter(a => a.owner !== p.id);
+    this.event({ type: 'travel', actor: p.id, text: out ? 'You discovered the Wilds · The return tunnel is behind you' : 'Back inside the Stone Citadel' }); return true;
+  }
   mode: Mode = 'ffa'; winnerTeam: Team | '' = ''; scores = { red: 0, blue: 0 };
   flags: Flag[] = this.homeFlags();
   homeFlags(): Flag[] { return (['red', 'blue'] as Team[]).map(team => ({ team, state: 'home', x: TEAMS[team].x, z: TEAMS[team].z, y: 0, carrier: '', returnAt: 0 })); }
@@ -26,19 +45,19 @@ export class Simulation {
   arrows: Arrow[] = []; events: GameEvent[] = []; phase: Phase = 'waiting';
   tick = 0; round = 0; countdown = 0; result = ''; winner = ''; host = ''; practice = false;
   nextEvent = 0; nextArrow = 0; resultTime = 0;
-  rewindTicks = new Map<string, number>(); history: { tick: number; players: Map<string, { x: number; y: number; z: number }> }[] = [];
+  rewindTicks = new Map<string, number>(); history: { tick: number; players: Map<string, { x: number; y: number; z: number; realm: Realm }> }[] = [];
   add(id: string, name: string) {
     if (this.players.size >= 5 || this.phase !== 'waiting') throw new Error('Room full or round in progress.');
     const colors = new Set([...this.players.values()].map(p => p.color));
     const color = [0, 1, 2, 3, 4].find(c => !colors.has(c))!;
     const red = [...this.players.values()].filter(p => p.team === 'red').length;
     const team: Team = red <= this.players.size - red ? 'red' : 'blue';
-    const p: Player = { team, respawnAt: 0, immuneUntil: 0, captures: 0, flagReturns: 0, id, name, color, x: 0, y: 0, z: 0, vy: 0, grounded: true, yaw: 0, pitch: 0, hp: 100, xp: 0, alive: true, connected: true, ready: false, weapon: 'sword', offhand: 'shield', block: false, ammo: 20, apples: APPLE.count, totems: TOTEM.count, kills: 0, damage: 0, assists: 0, wins: 0, ack: 0, cooldown: 0, charge: 0, loaded: false, shieldDisabled: 0, hurtTime: 0, lastDamage: 0, shieldRaise: 0, swingWait: 0, moveSpeed: 0, vx: 0, vz: 0, sprinting: false, sprintLocked: false, eliminatedAt: 0 };
+    const p: Player = { realm: 'arena', team, respawnAt: 0, immuneUntil: 0, captures: 0, flagReturns: 0, id, name, color, x: 0, y: 0, z: 0, vy: 0, grounded: true, yaw: 0, pitch: 0, hp: 100, xp: 0, alive: true, connected: true, ready: false, weapon: 'sword', offhand: 'shield', block: false, ammo: 20, apples: APPLE.count, totems: TOTEM.count, kills: 0, damage: 0, assists: 0, wins: 0, ack: 0, cooldown: 0, charge: 0, loaded: false, shieldDisabled: 0, hurtTime: 0, lastDamage: 0, shieldRaise: 0, swingWait: 0, moveSpeed: 0, vx: 0, vz: 0, sprinting: false, sprintLocked: false, eliminatedAt: 0 };
     this.players.set(id, p); this.inputs.set(id, idleInput()); if (!this.host) this.host = id; this.positionPlayers(); return p;
   }
   spawn(p: Player, index: number) {
     const s = this.mode === 'ffa' ? SPAWNS[(index + this.round * 2) % SPAWNS.length] : [p.team === 'red' ? -43 : 43, (index - 1) * 5];
-    Object.assign(p, { x: s[0], z: s[1], y: 0, vy: 0, vx: 0, vz: 0, grounded: true, sprinting: false, sprintLocked: false, yaw: Math.atan2(s[0], s[1]), pitch: 0 });
+    Object.assign(p, { realm: 'arena', x: s[0], z: s[1], y: 0, vy: 0, vx: 0, vz: 0, grounded: true, sprinting: false, sprintLocked: false, yaw: Math.atan2(s[0], s[1]), pitch: 0 });
   }
   positionPlayers() { let n = 0; const teams = { red: 0, blue: 0 }; for (const p of this.players.values()) this.spawn(p, this.mode === 'ffa' ? n++ : teams[p.team]++); }
   dropFlag(id: string) {
@@ -54,11 +73,11 @@ export class Simulation {
     this.event({ type: 'flag_return', actor: p?.id, team: f.team, text: `${TEAMS[f.team].name} flag returned${p ? ' by ' + p.name : ''}` });
   }
   flagTouch(p: Player, f: Pick<Flag, 'x' | 'y' | 'z'>) {
-    return Math.hypot(p.x - f.x, p.z - f.z) <= CTF.radius && Math.abs(p.y - f.y) < 1.5 && !Number.isFinite(wallHit({ x: p.x, y: p.y + .8, z: p.z }, { x: f.x, y: f.y + .8, z: f.z }));
+    return Math.hypot(p.x - f.x, p.z - f.z) <= CTF.radius && Math.abs(p.y - f.y) < 1.5 && !Number.isFinite(wallHit({ x: p.x, y: p.y + .8, z: p.z }, { x: f.x, y: f.y + .8, z: f.z }, 'arena', this.world));
   }
   updateFlags() {
     if (this.mode !== 'ctf') return;
-    const ps = [...this.players.values()].filter(p => p.alive && p.connected && !this.departed.has(p.id));
+    const ps = [...this.players.values()].filter(p => p.alive && p.connected && p.realm === 'arena' && !this.departed.has(p.id));
     for (const f of this.flags) {
       if (f.state === 'dropped' && this.tick >= f.returnAt) this.returnFlag(f);
       if (f.state === 'carried') {
@@ -151,7 +170,7 @@ export class Simulation {
     player.xp = ARMOR_TIERS[(level as number) - 1].xp; return true;
   }
   damage(target: Player, actor: Player, amount: number, axe = false, hit: { strength?: number; critical?: boolean; sprintHit?: boolean; sweep?: boolean; projectile?: boolean; source?: { x: number; z: number }; force?: boolean } = {}) {
-    if (!target.alive || (!hit.force && (this.teammates(target, actor) || target.immuneUntil > this.tick))) return false;
+    if (!target.alive || (!hit.force && (this.teammates(target, actor) || target.realm !== actor.realm || target.immuneUntil > this.tick))) return false;
     const source = hit.source ?? actor, facing = direction(target.yaw);
     const dx = source.x - target.x, dz = source.z - target.z;
     const blocked = !hit.force && target.offhand === 'shield' && target.block && target.shieldDisabled <= 0 && target.shieldRaise >= .25 && facing.x * dx + facing.z * dz > 0;
@@ -190,16 +209,16 @@ export class Simulation {
     const sweep = strong && p.weapon === 'sword' && pose.grounded && !pose.sprinting && pose.moveSpeed <= 4.317 + .01;
     const d = direction(p.yaw, p.pitch), reach = 3;
     const a = { x: p.x, y: p.y + EYE, z: p.z }, b = { x: a.x + d.x * reach, y: a.y + d.y * reach, z: a.z + d.z * reach };
-    let nearest = wallHit(a, b), target: Player | undefined;
+    let nearest = wallHit(a, b, p.realm, this.world), target: Player | undefined;
     const rewind = Math.min(6, Math.max(0, this.rewindTicks.get(p.id) ?? 0));
     const past = rewind > 0 ? this.history.find(h => h.tick >= this.tick - rewind) : undefined;
-    for (const q of this.players.values()) if (q.id !== p.id && q.alive && !this.teammates(p, q)) { const pose = past?.players.get(q.id) ?? q; const t = segmentBox(a, b, [pose.x - .3, pose.y, pose.z - .3], [pose.x + .3, pose.y + HEIGHT, pose.z + .3]); if (t < nearest) { nearest = t; target = q; } }
+    for (const q of this.players.values()) if (q.id !== p.id && q.alive && q.realm === p.realm && !this.teammates(p, q)) { const pose = past?.players.get(q.id) ?? q; if (pose.realm !== p.realm) continue; const t = segmentBox(a, b, [pose.x - .3, pose.y, pose.z - .3], [pose.x + .3, pose.y + HEIGHT, pose.z + .3]); if (t < nearest) { nearest = t; target = q; } }
     if (target) {
       const amount = (p.weapon === 'axe' ? MELEE.axe.damage : MELEE.sword.damage) * (.2 + .8 * strength * strength) * (critical ? 1.5 : 1);
       const landed = this.damage(target, p, amount, p.weapon === 'axe', { strength: sprintHit ? 18 : 8, critical, sprintHit });
       if (landed && sweep) for (const q of this.players.values()) {
-        if (q.id === p.id || q.id === target.id || !q.alive || this.teammates(p, q) || Math.hypot(q.x - p.x, q.z - p.z) >= 3 || Math.abs(q.y - target.y) > .5 || Math.abs(q.x - target.x) > 1.3 || Math.abs(q.z - target.z) > 1.3) continue;
-        if (!Number.isFinite(wallHit(a, { x: q.x, y: q.y + 1, z: q.z }))) this.damage(q, p, 5, false, { strength: 8, sweep: true });
+        if (q.id === p.id || q.id === target.id || !q.alive || q.realm !== p.realm || this.teammates(p, q) || Math.hypot(q.x - p.x, q.z - p.z) >= 3 || Math.abs(q.y - target.y) > .5 || Math.abs(q.x - target.x) > 1.3 || Math.abs(q.z - target.z) > 1.3) continue;
+        if (!Number.isFinite(wallHit(a, { x: q.x, y: q.y + 1, z: q.z }, p.realm, this.world))) this.damage(q, p, 5, false, { strength: 8, sweep: true });
       }
       if (sprintHit) { p.sprinting = false; p.sprintLocked = true; p.vx = (p.vx ?? 0) * .6; p.vz = (p.vz ?? 0) * .6; }
     }
@@ -212,7 +231,7 @@ export class Simulation {
     const power = Math.min(1, (charge * charge + 2 * charge) / 3);
     if (p.weapon === 'bow' && power < .1) return;
     const d = direction(p.yaw, p.pitch), speed = p.weapon === 'crossbow' ? 63 : 60 * power;
-    this.arrows.push({ id: ++this.nextArrow, owner: p.id, x: p.x, y: p.y + EYE, z: p.z, vx: d.x * speed, vy: d.y * speed, vz: d.z * speed, age: 0, damage: Math.ceil(speed / 20 * 2) * 5, critical: p.weapon === 'crossbow' || power === 1 }); p.ammo--; p.cooldown = .25; this.event({ type: 'shot', actor: p.id });
+    this.arrows.push({ realm: p.realm, id: ++this.nextArrow, owner: p.id, x: p.x, y: p.y + EYE, z: p.z, vx: d.x * speed, vy: d.y * speed, vz: d.z * speed, age: 0, damage: Math.ceil(speed / 20 * 2) * 5, critical: p.weapon === 'crossbow' || power === 1 }); p.ammo--; p.cooldown = .25; this.event({ type: 'shot', actor: p.id });
   }
   step() {
     this.tick++;
@@ -224,7 +243,7 @@ export class Simulation {
     }
     if (this.phase !== 'active') return;
     if (this.mode === 'ctf') for (const p of this.players.values()) if (!p.alive && p.connected && p.respawnAt > 0 && this.tick >= p.respawnAt && !this.departed.has(p.id)) this.respawn(p);
-    this.history.push({ tick: this.tick, players: new Map([...this.players].map(([id, p]) => [id, { x: p.x, y: p.y, z: p.z }])) });
+    this.history.push({ tick: this.tick, players: new Map([...this.players].map(([id, p]) => [id, { x: p.x, y: p.y, z: p.z, realm: p.realm }])) });
     if (this.history.length > 8) this.history.shift();
     // Gather attacks before resolving them so attacks initiated in one tick are simultaneous.
     const attacks: (() => void)[] = [];
@@ -240,7 +259,8 @@ export class Simulation {
       p.offhand = i.offhand; p.block = i.block && p.offhand === 'shield' && p.shieldDisabled <= 0;
       p.shieldRaise = p.block ? Math.min(.25, p.shieldRaise + DT) : 0;
       const oldX = p.x, oldZ = p.z;
-      move(p, { ...i, block: p.block }, DT, p.charge > 0);
+      move(p, { ...i, block: p.block }, DT, p.charge > 0, this.world);
+      if (this.travel(p)) continue;
       p.moveSpeed = Math.hypot(p.x - oldX, p.z - oldZ) / DT;
       const pressed = !stale && (this.attackPress.has(p.id) || (i.attack && !this.lastAttack.get(p.id))), released = this.attackRelease.has(p.id) || (!i.attack && !!this.lastAttack.get(p.id));
       if (p.block) p.charge = 0;
@@ -265,14 +285,14 @@ export class Simulation {
     this.arrows = this.arrows.filter(a => {
       a.age += DT; const old = { x: a.x, y: a.y, z: a.z }; a.x += a.vx * DT; a.y += a.vy * DT; a.z += a.vz * DT; const drag = Math.pow(.99, DT * 20); a.vx *= drag; a.vz *= drag; a.vy = a.vy * drag - 20 * DT;
       const owner = this.players.get(a.owner);
-      let nearest = wallHit(old, a), target: Player | undefined;
-      for (const p of this.players.values()) if (p.id !== a.owner && p.alive && (!owner || !this.teammates(owner, p))) { const t = segmentBox(old, a, [p.x - .38, p.y, p.z - .38], [p.x + .38, p.y + HEIGHT, p.z + .38]); if (t < nearest) { nearest = t; target = p; } }
+      let nearest = wallHit(old, a, a.realm ?? 'arena', this.world), target: Player | undefined;
+      for (const p of this.players.values()) if (p.id !== a.owner && p.alive && p.realm === (a.realm ?? 'arena') && (!owner || !this.teammates(owner, p))) { const t = segmentBox(old, a, [p.x - .38, p.y, p.z - .38], [p.x + .38, p.y + HEIGHT, p.z + .38]); if (t < nearest) { nearest = t; target = p; } }
       if (target && owner) {
         const base = Math.ceil(Math.hypot(a.vx, a.vy, a.vz) / 20 * 2);
         const amount = (base + (a.critical ? Math.floor(this.random() * (Math.floor(base / 2) + 2)) : 0)) * 5;
         this.damage(target, owner, amount, false, { projectile: true, source: old, critical: a.critical });
       }
-      return !Number.isFinite(nearest) && a.age < 4 && a.y > 0 && Math.abs(a.x) < LIMIT && Math.abs(a.z) < LIMIT;
+      return !Number.isFinite(nearest) && a.age < 4 && a.y > 0 && Math.abs(a.x) < (a.realm === 'wilds' ? WORLD_LIMIT : LIMIT) && (a.realm === 'wilds' ? Math.abs(a.z) < WORLD_LIMIT : a.z > SECRET.end - 1 && a.z < LIMIT);
     });
     this.combatXp = undefined;
     // Food cannot revive a same-tick death or finish a bite cancelled by a totem save.
@@ -282,5 +302,5 @@ export class Simulation {
     }
     this.updateFlags(); this.checkWinner();
   }
-  snapshot(): Snapshot { return { mode: this.mode, winnerTeam: this.winnerTeam, scores: { ...this.scores }, flags: this.flags.map(f => ({ ...f })), tick: this.tick, phase: this.phase, countdown: this.countdown, result: this.result, winner: this.winner, round: this.round, host: this.host, practice: this.practice, players: [...this.players.values()].map(p => ({ ...p })), arrows: this.arrows.map(a => ({ ...a })), events: this.events }; }
+  snapshot(): Snapshot { return { world: { ...this.world }, mode: this.mode, winnerTeam: this.winnerTeam, scores: { ...this.scores }, flags: this.flags.map(f => ({ ...f })), tick: this.tick, phase: this.phase, countdown: this.countdown, result: this.result, winner: this.winner, round: this.round, host: this.host, practice: this.practice, players: [...this.players.values()].map(p => ({ ...p })), arrows: this.arrows.map(a => ({ ...a })), events: this.events }; }
 }

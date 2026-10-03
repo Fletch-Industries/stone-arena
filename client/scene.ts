@@ -1,3 +1,5 @@
+import { SECRET, PASSAGE, RETURN_PASSAGE } from '../shared/world.js';
+import { TerrainStreamer } from './terrain.js';
 import * as THREE from 'three';
 import { TEAMS, playerColor, type Mode, type Team, ARENA_SIZE, SPAWNS, BOXES, COLORS, EYE, armorTier, attackStrength, type Body, type GameEvent, type Player, type Snapshot, type Weapon } from '../shared/game.js';
 import { LANDMARKS } from '../shared/arena.js';
@@ -9,6 +11,7 @@ import { clipCamera, thirdPersonCamera, type Perspective } from './camera.js';
 
 export class ArenaScene {
   renderer: THREE.WebGLRenderer; scene = new THREE.Scene(); camera = new THREE.PerspectiveCamera(120, 1, .05, 200);
+  arena = new THREE.Group(); worldDecor = new THREE.Group(); terrain = new TerrainStreamer(); secretDoor = new THREE.Group();
   bases = new Map<Team, THREE.Group>(); flags = new Map<Team, THREE.Group>();
   avatars = new Map<string, THREE.Group>(); arrowMeshes = new Map<number, THREE.Mesh>(); weapon = new THREE.Group(); leftHand = new THREE.Group();
   textures = new TextureLibrary(); surfaceMaterials = new Map<string, THREE.MeshLambertMaterial>();
@@ -38,44 +41,45 @@ export class ArenaScene {
     Object.assign(this.sun.shadow.camera, { left: -72, right: 72, top: 72, bottom: -72, near: .5, far: 180 });
     this.sun.shadow.bias = -.00015; this.sun.shadow.normalBias = .035;
     this.scene.add(this.sun, this.sun.target, this.contactShadows);
+    this.scene.add(this.arena, this.terrain.group, this.worldDecor); this.worldDecor.visible = false;
     const floorGeo = new THREE.PlaneGeometry(ARENA_SIZE, ARENA_SIZE); this.repeatUV(floorGeo, ARENA_SIZE, ARENA_SIZE);
-    const floor = new THREE.Mesh(floorGeo, this.surface('cobble')); floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; this.scene.add(floor);
+    const floor = new THREE.Mesh(floorGeo, this.surface('cobble')); floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; this.arena.add(floor);
     // Unit masonry keeps a consistent pixel density. All wall blocks share one draw call.
     const positions: number[][] = [];
     const edge = ARENA_SIZE / 2 + .5;
     for (let y = 0; y < 6; y++) {
       // Front/back own the corner cubes; side rows stop before them.
-      for (let x = -edge; x <= edge; x++) positions.push([x, y + .5, -edge], [x, y + .5, edge]);
+      for (let x = -edge; x <= edge; x++) { if (y >= 3 || Math.abs(x - SECRET.x) >= 2) positions.push([x, y + .5, -edge]); positions.push([x, y + .5, edge]); }
       for (let z = -edge + 1; z <= edge - 1; z++) positions.push([-edge, y + .5, z], [edge, y + .5, z]);
     }
     const walls = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), this.surface('brick'), positions.length), mat = new THREE.Matrix4();
     positions.forEach((p, i) => { mat.makeTranslation(p[0], p[1], p[2]); walls.setMatrixAt(i, mat); walls.setColorAt(i, new THREE.Color().setScalar(.88 + ((i * 17) % 13) / 100)); });
-    walls.castShadow = walls.receiveShadow = true; this.scene.add(walls);
+    walls.castShadow = walls.receiveShadow = true; this.arena.add(walls);
     for (const b of BOXES) {
       // Cap replaces the top .12 units; coplanar brick and cap tops flicker.
       const bodyHeight = b.h - .12;
-      const mesh = new THREE.Mesh(this.blockGeometry(b.w, bodyHeight, b.d), this.surface(b.surface ?? 'brick')); mesh.position.set(b.x, (b.y ?? 0) + bodyHeight / 2, b.z); mesh.castShadow = mesh.receiveShadow = true; this.scene.add(mesh);
-      const cap = new THREE.Mesh(this.blockGeometry(b.w, .12, b.d), this.surface(b.surface === 'wood' ? 'wood' : 'stone', '#c7c9c5')); cap.position.set(b.x, (b.y ?? 0) + b.h - .06, b.z); cap.castShadow = cap.receiveShadow = true; this.scene.add(cap);
+      const mesh = new THREE.Mesh(this.blockGeometry(b.w, bodyHeight, b.d), this.surface(b.surface ?? 'brick')); mesh.position.set(b.x, (b.y ?? 0) + bodyHeight / 2, b.z); mesh.castShadow = mesh.receiveShadow = true; this.arena.add(mesh);
+      const cap = new THREE.Mesh(this.blockGeometry(b.w, .12, b.d), this.surface(b.surface === 'wood' ? 'wood' : 'stone', '#c7c9c5')); cap.position.set(b.x, (b.y ?? 0) + b.h - .06, b.z); cap.castShadow = cap.receiveShadow = true; this.arena.add(cap);
       if (!b.y) this.contact(b.x, b.z, b.w + .35, b.d + .35);
     }
     for (let x = -45; x <= 45; x += 3) for (const z of [-edge, edge]) this.masonry([1.4, 1, 1.3], [x, 6.5, z]);
     for (let z = -45; z <= 45; z += 3) for (const x of [-edge, edge]) this.masonry([1.3, 1, 1.4], [x, 6.5, z]);
     for (const [x, z] of [[-14, -14], [14, 14], [-14, 14], [14, -14], [-36, -26], [36, 26], [0, 35], [-11, 17], [11, -17]]) {
-      this.box(this.scene, [.24, 2.06, .24], [x, 1.03, z], '#bc9060', 'wood');
+      this.box(this.arena, [.24, 2.06, .24], [x, 1.03, z], '#bc9060', 'wood');
       const flame = this.flameAtlas.material(); this.flames.push(flame);
       const flameGeo = new THREE.PlaneGeometry(.46, .64);
-      for (const angle of [0, Math.PI / 2]) { const fire = new THREE.Mesh(flameGeo, flame); fire.position.set(x, 2.43, z); fire.rotation.y = angle; this.scene.add(fire); }
-      this.box(this.scene, [.5, .08, .5], [x, 2.1, z], '#727879', 'metal');
-      for (const [dx, dz] of [[-.23, -.23], [-.23, .23], [.23, -.23], [.23, .23]]) this.box(this.scene, [.035, .56, .035], [x + dx, 2.42, z + dz], '#64636c', 'metal');
-      this.box(this.scene, [.58, .1, .58], [x, 2.75, z], '#727879', 'metal');
+      for (const angle of [0, Math.PI / 2]) { const fire = new THREE.Mesh(flameGeo, flame); fire.position.set(x, 2.43, z); fire.rotation.y = angle; this.arena.add(fire); }
+      this.box(this.arena, [.5, .08, .5], [x, 2.1, z], '#727879', 'metal');
+      for (const [dx, dz] of [[-.23, -.23], [-.23, .23], [.23, -.23], [.23, .23]]) this.box(this.arena, [.035, .56, .035], [x + dx, 2.42, z + dz], '#64636c', 'metal');
+      this.box(this.arena, [.58, .1, .58], [x, 2.75, z], '#727879', 'metal');
       this.contact(x, z, .65, .65);
     }
     // Small baked contact patches keep geometry grounded on low-power devices.
     for (const side of [-1, 1]) { this.contact(side * 47.7, 0, .6, ARENA_SIZE); this.contact(0, side * 47.7, ARENA_SIZE, .6); }
-    const ring = new THREE.Mesh(new THREE.RingGeometry(4.7, 4.8, 48), this.material('#b9ad87')); ring.rotation.x = -Math.PI / 2; ring.position.y = .008; this.scene.add(ring);
+    const ring = new THREE.Mesh(new THREE.RingGeometry(4.7, 4.8, 48), this.material('#b9ad87')); ring.rotation.x = -Math.PI / 2; ring.position.y = .008; this.arena.add(ring);
     for (const [n, [x, z]] of SPAWNS.entries()) {
       const color = COLORS[n % COLORS.length];
-      const tile = this.box(this.scene, [1.8, .015, 1.8], [x, .018, z], color); tile.material = new THREE.MeshLambertMaterial({ color, transparent: true, opacity: .5 });
+      const tile = this.box(this.arena, [1.8, .015, 1.8], [x, .018, z], color); tile.material = new THREE.MeshLambertMaterial({ color, transparent: true, opacity: .5 });
     }
     // Readable landmark signs, original canvas lettering; no external textures.
     for (const place of LANDMARKS) {
@@ -84,20 +88,34 @@ export class ArenaScene {
       ctx.strokeStyle = '#bf9860'; ctx.lineWidth = 8; ctx.strokeRect(4, 4, 504, 88);
       ctx.fillStyle = '#f6d79d'; ctx.font = 'bold 30px sans-serif'; ctx.textAlign = 'center'; ctx.fillText(place.name.toUpperCase(), 256, 59);
       const sign = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(label), depthTest: true }));
-      sign.scale.set(4.5, .85, 1); sign.position.set(place.x, place.name === 'Lookout tower' ? 9.8 : 4.9, place.z); this.scene.add(sign);
+      sign.scale.set(4.5, .85, 1); sign.position.set(place.x, place.name === 'Lookout tower' ? 9.8 : 4.9, place.z); this.arena.add(sign);
     }
     // Muted garden tiles distinguish ruined wings from the cobblestone courtyard.
-    for (const side of [-1, 1]) this.box(this.scene, [17, .018, 17], [side * 26, .015, -side * 26], '#879378', 'stone');
+    for (const side of [-1, 1]) this.box(this.arena, [17, .018, 17], [side * 26, .015, -side * 26], '#879378', 'stone');
     for (const team of ['red', 'blue'] as Team[]) {
       const base = new THREE.Group(), info = TEAMS[team]; base.position.set(info.x, .03, info.z);
       const ring = new THREE.Mesh(new THREE.RingGeometry(1.4, 2, 32), new THREE.MeshBasicMaterial({ color: info.color, side: THREE.DoubleSide })); ring.rotation.x = -Math.PI / 2; base.add(ring);
       const label = document.createElement('canvas'); label.width = 256; label.height = 64; const ctx = label.getContext('2d')!;
       ctx.fillStyle = '#152631'; ctx.fillRect(0, 0, 256, 64); ctx.fillStyle = info.color; ctx.font = 'bold 28px sans-serif'; ctx.textAlign = 'center'; ctx.fillText(`${info.name.toUpperCase()} BASE`, 128, 42);
-      const sign = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(label) })); sign.scale.set(4, 1, 1); sign.position.set(0, 4.2, 0); base.add(sign); this.scene.add(base); this.bases.set(team, base); base.visible = false;
+      const sign = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(label) })); sign.scale.set(4, 1, 1); sign.position.set(0, 4.2, 0); base.add(sign); this.arena.add(base); this.bases.set(team, base); base.visible = false;
       const flag = new THREE.Group(); this.box(flag, [.07, 2.8, .07], [0, 1.4, 0], '#efdab1', 'wood');
       this.box(flag, [1.25, .85, .06], [.64, 2.22, 0], info.color); this.box(flag, [.12, .18, .12], [0, 2.9, 0], '#ffd788', 'metal');
-      this.scene.add(flag); this.flags.set(team, flag); flag.visible = false;
+      this.arena.add(flag); this.flags.set(team, flag); flag.visible = false;
     }
+    for (const b of PASSAGE) {
+      const m = new THREE.Mesh(this.blockGeometry(b.w, b.h, b.d), this.surface('brick')); m.position.set(b.x, (b.y ?? 0) + b.h / 2, b.z); this.arena.add(m);
+    }
+    this.box(this.arena, [4, .06, 18], [-26, -.03, -56.5], '#ffffff', 'cobble');
+    this.box(this.secretDoor, [4, 3, .9], [0, 1.5, -48], '#c1c5c6', 'brick');
+    this.box(this.secretDoor, [.5, .65, .03], [0, 1.45, -47.53], '#81998e', 'stone');
+    this.secretDoor.position.x = SECRET.x; this.arena.add(this.secretDoor);
+    for (const z of [-52, -58, -63]) for (const x of [-27.75, -24.25]) this.box(this.arena, [.14, .45, .14], [x, 2, z], '#e7b36d');
+    for (const b of RETURN_PASSAGE) { const m = new THREE.Mesh(this.blockGeometry(b.w, b.h, b.d), this.surface('stone')); m.position.set(b.x, (b.y ?? 0) + b.h / 2, b.z); this.worldDecor.add(m); }
+    this.box(this.worldDecor, [4, .05, 8], [0, -.025, 7], '#c6c5aa', 'cobble');
+    this.box(this.worldDecor, [4, 3, .06], [0, 1.5, 10.5], '#77a8a3');
+    const label = document.createElement('canvas'); label.width = 512; label.height = 96; const ctx = label.getContext('2d')!;
+    ctx.fillStyle = '#263538'; ctx.fillRect(0, 0, 512, 96); ctx.fillStyle = '#eed09a'; ctx.font = 'bold 34px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('RETURN TO THE CITADEL', 256, 60);
+    const returnSign = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(label) })); returnSign.scale.set(5, 1, 1); returnSign.position.set(0, 4.2, 3); this.worldDecor.add(returnSign);
     this.scene.add(this.camera); this.camera.add(this.weapon, this.leftHand); this.leftHand.scale.setScalar(.55); this.leftHand.position.set(-.36, -.4, -.65); this.weapon.scale.setScalar(.55); this.weapon.position.set(.36, -.4, -.65);
     window.addEventListener('resize', () => this.resize()); this.resize();
   }
@@ -116,7 +134,7 @@ export class ArenaScene {
     return this.surfaceMaterials.get(key)!;
   }
   masonry(size: number[], pos: number[]) {
-    const m = new THREE.Mesh(this.blockGeometry(size[0], size[1], size[2]), this.surface('brick')); m.position.set(...pos as [number, number, number]); m.castShadow = m.receiveShadow = true; this.scene.add(m); return m;
+    const m = new THREE.Mesh(this.blockGeometry(size[0], size[1], size[2]), this.surface('brick')); m.position.set(...pos as [number, number, number]); m.castShadow = m.receiveShadow = true; this.arena.add(m); return m;
   }
   contact(x: number, z: number, w: number, d: number) {
     const m = new THREE.Mesh(this.shadowGeo, this.contactMaterial); m.rotation.x = -Math.PI / 2; m.position.set(x, .012, z); m.scale.set(w, d, 1); this.contactShadows.add(m); return m;
@@ -248,13 +266,18 @@ export class ArenaScene {
       this.camera.rotation.order = 'YXZ'; this.camera.rotation.set(lookPitch, lookYaw, 0);
       if (this.perspective !== 'first') {
         const radius = .03 + .05 * Math.tan(this.configuredFov * Math.PI / 360) * Math.hypot(1, this.camera.aspect);
-        const view = thirdPersonCamera(this.camera.position, lookYaw, lookPitch, this.perspective, Math.max(.18, radius));
+        const view = thirdPersonCamera(this.camera.position, lookYaw, lookPitch, this.perspective, Math.max(.18, radius), pos.realm ?? 'arena', snapshot.world);
         this.camera.position.copy(view.position); this.camera.rotation.set(view.pitch, view.yaw, 0); cameraGap = view.distance;
       }
     } else { const a = this.time * .018; this.camera.position.set(Math.sin(a + .8) * 62, 48, Math.cos(a + .8) * 62); this.camera.lookAt(0, 0, 0); }
+    const realm = inRound ? follow?.realm ?? 'arena' : 'arena', wild = realm === 'wilds';
+    this.arena.visible = !wild; this.worldDecor.visible = wild; this.contactShadows.visible = !wild && this.quality === 'low'; this.renderer.shadowMap.enabled = !wild && this.quality !== 'low';
+    this.terrain.update(this.camera.position.x, this.camera.position.z, snapshot?.world.seed ?? 0, this.quality, wild);
+    const fog = this.scene.fog as THREE.Fog; fog.near = wild ? 25 : 65; fog.far = wild ? this.quality === 'low' ? 45 : this.quality === 'high' ? 92 : 67 : 150;
+    this.secretDoor.position.x += ((snapshot?.world.doorOpen ? SECRET.x + 4.3 : SECRET.x) - this.secretDoor.position.x) * Math.min(1, dt * 4);
     const fov = inspecting ? 55 : this.configuredFov;
     if (this.camera.fov !== fov) { this.camera.fov = fov; this.camera.updateProjectionMatrix(); }
-    if (inspecting && me) { const angle = this.reduced ? Math.PI + me.yaw : this.time * .3; this.camera.position.copy(clipCamera({ x: me.x, y: me.y + EYE, z: me.z }, { x: me.x + Math.sin(angle) * 3.8, y: me.y + 1.8, z: me.z + Math.cos(angle) * 3.8 })); this.camera.lookAt(me.x, me.y + .85, me.z); }
+    if (inspecting && me) { const angle = this.reduced ? Math.PI + me.yaw : this.time * .3; this.camera.position.copy(clipCamera({ x: me.x, y: me.y + EYE, z: me.z }, { x: me.x + Math.sin(angle) * 3.8, y: me.y + 1.8, z: me.z + Math.cos(angle) * 3.8 }, .22, me.realm, snapshot?.world)); this.camera.lookAt(me.x, me.y + .85, me.z); }
     this.weapon.visible = !thirdPerson && !inspecting && !!inRound && !!me?.alive && snapshot?.phase !== 'results' && (me.weapon !== 'apple' || me.apples > 0);
     if (me) { this.setWeapon(me.weapon, me.xp); this.setOffhand(me); this.swing = Math.max(0, this.swing - dt * 5); this.weapon.rotation.set(-this.swing * 1.2, 0, -.2 - this.swing * .8); this.weapon.position.y = -.43 - ((me.weapon === 'sword' || me.weapon === 'axe') ? (1 - attackStrength(me)) * .1 : 0) + (moving && local?.grounded && !this.reduced ? Math.sin(this.cameraDistance * 5) * .02 : 0); this.weapon.position.z = -.65 + me.charge * .035; }
     this.leftHand.visible = !thirdPerson && !inspecting && !!inRound && !!me?.alive && snapshot?.phase !== 'results' && (me.offhand === 'shield' || me.totems > 0);
@@ -266,10 +289,10 @@ export class ArenaScene {
     const ids = new Set(snapshot?.players.map(p => p.id));
     for (const [id, g] of this.avatars) if (!ids.has(id) || g.userData.color !== playerColor(snapshot!.players.find(p => p.id === id)!, snapshot!.mode)) { this.scene.remove(g); g.traverse(o => { if (o instanceof THREE.Sprite) { o.material.map?.dispose(); o.material.dispose(); } }); this.avatars.delete(id); this.rigs.delete(id); const shadow = this.avatarShadows.get(id); if (shadow) this.contactShadows.remove(shadow); this.avatarShadows.delete(id); }
     for (const p of snapshot?.players ?? []) {
-      const g = this.avatars.get(p.id) ?? this.makeAvatar(p, snapshot!.mode); g.visible = p.alive && (inspecting || (thirdPerson && cameraGap > .65) || p.id !== (inRound ? follow?.id : undefined));
+      const g = this.avatars.get(p.id) ?? this.makeAvatar(p, snapshot!.mode); g.visible = p.realm === realm && p.alive && (inspecting || (thirdPerson && cameraGap > .65) || p.id !== (inRound ? follow?.id : undefined));
       // Hide only the followed avatar's name; it otherwise blocks the aiming area.
       for (const child of g.children) if (child instanceof THREE.Sprite) child.visible = p.id !== follow?.id || !inRound;
-      const shadow = this.avatarShadows.get(p.id)!; shadow.visible = p.alive && p.y < 1.5; shadow.position.set(p.x, .014, p.z); shadow.scale.setScalar(.7 + p.y * .15);
+      const shadow = this.avatarShadows.get(p.id)!; shadow.visible = !wild && p.realm === realm && p.alive && p.y < 1.5; shadow.position.set(p.x, .014, p.z); shadow.scale.setScalar(.7 + p.y * .15);
       const rig = this.rigs.get(p.id)!, oldX = g.position.x, oldZ = g.position.z;
       const body = p.id === me?.id && local && inRound ? local : p;
       const target = new THREE.Vector3(body.x, body.y, body.z); if (body === local || g.position.distanceTo(target) > 4) g.position.copy(target); else g.position.lerp(target, 1 - Math.exp(-dt * 18));
@@ -294,7 +317,7 @@ export class ArenaScene {
     }
     const arrowIds = new Set(snapshot?.arrows.map(a => a.id));
     for (const [id, m] of this.arrowMeshes) if (!arrowIds.has(id)) { this.scene.remove(m); this.arrowMeshes.delete(id); }
-    for (const a of snapshot?.arrows ?? []) { let m = this.arrowMeshes.get(a.id); if (!m) { m = new THREE.Mesh(this.arrowGeo, this.material('#d8b277')); this.scene.add(m); this.arrowMeshes.set(a.id, m); } m.position.set(a.x, a.y, a.z); m.lookAt(a.x + a.vx, a.y + a.vy, a.z + a.vz); }
+    for (const a of snapshot?.arrows ?? []) { let m = this.arrowMeshes.get(a.id); if (!m) { m = new THREE.Mesh(this.arrowGeo, this.material('#d8b277')); this.scene.add(m); this.arrowMeshes.set(a.id, m); } m.visible = (a.realm ?? 'arena') === realm; m.position.set(a.x, a.y, a.z); m.lookAt(a.x + a.vx, a.y + a.vy, a.z + a.vz); }
     for (const [team, base] of this.bases) {
       base.visible = !!snapshot && snapshot.mode !== 'ffa';
       const flag = this.flags.get(team)!, state = snapshot?.flags.find(f => f.team === team); flag.visible = snapshot?.mode === 'ctf' && !!state;

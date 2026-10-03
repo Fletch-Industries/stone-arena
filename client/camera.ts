@@ -1,4 +1,5 @@
-import { BOXES, ARENA_SIZE, segmentBox } from '../shared/game.js';
+import { SECRET, worldBoxes, type Realm, type WorldState } from '../shared/world.js';
+import { BOXES, ARENA_SIZE, segmentBox, wallHit } from '../shared/game.js';
 
 export const PERSPECTIVES = ['first', 'rear', 'front'] as const;
 export type Perspective = typeof PERSPECTIVES[number];
@@ -12,26 +13,29 @@ const obstacles = [
   ...[-14, 14].flatMap(x => [-14, 14].map(z => ({ min: [x - .29, 0, z - .29], max: [x + .29, 2.8, z + .29] }))),
 ];
 /** Retract the camera boom before its near plane enters cover, floor or walls. */
-export function clipCamera(origin: Point, desired: Point, radius = .22): Point {
+export function clipCamera(origin: Point, desired: Point, radius = .22, realm: Realm = 'arena', world?: WorldState): Point {
   let fraction = 1;
-  for (const box of obstacles) fraction = Math.min(fraction, segmentBox(origin, desired, box.min.map(n => n - radius), box.max.map(n => n + radius)));
+  const dynamic = worldBoxes(Math.min(origin.x, desired.x), Math.min(origin.z, desired.z), Math.max(origin.x, desired.x), Math.max(origin.z, desired.z), realm, world).map(b => ({ min: [b.x - b.w / 2, b.y ?? 0, b.z - b.d / 2], max: [b.x + b.w / 2, (b.y ?? 0) + b.h, b.z + b.d / 2] }));
+  for (const box of realm === 'wilds' ? dynamic : [...obstacles, ...dynamic]) fraction = Math.min(fraction, segmentBox(origin, desired, box.min.map(n => n - radius), box.max.map(n => n + radius)));
   for (const axis of ['x', 'z'] as const) {
+    if (realm === 'wilds' || world?.doorOpen && Math.abs(origin.x - SECRET.x) < 1.8 && axis === 'z' && desired.z < -46) continue;
     const delta = desired[axis] - origin[axis];
     if (delta > 0) fraction = Math.min(fraction, (ARENA_SIZE / 2 - radius - origin[axis]) / delta);
     if (delta < 0) fraction = Math.min(fraction, (-ARENA_SIZE / 2 + radius - origin[axis]) / delta);
   }
-  if (desired.y < radius) fraction = Math.min(fraction, (origin.y - radius) / (origin.y - desired.y));
+  if (realm === 'wilds') fraction = Math.min(fraction, wallHit({ ...origin, y: origin.y - radius }, { ...desired, y: desired.y - radius }, realm, world));
+  if (realm !== 'wilds' && desired.y < radius) fraction = Math.min(fraction, (origin.y - radius) / (origin.y - desired.y));
   const length = Math.hypot(desired.x - origin.x, desired.y - origin.y, desired.z - origin.z);
   fraction = Math.max(0, Math.min(1, fraction - (fraction < 1 ? .015 / Math.max(.001, length) : 0)));
   return { x: origin.x + (desired.x - origin.x) * fraction, y: origin.y + (desired.y - origin.y) * fraction, z: origin.z + (desired.z - origin.z) * fraction };
 }
 /** The camera moves; aim remains the player's eye ray in every perspective. */
-export function thirdPersonCamera(eye: Point, yaw: number, pitch: number, view: 'rear' | 'front', radius = .22) {
+export function thirdPersonCamera(eye: Point, yaw: number, pitch: number, view: 'rear' | 'front', radius = .22, realm: Realm = 'arena', world?: WorldState) {
   const sign = view === 'rear' ? 1 : -1, distance = 4;
   const position = clipCamera(eye, {
     x: eye.x + Math.sin(yaw) * Math.cos(pitch) * distance * sign,
     y: eye.y - Math.sin(pitch) * distance * sign,
     z: eye.z + Math.cos(yaw) * Math.cos(pitch) * distance * sign,
-  }, radius);
+  }, radius, realm, world);
   return { position, yaw: view === 'front' ? yaw + Math.PI : yaw, pitch: view === 'front' ? -pitch : pitch, distance: Math.hypot(position.x - eye.x, position.y - eye.y, position.z - eye.z) };
 }

@@ -1,6 +1,7 @@
-import { BOXES, LIMIT } from './arena.js';
+import { LIMIT } from './arena.js';
+import { movementLimit, terrainHeight, worldBoxes, type Realm, type WorldState } from './world.js';
 export { BOXES, LIMIT, SPAWNS, ARENA_SIZE, type Box } from './arena.js';
-export const VERSION = 7;
+export const VERSION = 8;
 export type Mode = 'ffa' | 'teams' | 'ctf';
 export type Team = 'red' | 'blue';
 export const MODES = { ffa: 'Free for all', teams: 'Team survival', ctf: 'Capture the flag' } as const;
@@ -36,17 +37,17 @@ export const COLORS = ['#f3b85b', '#6adbc8', '#a8a0ff', '#f58f9c', '#8ece6b'];
 export type Phase = 'waiting' | 'countdown' | 'active' | 'results';
 export interface Input { seq: number; x: number; z: number; yaw: number; pitch: number; jump: boolean; sprint: boolean; block: boolean; attack: boolean; weapon: Weapon; offhand: Offhand }
 export const idleInput = (): Input => ({ seq: 0, x: 0, z: 0, yaw: 0, pitch: 0, jump: false, sprint: false, block: false, attack: false, weapon: 'sword', offhand: 'shield' });
-export interface Body { x: number; y: number; z: number; vy: number; grounded: boolean; vx?: number; vz?: number; sprinting?: boolean; sprintLocked?: boolean }
+export interface Body { realm?: Realm; x: number; y: number; z: number; vy: number; grounded: boolean; vx?: number; vz?: number; sprinting?: boolean; sprintLocked?: boolean }
 export interface Player extends Body {
-  team: Team; respawnAt: number; immuneUntil: number; captures: number; flagReturns: number;
+  realm: Realm; team: Team; respawnAt: number; immuneUntil: number; captures: number; flagReturns: number;
   id: string; name: string; color: number; yaw: number; pitch: number; hp: number; alive: boolean;
   connected: boolean; ready: boolean; weapon: Weapon; block: boolean; ammo: number; apples: number; offhand: Offhand; totems: number;
   kills: number; damage: number; assists: number; wins: number; ack: number; xp: number;
   hurtTime: number; lastDamage: number; shieldRaise: number; swingWait: number; moveSpeed: number; cooldown: number; charge: number; loaded: boolean; shieldDisabled: number; eliminatedAt: number;
 }
-export interface Arrow { id: number; owner: string; x: number; y: number; z: number; vx: number; vy: number; vz: number; damage: number; age: number; critical?: boolean }
-export interface GameEvent { id: number; type: 'hit' | 'kill' | 'shot' | 'swing' | 'start' | 'result' | 'level' | 'heal' | 'totem' | 'flag_pickup' | 'flag_drop' | 'flag_return' | 'flag_capture'; actor?: string; target?: string; team?: Team; text?: string; blocked?: boolean; critical?: boolean; sprintHit?: boolean; sweep?: boolean }
-export interface Snapshot { mode: Mode; winnerTeam: Team | ''; scores: Record<Team, number>; flags: Flag[]; tick: number; phase: Phase; countdown: number; result: string; winner: string; round: number; host: string; practice: boolean; players: Player[]; arrows: Arrow[]; events: GameEvent[] }
+export interface Arrow { realm?: Realm; id: number; owner: string; x: number; y: number; z: number; vx: number; vy: number; vz: number; damage: number; age: number; critical?: boolean }
+export interface GameEvent { id: number; type: 'hit' | 'kill' | 'shot' | 'swing' | 'start' | 'result' | 'level' | 'heal' | 'totem' | 'flag_pickup' | 'flag_drop' | 'flag_return' | 'flag_capture' | 'door' | 'travel'; actor?: string; target?: string; team?: Team; text?: string; blocked?: boolean; critical?: boolean; sprintHit?: boolean; sweep?: boolean }
+export interface Snapshot { world: WorldState; mode: Mode; winnerTeam: Team | ''; scores: Record<Team, number>; flags: Flag[]; tick: number; phase: Phase; countdown: number; result: string; winner: string; round: number; host: string; practice: boolean; players: Player[]; arrows: Arrow[]; events: GameEvent[] }
 export function validInput(a: unknown): a is Input {
   if (!a || typeof a !== 'object') return false;
   const i = a as Input;
@@ -63,7 +64,7 @@ export function knockback(body: Body, dx: number, dz: number, strength = 8) {
   body.vz = (body.vz ?? 0) / 2 + dz / length * strength;
   if (body.grounded) { body.vy = Math.min(8, body.vy / 2 + 8); body.grounded = false; }
 }
-export function move(body: Body, i: Input, dt = DT, slow = false) {
+export function move(body: Body, i: Input, dt = DT, slow = false, world?: WorldState) {
   if (!i.sprint || i.z <= 0) body.sprintLocked = false;
   body.sprinting = i.sprint && i.z > 0 && !slow && !i.block && !body.sprintLocked;
   const length = Math.max(1, Math.hypot(i.x, i.z));
@@ -74,11 +75,14 @@ export function move(body: Body, i: Input, dt = DT, slow = false) {
   }
   const dx = ((i.x * Math.cos(i.yaw) - i.z * Math.sin(i.yaw)) / length * speed + (body.vx ?? 0)) * dt;
   const dz = ((-i.x * Math.sin(i.yaw) - i.z * Math.cos(i.yaw)) / length * speed + (body.vz ?? 0)) * dt;
+  const realm = body.realm ?? 'arena';
+  const boxes = worldBoxes(Math.min(body.x, body.x + dx), Math.min(body.z, body.z + dz), Math.max(body.x, body.x + dx), Math.max(body.z, body.z + dz), realm, world);
+  const ground = realm === 'wilds' ? terrainHeight(body.x, body.z, world?.seed ?? 0) : 0;
   const oldY = body.y;
   body.y += body.vy * dt - .5 * GRAVITY * dt * dt; body.vy -= GRAVITY * dt;
   body.grounded = false;
-  if (body.y <= 0) { body.y = 0; body.vy = 0; body.grounded = true; }
-  for (const b of BOXES) {
+  if (body.y <= ground) { body.y = ground; body.vy = 0; body.grounded = true; }
+  for (const b of boxes) {
     if (Math.abs(body.x - b.x) >= b.w / 2 + RADIUS || Math.abs(body.z - b.z) >= b.d / 2 + RADIUS) continue;
     const bottom = b.y ?? 0, top = bottom + b.h;
     if (oldY >= top - .001 && body.y < top && body.vy <= 0) { body.y = top; body.vy = 0; body.grounded = true; }
@@ -86,9 +90,9 @@ export function move(body: Body, i: Input, dt = DT, slow = false) {
   }
   // Resolve to the contact surface instead of reverting an entire impulse step.
   for (const [axis, delta, velocity] of [['x', dx, 'vx'], ['z', dz, 'vz']] as const) {
-    const before = body[axis]; let next = Math.max(-LIMIT, Math.min(LIMIT, before + delta));
+    const before = body[axis]; let next = movementLimit(axis, body.x, body.z, before + delta, realm, world?.doorOpen === true);
     if (next !== before + delta) body[velocity] = 0;
-    for (const b of BOXES) {
+    for (const b of boxes) {
       const other = axis === 'x' ? 'z' : 'x', half = (axis === 'x' ? b.w : b.d) / 2 + RADIUS;
       const otherHalf = (axis === 'x' ? b.d : b.w) / 2 + RADIUS;
       const bottom = b.y ?? 0, top = bottom + b.h;
@@ -99,7 +103,7 @@ export function move(body: Body, i: Input, dt = DT, slow = false) {
       // Step only onto the destination's small riser, with clear headroom.
       const destination = { x: body.x, z: body.z, [axis]: next };
       const step = top - body.y;
-      const clear = !BOXES.some(o => {
+      const clear = !boxes.some(o => {
         const y = o.y ?? 0;
         return Math.abs(destination.x - o.x) < o.w / 2 + RADIUS && Math.abs(destination.z - o.z) < o.d / 2 + RADIUS && top < y + o.h - .001 && top + HEIGHT > y + .001;
       });
@@ -108,6 +112,7 @@ export function move(body: Body, i: Input, dt = DT, slow = false) {
     }
     body[axis] = next;
   }
+  if (realm === 'wilds') { const floor = terrainHeight(body.x, body.z, world?.seed ?? 0); if (body.y <= floor || body.grounded && Math.abs(body.y - floor) < .41) { body.y = floor; body.vy = 0; body.grounded = true; } }
   const friction = Math.pow(body.grounded ? .546 : .91, dt * 20);
   body.vx = (body.vx ?? 0) * friction; body.vz = (body.vz ?? 0) * friction;
   if (Math.abs(body.vx) < .001) body.vx = 0;
@@ -123,8 +128,13 @@ export function segmentBox(a: { x: number; y: number; z: number }, b: { x: numbe
   }
   return lo;
 }
-export function wallHit(a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number }) {
+export function wallHit(a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number }, realm: Realm = 'arena', world?: WorldState) {
   let t = Infinity;
-  for (const box of BOXES) t = Math.min(t, segmentBox(a, b, [box.x - box.w / 2, box.y ?? 0, box.z - box.d / 2], [box.x + box.w / 2, (box.y ?? 0) + box.h, box.z + box.d / 2]));
+  for (const box of worldBoxes(Math.min(a.x, b.x), Math.min(a.z, b.z), Math.max(a.x, b.x), Math.max(a.z, b.z), realm, world)) t = Math.min(t, segmentBox(a, b, [box.x - box.w / 2, box.y ?? 0, box.z - box.d / 2], [box.x + box.w / 2, (box.y ?? 0) + box.h, box.z + box.d / 2]));
+  if (realm === 'wilds') {
+    const steps = Math.max(1, Math.min(64, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z) * 4)));
+    const below = (f: number) => a.y + (b.y - a.y) * f <= terrainHeight(a.x + (b.x - a.x) * f, a.z + (b.z - a.z) * f, world?.seed ?? 0);
+    for (let n = 0; n <= steps; n++) if (below(n / steps)) { let lo = Math.max(0, (n - 1) / steps), hi = n / steps; for (let k = 0; k < 12; k++) { const mid = (lo + hi) / 2; if (below(mid)) hi = mid; else lo = mid; } t = Math.min(t, hi); break; }
+  }
   return t;
 }

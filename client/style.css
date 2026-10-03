@@ -64,3 +64,9 @@ button.offhand{background:#111d25bd;border:1px solid #ffffff38;padding:3px 6px;m
 .ctf .feed,.mobile .ctf .feed { top:224px; }
 @media(max-height:500px) { .mobile .flag-hud { top:54px; } .mobile .ctf .feed { top:154px; max-width:220px; } }
 .mobile .hud.ctf ~ .perspective-hint { display:none; }
+
+.world-hint { position:absolute; top:220px; left:50%; transform:translateX(-50%); text-align:center; max-width:90vw; color:#f5dcac; font-size:12px; padding:8px 12px; border-radius:5px; background:#172b30bb; }
+.ctf .world-hint { top:262px; }
+.mobile .world-hint { top:160px; max-width:85vw; width:max-content; font-size:11px; }
+.mobile .ctf .world-hint { top:262px; }
+@media(max-height:500px) { .mobile .world-hint { top:86px; } .mobile .ctf .world-hint { top:172px; } }

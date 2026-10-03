@@ -82,3 +82,31 @@ The activation overlay stays outside the frequently updated HUD so its short
 animation plays once. Reduced-motion preferences suppress the animation; the
 image and two-heart message remain visible. No reference image or third-party
 game asset is bundled.
+
+## Streamed Wilds terrain
+
+The secret passage switches the view between the citadel and a room-seeded
+landscape. `shared/world.ts` defines deterministic height, triangle interpolation,
+trees and collision. The server sends the seed and player realm, without terrain
+meshes. `client/terrain-worker.ts` generates one 24×24 chunk at a time and transfers
+its typed arrays. The renderer uploads at most one chunk each frame; queues,
+resident chunks (25/49/81) and height caches (4,096 vertices) remain bounded.
+Leaving an area disposes its geometry and instancing buffers. Trees share geometry
+and materials, with two instanced draws per chunk; grass uses original pixel noise.
+Wilds renders without dynamic shadows, with quality-scaled fog masking the edge.
+Worker failure falls back to one small chunk per frame and the Low chunk limit.
+
+`/tests/world-preview.html` uses the production renderer with controls for walking,
+quality, distant regions, the clearing and the stone door. It reports frame pacing,
+resident chunks, draw calls and GPU resource counts. It is excluded from production.
+On October 2, 2026, the development preview on an M4 Mac at 1280×720 sustained
+about 120 FPS, with 95th-percentile frame intervals around 9–10 ms while walking
+and after moving across several distant regions. High stayed at 81 resident chunks,
+Medium at 49 and phone-sized Low at 25; texture counts stayed steady across regions,
+and returning to the citadel released all terrain chunks. These are local desktop
+measurements, including the phone viewport; physical phones were not benchmarked.
+The production build retains its existing large-client-bundle warning.
+
+Tests cover seams, shared terrain footing, collision and camera rays, door proximity,
+portal return, realm isolation, flag drops and bounded schedules/caches. The ordinary
+two-client Wilds integration verifies discovery, exploration, reconnect and return.
