@@ -29,7 +29,9 @@ export class ArenaRoom extends Room {
     this.seatReservationTimeout = 10; this.setPrivate(true);
     this.onMessage('input', (c, input) => { this.lastSeen.set(c.sessionId, performance.now()); if (!validInput(input)) { c.leave(4002, 'Invalid controls'); return; } this.sim.input(c.sessionId, input); });
     this.onMessage('ready', (c, data) => { const p = this.sim.players.get(c.sessionId); this.lastSeen.set(c.sessionId, performance.now()); if (p?.connected && this.sim.phase === 'waiting') { p.ready = typeof data?.ready === 'boolean' ? data.ready : !p.ready; c.send('snapshot', this.sim.snapshot()); } else c.send('actionError', 'Ready is available in the lobby.'); });
-    this.onMessage('start', (c, data) => { this.lastSeen.set(c.sessionId, performance.now()); if (this.sim.start(c.sessionId, data?.practice === true)) void this.lock(); else c.send('actionError', 'The host can start when every player is connected and ready. With one player, choose Practice solo.'); });
+    this.onMessage('mode', (c, data) => { if (!this.sim.selectMode(c.sessionId, data?.mode)) c.send('actionError', 'Only the host can change mode in the lobby.'); });
+    this.onMessage('team', (c, data) => { if (!this.sim.selectTeam(c.sessionId, data?.team)) c.send('actionError', 'Choose Red or Blue in the lobby. Each team holds three players.'); });
+    this.onMessage('start', (c, data) => { this.lastSeen.set(c.sessionId, performance.now()); if (this.sim.start(c.sessionId, data?.practice === true)) void this.lock(); else c.send('actionError', 'The host can start when everyone is ready. Team modes need both teams, balanced within one player. With one player, choose Practice solo.'); });
     this.onMessage('practiceArmor', (c, data) => { if (this.sim.previewArmor(c.sessionId, data?.level)) c.send('snapshot', this.sim.snapshot()); else c.send('actionError', 'Armor preview is available during solo practice.'); });
     this.onMessage('lobby', c => this.sim.lobby(c.sessionId));
     this.onMessage('ping', (c, n) => { if (typeof n === 'number' && Number.isFinite(n)) { this.lastSeen.set(c.sessionId, performance.now()); c.send('pong', n); } });
@@ -109,7 +111,7 @@ const server = new Server({ transport, greet: false, express: app => {
     res.setHeader('Cache-Control', 'no-store');
     if (isUnavailable() || draining) { res.status(503).json({ error: 'Arena is temporarily unavailable.' }); return; }
     res.json({ arenas: [...activeRooms.values()].filter(room => room.publicLobby && room.sim.phase === 'waiting' && !room.locked && room.clients.length > 0 && room.clients.length < room.maxClients).map(room => ({
-      roomId: room.roomId, host: room.sim.players.get(room.sim.host)?.name ?? 'Open arena', players: room.sim.players.size, capacity: room.maxClients,
+      roomId: room.roomId, mode: room.sim.mode, host: room.sim.players.get(room.sim.host)?.name ?? 'Open arena', players: room.sim.players.size, capacity: room.maxClients,
     })).filter(room => room.players < room.capacity) });
   });
   app.use((req, res, next) => {

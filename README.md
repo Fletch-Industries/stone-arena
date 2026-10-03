@@ -3,7 +3,7 @@
 Play at **https://moriah.fletchindustries.com/**.
 
 A browser-based, first- and third-person arena from Fletch Industries. Two to five players,
-one life each, no match timer. The last survivor wins. Includes open-arena discovery, private invitations,
+with Free for all, Team survival, and Capture the flag, with no match timer. Includes open-arena discovery, private invitations,
 solo practice, sword/axe/bow/crossbow/shield combat, spectating, results, rematches,
 and a 15-second reconnect window.
 
@@ -19,8 +19,28 @@ help you find your way. Walls, roofs and stairs provide real server-authoritativ
 cover, including for arrows and third-person cameras.
 
 The extra distance and cover give players more room to explore, hide and flank.
-There is still no match timer, shrinking boundary or forced reveal; the last
-survivor wins. Solo practice is available to learn the layout.
+There is no match timer, shrinking boundary or forced reveal. Solo practice is available to learn the layout.
+
+## Teams and capture the flag
+
+The host chooses **Game mode** in the lobby. Choose **Red team** or **Blue team**
+for Team survival or Capture the flag, then ready up. Teams are assigned evenly
+when players join, must differ by at most one player to start, and hold up to three
+players each. Changing mode or teams clears readiness. Friendly fire is off.
+
+**Team survival** gives everyone one life. The last surviving team wins together.
+**Capture the flag** is first to **three captures**. Flags stand at Red's west base
+and Blue's east base, marked by colored rings and signs. Touch the enemy flag to
+pick it up, then carry it to your own base. Your flag must be home to score. Touch
+your own dropped flag to return it; unattended dropped flags return after 30 seconds.
+Elimination or disconnect drops a carried flag. Reconnect preserves your team and score.
+
+Capture the flag respawns eliminated players at their base after **five seconds**,
+with full health, arrows, two apples and one totem. Earned armor and match stats
+remain. **Two seconds** of spawn protection ends when you attack or take a flag.
+Kills do not end a CTF round; reaching three captures or the whole opposing team
+leaving ends it. Solo practice supports all three modes. The HUD shows team scores,
+flag positions/status, who carries a flag, and the respawn countdown.
 
 ## Find a game
 
@@ -66,8 +86,8 @@ jumping, landing and weapon swings. Wait for the attack-strength bar to fill for
 full damage; fast clicks deal weaker hits. Holding Attack repeats at full recovery.
 
 The [mechanics reference](docs/minecraft-mechanics.md) records the researched rules,
-sources, exact kit values, and deliberate arena adaptations. The arena remains
-one-life, with limited golden-apple healing and no hunger; its browser physics is not an exact replica.
+sources, exact kit values, and deliberate arena adaptations. Survival modes have
+one life; Capture the flag has respawns. Both have limited golden-apple healing and no hunger; its browser physics is not an exact replica.
 
 ## Armor and progression
 
@@ -110,7 +130,7 @@ WASD moves, mouse aims, Ctrl/Shift or double-tap W sprints, Space jumps, 1–5 o
 left mouse attacks, right mouse blocks, Tab shows scores, Escape opens settings.
 Hold the bow to draw and release to fire. Click the crossbow once to load and again
 to fire. If mouse capture is unavailable (for example in an embedded browser),
-hold Alt and drag to look; the other controls remain the same. Blocked axe hits disable shields for five seconds. No respawns during a round.
+hold Alt and drag to look; the other controls remain the same. Blocked axe hits disable shields for five seconds. Survival modes have no respawns.
 
 On phones and tablets, use the left thumbstick to move and swipe the right side
 to aim. Hold Attack for melee or bow charge; release the bow to fire. Tap Attack
@@ -152,13 +172,13 @@ change it. It does not affect other API services on the same host.
 
 ## Golden apples and sword appearance
 
-Each player starts with **two golden apples per round**. Select **slot 5** (or tap
+Each player starts with **two golden apples per life**. Select **slot 5** (or tap
 the apple), then hold **left mouse** or the mobile **Eat** button for **1.6 seconds**.
 A completed bite restores up to **four hearts (40 HP)**, capped at full health.
 Eating slows movement. Releasing, switching items, blocking or disconnecting cancels
 the bite without spending an apple. Full-health players keep their apples.
 Food cannot revive an eliminated player; a fatal hit on the finishing tick wins.
-Remaining apples survive reconnects and reset for each round.
+Remaining apples survive reconnects and reset each round or CTF respawn.
 
 This is an arena healing rule, not Minecraft's regeneration/absorption formula.
 The sword now has an original stepped purple blade, wrapped handle, shaped guard
@@ -170,7 +190,7 @@ Press **F**, click the left-hand item beside the hearts, or tap **Swap** on mobi
 to choose your shield or a **totem of undying**. Your weapon stays in your right
 hand. Right mouse / Hold Shield blocks only while the shield is equipped.
 
-Each player gets **one totem per round**. While held, a damaging hit that would
+Each player gets **one totem per life**. While held, a damaging hit that would
 leave you at **two hearts or fewer** consumes the totem and leaves you alive with
 exactly two hearts (20 HP). This includes lethal melee and arrow hits, after armor
 and damage immunity are applied. A gold-and-emerald totem appears on screen when
@@ -179,7 +199,7 @@ swap back to your shield for protection. The totem does not block damage or gran
 extra invulnerability, so a later hit can still eliminate you.
 
 Switching hands, disconnecting or reconnecting cannot replenish a used totem.
-Returning to the lobby / starting a new round resets its supply. A save cancels
+Returning to the lobby, starting a new round, or a CTF respawn resets its supply. A save cancels
 an in-progress apple bite without spending the apple, including a bite that would
 finish in that same tick. Totems cannot prevent a forfeit. These are original
 arena rules; the artwork is original and no Minecraft assets are distributed.
@@ -215,6 +235,7 @@ npx tsx tests/lobby-discovery.ts
 npx tsx tests/exploration.ts
 npx tsx tests/healing-multiplayer.ts
 npx tsx tests/totem-multiplayer.ts
+npx tsx tests/capture-flag.ts
 npx tsx tests/reconnect.ts
 npx tsx tests/room-lifecycle.ts
 TEST_ROUNDS=10 npx tsx tests/multiplayer.ts
@@ -236,7 +257,7 @@ is excluded from the production build.
 - `shared/arena.ts`: shared citadel geometry, spawns and landmarks.
 - `shared/game.ts`: protocol, validated controls, shared movement and collision.
 - `server/simulation.ts`: fixed 60 Hz authority for movement, weapons, health,
-  projectiles, one-life elimination, victory, and match lifecycle.
+  projectiles, teams, flags, elimination/respawns, victory, and match lifecycle.
 - `server/index.ts`: Colyseus rooms and WebSocket transport, Express static assets,
   health/config routes, reconnect reservations, origin checks, capacity/backpressure.
 - `client/scene.ts`: Three.js renderer with instanced stone walls, procedural
@@ -251,7 +272,7 @@ Melee rewinds target history by up to 100 ms using server-measured round-trip ti
 Arrows use swept projectile collision. Rendering runs independently of simulation.
 Eight rooms is the default hard server cap, with five participants per room. There
 are no accounts, databases, purchases, chat, or external assets. The public
-`/arenas` directory exposes only open waiting-room IDs, host nicknames and counts;
+`/arenas` directory exposes only open waiting-room IDs, host nicknames, game modes and counts;
 invite-only rooms remain hidden. The directory returns 503 while the game is closed.
 
 ## Production

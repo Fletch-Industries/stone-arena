@@ -27,3 +27,4 @@ jobs:
           npx tsx tests/multiplayer.ts
           npx tsx tests/healing-multiplayer.ts
           npx tsx tests/totem-multiplayer.ts
+          npx tsx tests/capture-flag.ts

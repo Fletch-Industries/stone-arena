@@ -48,3 +48,18 @@ button.offhand{background:#111d25bd;border:1px solid #ffffff38;padding:3px 6px;m
 
 /* Keep direct joining immediately after the nickname on phones. */
 @media(min-width:901px){.arena-directory{position:absolute;right:5vw;top:50%;transform:translateY(-50%);max-height:76vh;overflow-y:auto}.landing .hero{max-width:490px}}@media(max-width:900px){.arena-directory{margin:18px 0 8px}.landing .form{margin-top:18px}.landing-layout{gap:0}}
+
+.mode-picker { margin-top: 20px; }
+.team-picker { display:flex; gap:10px; flex-wrap:wrap; }
+.team-picker [aria-pressed=true] { background:#263b49; box-shadow:inset 0 0 0 1px currentColor; }
+.flag-hud { position:absolute; top:110px; left:50%; transform:translateX(-50%); width:min(560px,calc(100vw - 24px)); padding:10px 14px; background:#142229dd; border:1px solid #586c74; border-radius:8px; text-align:center; font-size:13px; }
+.flag-score { display:flex; justify-content:space-between; align-items:center; gap:12px; font-size:20px; }
+.flag-score span { font-size:12px; color:#b7c4c7; }
+.flag-status { margin-top:8px; }
+.flag-hud p { margin:7px 0 0; color:#fff0c4; }
+.mobile .flag-hud { top:104px; padding:6px 10px; font-size:11px; }
+.mobile .flag-score { font-size:16px; }
+@media(max-width:600px) { .lobby { padding-top:12px; } .score-table { font-size:11px; } .score-table th,.score-table td { padding:7px 4px; } }
+
+.ctf .feed,.mobile .ctf .feed { top:224px; }
+@media(max-height:500px) { .mobile .flag-hud { top:54px; } .mobile .ctf .feed { top:154px; max-width:220px; } }
