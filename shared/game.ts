@@ -1,4 +1,4 @@
-export const VERSION = 4;
+export const VERSION = 5;
 // Round progression is an arena rule, not Minecraft's XP/armor formula.
 export const ARMOR_TIERS = [
   { level: 1, xp: 0, name: 'Unarmored', reduction: 0 },
@@ -7,6 +7,8 @@ export const ARMOR_TIERS = [
 ] as const;
 export const armorTier = (xp: number) => xp >= 150 ? ARMOR_TIERS[2] : xp >= 50 ? ARMOR_TIERS[1] : ARMOR_TIERS[0];
 export const APPLE = { count: 2, heal: 40, seconds: 1.6 } as const;
+export const TOTEM = { count: 1, health: 20 } as const;
+export type Offhand = 'shield' | 'totem';
 export const DT = 1 / 60;
 export const RADIUS = .34;
 export const HEIGHT = 1.8;
@@ -32,24 +34,24 @@ export const BOXES: Box[] = [
   { x: 0, z: -9, w: 1, d: 3, h: 1.15 }, { x: 0, z: 9, w: 1, d: 3, h: 1.15 },
 ];
 export const SPAWNS = [[-12, -12], [12, 12], [-12, 12], [12, -12], [0, -13], [0, 13], [-13, 0], [13, 0]];
-export interface Input { seq: number; x: number; z: number; yaw: number; pitch: number; jump: boolean; sprint: boolean; block: boolean; attack: boolean; weapon: Weapon }
-export const idleInput = (): Input => ({ seq: 0, x: 0, z: 0, yaw: 0, pitch: 0, jump: false, sprint: false, block: false, attack: false, weapon: 'sword' });
+export interface Input { seq: number; x: number; z: number; yaw: number; pitch: number; jump: boolean; sprint: boolean; block: boolean; attack: boolean; weapon: Weapon; offhand: Offhand }
+export const idleInput = (): Input => ({ seq: 0, x: 0, z: 0, yaw: 0, pitch: 0, jump: false, sprint: false, block: false, attack: false, weapon: 'sword', offhand: 'shield' });
 export interface Body { x: number; y: number; z: number; vy: number; grounded: boolean; vx?: number; vz?: number; sprinting?: boolean; sprintLocked?: boolean }
 export interface Player extends Body {
   id: string; name: string; color: number; yaw: number; pitch: number; hp: number; alive: boolean;
-  connected: boolean; ready: boolean; weapon: Weapon; block: boolean; ammo: number; apples: number;
+  connected: boolean; ready: boolean; weapon: Weapon; block: boolean; ammo: number; apples: number; offhand: Offhand; totems: number;
   kills: number; damage: number; assists: number; wins: number; ack: number; xp: number;
   hurtTime: number; lastDamage: number; shieldRaise: number; swingWait: number; moveSpeed: number; cooldown: number; charge: number; loaded: boolean; shieldDisabled: number; eliminatedAt: number;
 }
 export interface Arrow { id: number; owner: string; x: number; y: number; z: number; vx: number; vy: number; vz: number; damage: number; age: number; critical?: boolean }
-export interface GameEvent { id: number; type: 'hit' | 'kill' | 'shot' | 'swing' | 'start' | 'result' | 'level' | 'heal'; actor?: string; target?: string; text?: string; blocked?: boolean; critical?: boolean; sprintHit?: boolean; sweep?: boolean }
+export interface GameEvent { id: number; type: 'hit' | 'kill' | 'shot' | 'swing' | 'start' | 'result' | 'level' | 'heal' | 'totem'; actor?: string; target?: string; text?: string; blocked?: boolean; critical?: boolean; sprintHit?: boolean; sweep?: boolean }
 export interface Snapshot { tick: number; phase: Phase; countdown: number; result: string; winner: string; round: number; host: string; practice: boolean; players: Player[]; arrows: Arrow[]; events: GameEvent[] }
 export function validInput(a: unknown): a is Input {
   if (!a || typeof a !== 'object') return false;
   const i = a as Input;
   return Number.isSafeInteger(i.seq) && i.seq >= 0 && i.seq < 2 ** 31 &&
     [i.x, i.z, i.yaw, i.pitch].every(Number.isFinite) && Math.abs(i.x) <= 1 && Math.abs(i.z) <= 1 &&
-    Math.abs(i.yaw) <= Math.PI * 2 && Math.abs(i.pitch) <= 1.5 && WEAPONS.includes(i.weapon) &&
+    Math.abs(i.yaw) <= Math.PI * 2 && Math.abs(i.pitch) <= 1.5 && WEAPONS.includes(i.weapon) && ['shield', 'totem'].includes(i.offhand) &&
     [i.jump, i.sprint, i.block, i.attack].every(v => typeof v === 'boolean');
 }
 export function direction(yaw: number, pitch = 0) { return { x: -Math.sin(yaw) * Math.cos(pitch), y: Math.sin(pitch), z: -Math.cos(yaw) * Math.cos(pitch) }; }

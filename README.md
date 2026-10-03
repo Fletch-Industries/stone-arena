@@ -138,6 +138,26 @@ This is an arena healing rule, not Minecraft's regeneration/absorption formula.
 The sword now has an original stepped purple blade, wrapped handle, shaped guard
 and animated enchanted glint. Its combat damage and recovery are unchanged.
 
+## Shield or totem in your left hand
+
+Press **F**, click the left-hand item beside the hearts, or tap **Swap** on mobile
+to choose your shield or a **totem of undying**. Your weapon stays in your right
+hand. Right mouse / Hold Shield blocks only while the shield is equipped.
+
+Each player gets **one totem per round**. While held, a damaging hit that would
+leave you at **two hearts or fewer** consumes the totem and leaves you alive with
+exactly two hearts (20 HP). This includes lethal melee and arrow hits, after armor
+and damage immunity are applied. A gold-and-emerald totem appears on screen when
+it saves you. The left-hand item disappears and the HUD says **TOTEM USED**;
+swap back to your shield for protection. The totem does not block damage or grant
+extra invulnerability, so a later hit can still eliminate you.
+
+Switching hands, disconnecting or reconnecting cannot replenish a used totem.
+Returning to the lobby / starting a new round resets its supply. A save cancels
+an in-progress apple bite without spending the apple, including a bite that would
+finish in that same tick. Totems cannot prevent a forfeit. These are original
+arena rules; the artwork is original and no Minecraft assets are distributed.
+
 ## Camera perspectives
 
 Press **F5** or **V** to cycle **first person → third-person rear → third-person
@@ -166,6 +186,7 @@ npm start
 # With a server running:
 npx tsx tests/multiplayer.ts
 npx tsx tests/healing-multiplayer.ts
+npx tsx tests/totem-multiplayer.ts
 npx tsx tests/reconnect.ts
 npx tsx tests/room-lifecycle.ts
 TEST_ROUNDS=10 npx tsx tests/multiplayer.ts
