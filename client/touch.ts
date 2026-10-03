@@ -3,9 +3,9 @@ export class TouchControls {
   x = 0; z = 0; jump = false; jumpQueued = false; sprint = false;
   private root = document.createElement('div');
   private resets: (() => void)[] = [];
-  constructor(actions: { aim: (x: number, y: number) => void; attack: (down: boolean) => void; block: (down: boolean) => void; menu: () => void; scores: () => void; perspective: () => void }) {
+  constructor(actions: { aim: (x: number, y: number) => void; attack: (down: boolean) => void; block: (down: boolean) => void; menu: () => void; scores: () => void; perspective: () => void; offhand: () => void }) {
     this.root.className = 'touch-controls'; this.root.hidden = true;
-    this.root.innerHTML = '<div class="touch-look" aria-label="Drag to aim"><span>DRAG TO AIM</span></div><div class="touch-stick" aria-label="Movement joystick"><i></i><span>MOVE</span></div><div class="touch-actions"><button class="touch-button touch-sprint" aria-label="Toggle sprint" aria-pressed="false">Sprint</button><button class="touch-button touch-jump" aria-label="Jump">Jump ↑</button><button class="touch-button touch-shield" aria-label="Hold shield">Shield</button><button class="touch-button touch-attack" aria-label="Attack">Attack</button></div><div class="touch-menu"><button class="touch-button touch-view" aria-label="Change perspective">View</button><button class="touch-button" aria-label="Open scoreboard">Scores</button><button class="touch-button" aria-label="Open game menu">Menu</button></div>';
+    this.root.innerHTML = '<div class="touch-look" aria-label="Drag to aim"><span>DRAG TO AIM</span></div><div class="touch-stick" aria-label="Movement joystick"><i></i><span>MOVE</span></div><div class="touch-actions"><button class="touch-button touch-sprint" aria-label="Toggle sprint" aria-pressed="false">Sprint</button><button class="touch-button touch-jump" aria-label="Jump">Jump ↑</button><button class="touch-button touch-shield" aria-label="Hold shield">Shield</button><button class="touch-button touch-attack" aria-label="Attack">Attack</button></div><div class="touch-menu"><button class="touch-button touch-offhand" aria-label="Swap left hand to totem">Swap</button><button class="touch-button touch-view" aria-label="Change perspective">View</button><button class="touch-button" aria-label="Open scoreboard">Scores</button><button class="touch-button" aria-label="Open game menu">Menu</button></div>';
     document.body.append(this.root);
     const find = (selector: string) => this.root.querySelector<HTMLElement>(selector)!;
     const capture = (element: HTMLElement, start: (e: PointerEvent) => void, move: (e: PointerEvent) => void, end: () => void) => {
@@ -26,11 +26,17 @@ export class TouchControls {
     capture(find('.touch-shield'), () => actions.block(true), () => {}, () => actions.block(false));
     capture(find('.touch-jump'), () => { this.jump = this.jumpQueued = true; }, () => {}, () => { this.jump = false; });
     find('.touch-sprint').addEventListener('click', () => { this.sprint = !this.sprint; find('.touch-sprint').setAttribute('aria-pressed', String(this.sprint)); });
+    find('.touch-offhand').addEventListener('click', actions.offhand);
     find('.touch-view').addEventListener('click', actions.perspective);
     find('[aria-label="Open game menu"]').addEventListener('click', actions.menu);
     find('[aria-label="Open scoreboard"]').addEventListener('click', actions.scores);
   }
   item(apple: boolean) { const button = this.root.querySelector('.touch-attack')!; const label = apple ? 'Eat' : 'Attack'; if (button.textContent !== label) { button.textContent = label; button.setAttribute('aria-label', apple ? 'Eat golden apple' : 'Attack'); } }
+  offhand(totem: boolean) {
+    const shield = this.root.querySelector<HTMLButtonElement>('.touch-shield')!;
+    shield.disabled = totem; shield.setAttribute('aria-label', totem ? 'Shield unavailable while holding totem' : 'Hold shield');
+    this.root.querySelector('.touch-offhand')!.setAttribute('aria-label', `Swap left hand to ${totem ? 'shield' : 'totem'}`);
+  }
   perspective(label: string) { const button = this.root.querySelector('.touch-view')!; button.setAttribute('aria-label', `Change perspective: ${label}`); button.setAttribute('title', label); }
   reset() { for (const reset of this.resets) reset(); this.jumpQueued = false; this.sprint = false; this.root.querySelector('.touch-sprint')!.setAttribute('aria-pressed', 'false'); }
   show(visible: boolean) { if (this.root.hidden === !visible) return; this.root.hidden = !visible; if (!visible) this.reset(); }

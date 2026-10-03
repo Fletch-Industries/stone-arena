@@ -68,3 +68,17 @@ hilt and the existing inexpensive glint shader. Apple stem and highlight patches
 retain the block aesthetic. No reference images or Minecraft assets are bundled.
 Eating raises the apple to the face; reduced motion suppresses its oscillation.
 The equipment preview includes an Eat apple action and visible HP/item counts.
+
+## Left-hand totem
+
+`client/totem.ts` draws an original pixel-art gold charm with an emerald core and
+winged silhouette. The HUD and activation overlay share this SVG. The matching
+extruded model in `client/items.ts` is attached to the left hand in first person
+and to the animated left arm on world avatars. Switching hands or consuming the
+totem updates both models from the authoritative snapshot. The right-hand weapon
+remains independent. Shared geometry and cached materials avoid per-frame builds.
+
+The activation overlay stays outside the frequently updated HUD so its short
+animation plays once. Reduced-motion preferences suppress the animation; the
+image and two-heart message remain visible. No reference image or third-party
+game asset is bundled.

@@ -1,7 +1,8 @@
 import { Client, type Room } from '@colyseus/sdk';
 import { ArenaScene } from './scene.js';
-import { APPLE, ARMOR_TIERS, armorTier, COLORS, DT, VERSION, attackStrength, WEAPONS, idleInput, move, type Body, type Input, type Player, type Snapshot, type Weapon } from '../shared/game.js';
+import { APPLE, ARMOR_TIERS, armorTier, COLORS, DT, VERSION, attackStrength, WEAPONS, idleInput, move, type Body, type Input, type Player, type Snapshot, type Weapon, type Offhand } from '../shared/game.js';
 import './style.css';
+import { totemNotice } from './totem.js';
 import { hotbar } from './hotbar.js';
 import { exitPointerLock } from './pointer.js';
 import { TouchControls } from './touch.js';
@@ -13,6 +14,9 @@ const canvas = document.querySelector<HTMLCanvasElement>('#world')!;
 const escape = (s: string) => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
 const brand = '<div class="brand"><i class="brand-mark"></i> Stone Arena <small>Fletch Industries</small></div>';
 let room: Room | undefined, snapshot: Snapshot | undefined, local: Body | undefined;
+let offhand: Offhand = 'shield';
+const totemPopup = document.createElement('div'); totemPopup.className = 'totem-popup'; totemPopup.hidden = true; totemPopup.innerHTML = totemNotice(); document.body.append(totemPopup);
+let totemTimer: ReturnType<typeof setTimeout> | undefined;
 let yaw = 0, pitch = 0, weapon: Weapon = 'sword', seq = 0, accumulator = 0;
 let pending: Input[] = [], lastPhase = '', lastRound = 0, eventId = 0, ping = 0, notice = '', error = '', busy = false;
 let modal: 'settings' | 'controls' | '' = '', scoreboard = false, disconnected = false, lastHud = 0, nickname = '';
@@ -30,6 +34,7 @@ const touch = new TouchControls({
   block: down => { mouseBlock = down; },
   menu: () => { releasePointer(); modal = 'settings'; renderUI(); },
   scores: () => { releasePointer(); scoreboard = true; renderUI(); },
+  offhand: () => swapOffhand(),
   perspective: () => setPerspective(nextPerspective(settings.perspective)),
 });
 document.body.classList.toggle('mobile', mobile);
@@ -81,6 +86,10 @@ async function lockPointer() {
   enableAudio(); modal = ''; scoreboard = false; if (mobile) { touchPlaying = true; notice = ''; renderUI(); return; } renderUI();
   try { await canvas.requestPointerLock(); dragLook = false; notice = ''; } catch { dragLook = true; notice = 'Hold Alt and drag to look · WASD to move · Escape for menu'; } renderUI();
 }
+function swapOffhand() {
+  if (snapshot?.phase !== 'active' || !me()?.alive || disconnected) return;
+  offhand = offhand === 'shield' ? 'totem' : 'shield'; mouseBlock = false; renderUI();
+}
 function setPerspective(view: Perspective) {
   settings.perspective = view; scene.perspective = view; scene.inspectArmor = false;
   touch.perspective(PERSPECTIVE_LABELS[view]);
@@ -107,21 +116,22 @@ async function connect(action: 'create' | 'join' | 'reconnect', code = '') {
     room = joined;
     joined.onMessage('maintenance', showUnavailable);
     joined.reconnection.minUptime = 0; joined.reconnection.maxDelay = 1000; joined.reconnection.maxRetries = 12;
-    disconnected = false; eventId = 0; pending = []; lastPhase = ''; snapshot = undefined;
+    disconnected = false; totemPopup.hidden = true; eventId = 0; pending = []; lastPhase = ''; snapshot = undefined;
     try { localStorage.setItem('stone-name', nickname); } catch { /* optional */ }
     storeSession(); history.replaceState(null, '', `${location.pathname}?room=${room.roomId}`);
     joined.onMessage('snapshot', (s: Snapshot) => {
       if (room !== joined) return;
       const old = me(); snapshot = s; const p = me();
       if (p) {
-        if (lastRound !== s.round || lastPhase !== s.phase || !local) { local = { ...p }; pending = []; yaw = p.yaw; pitch = p.pitch; weapon = p.weapon; seq = Math.max(seq, p.ack); }
-        else { pending = pending.filter(i => i.seq > p.ack); local = { ...p }; if (p.alive && s.phase === 'active') for (const i of pending) move(local, { ...i, block: i.block && p.shieldDisabled <= 0 }, DT, p.charge > 0); }
+        if (lastRound !== s.round || lastPhase !== s.phase || !local) { local = { ...p }; pending = []; yaw = p.yaw; pitch = p.pitch; weapon = p.weapon; offhand = p.offhand; seq = Math.max(seq, p.ack); }
+        else { pending = pending.filter(i => i.seq > p.ack); local = { ...p }; if (p.alive && s.phase === 'active') for (const i of pending) move(local, { ...i, block: i.block && i.offhand === 'shield' && p.shieldDisabled <= 0 }, DT, p.charge > 0); }
         if (old && p.hp < old.hp) { const f = document.createElement('div'); f.className = 'damage-flash'; app.append(f); setTimeout(() => f.remove(), 300); sound(85, .15, 'sawtooth'); }
         if (old?.alive && !p.alive) { scene.inspectArmor = false; releasePointer(); notice = 'Eliminated. You can watch the remaining players.'; }
       }
       for (const e of s.events) if (e.id > eventId) {
         eventId = e.id; scene.event(e);
         if (e.actor === room?.sessionId) {
+          if (e.type === 'totem' && old && p && old.totems > p.totems) { totemPopup.hidden = false; clearTimeout(totemTimer); totemTimer = setTimeout(() => { totemPopup.hidden = true; }, 2200); sound(880, .35); }
           if (e.type === 'heal') { notice = e.text ?? 'Healed'; sound(660, .25); setTimeout(() => { if (notice === e.text) { notice = ''; renderUI(); } }, 2500); }
           if (e.type === 'level') { notice = e.text ?? 'Armor upgraded'; sound(880, .22); setTimeout(() => { if (notice === e.text) { notice = ''; renderUI(); } }, 4000); }
           if (e.type === 'swing') { scene.swing = 1; sound(150, .08); }
@@ -162,7 +172,7 @@ function scores() {
 let lastHTML = '', lastModal = '';
 function renderUI() {
   const p = me(), s = snapshot; let html = '';
-  touch.item(weapon === 'apple');
+  touch.item(weapon === 'apple'); touch.offhand(offhand === 'totem');
   touch.show(mobile && touchPlaying && !!p?.alive && s?.phase === 'active' && !modal && !scoreboard && !disconnected);
   if ((busy || room) && !s) {
     html = `<section class="screen interactive">${brand}<div class="lobby"><h2>${room ? 'Entering your arena…' : 'Connecting…'}</h2><p role="status">Please wait while we confirm your seat.</p></div></section>`;
@@ -173,18 +183,19 @@ function renderUI() {
     html = `<section class="screen interactive">${brand}<div class="lobby"><div class="eyebrow"><i class="dot"></i> Private arena</div><h2>Gather your contenders.</h2><p>Share the link. Ready up. Only one walks out.</p><div class="panel"><div class="row" style="justify-content:space-between"><div><span class="label">Room code</span><span class="room-code">${room.roomId}</span></div><button class="btn" data-action="invite">Copy invite</button></div><div class="players">${Array.from({ length: 5 }, (_, n) => { const q = s.players[n]; return q ? `<div class="player-row"><i class="avatar" style="background:${COLORS[q.color]}"></i><span class="name">${escape(q.name)} ${q.id === s.host ? '<span class="tag">Host</span>' : ''}</span><span class="tag ${q.ready ? 'ready' : ''}">${!q.connected ? 'Reconnecting' : q.ready ? 'Ready' : 'Not ready'}</span></div>` : '<div class="player-row"><i class="avatar" style="background:#26343b"></i><span class="name" style="color:#7c8c91">Waiting for player…</span><span class="tag">Open</span></div>'; }).join('')}</div><div class="room-actions"><button class="btn ${p?.ready ? '' : 'gold'}" data-action="ready" ${disconnected ? 'disabled' : ''}>${p?.ready ? 'Unready' : 'Ready up'}</button>${s.host === room.sessionId ? `<button class="btn gold" data-action="start" ${disconnected || !s.players.every(q => q.ready && q.connected) ? 'disabled' : ''}>${s.players.length === 1 ? 'Practice solo' : 'Start round'}</button>` : ''}</div><p class="help">${s.players.length === 1 ? 'Invite a friend for a competitive round. Solo practice lets you explore the arena and weapons.' : 'Everyone gets one life. Eliminated players spectate. The final survivor wins.'}</p></div><div class="row"><button class="text-btn" data-action="controls">Controls</button><button class="text-btn" data-action="settings">Settings</button><button class="text-btn" data-action="leave">Leave room</button></div></div>${footer()}</section>`;
   } else {
     const alive = s.players.filter(q => q.alive).length;
-    html = `<div class="hud"><div class="topbar"><div class="badge"><strong>${alive}</strong> ${s.practice ? 'Practice' : 'remaining'} <span style="color:#8fa2a5"> / ${s.players.length}</span></div><div class="net">STONE ARENA · ROUND ${s.round}<br>${ping} ms · ${scene.fps} FPS<br>${mobile ? 'Touch controls · landscape recommended' : '<kbd>ESC</kbd> Menu &nbsp; <kbd>TAB</kbd> Scoreboard &nbsp; <kbd>F5 / V</kbd> View'}</div></div><div class="feed">${s.events.filter(e => e.type === 'kill').slice(-4).map(e => `<div>${escape(e.text ?? '')}</div>`).join('')}</div>${p?.alive ? `${settings.perspective === 'first' && !scene.inspectArmor ? '<div class="crosshair"></div>' : ''}<div class="bottom">${hotbar(p, weapon)}<div class="charge" role="progressbar" aria-label="${weapon === 'apple' ? 'Eating golden apple' : weapon === 'bow' ? 'Bow draw' : weapon === 'crossbow' ? 'Crossbow load' : 'Attack strength'}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round((weapon === 'apple' ? p.charge / APPLE.seconds : weapon === 'bow' ? p.charge : weapon === 'crossbow' ? p.loaded ? 1 : p.charge / 1.25 : attackStrength(p)) * 100)}"><i style="width:${Math.min(100, (weapon === 'apple' ? p.charge / APPLE.seconds : weapon === 'bow' ? p.charge : weapon === 'crossbow' ? p.loaded ? 1 : p.charge / 1.25 : attackStrength(p)) * 100)}%"></i></div><div class="combat-hint">${weapon === 'apple' ? p.apples === 0 ? 'No apples left this round' : p.hp >= 100 ? 'Full health · Save your apples' : `${mobile ? 'Hold Eat' : 'Hold left mouse'} to eat · Restores up to 4 hearts` : mobile ? weapon === 'bow' ? 'Hold Attack to draw · release to shoot' : weapon === 'crossbow' ? p.loaded ? 'Loaded · tap Attack to fire' : p.charge ? 'Loading…' : 'Tap Attack to load' : 'Time hits for full power · Hold Attack to repeat' : weapon === 'bow' ? 'Hold left mouse to draw · release to shoot' : weapon === 'crossbow' ? p.loaded ? 'Loaded · click to fire' : p.charge ? 'Loading…' : 'Click to load · click again to fire' : 'Left mouse to attack'}${mobile ? '' : ' · Right mouse to block'}${dragLook ? ' · Alt + drag to look' : ''}</div></div>` : `<div class="spectate interactive"><span class="eyebrow" style="justify-content:center;margin:0">Eliminated · Spectating</span><p>${escape(s.players.filter(q => q.alive)[scene.spectator % Math.max(1, alive)]?.name ?? 'Round finished')}</p><button class="btn" data-action="spectate">Next player →</button></div>`}</div>`;
+    html = `<div class="hud"><div class="topbar"><div class="badge"><strong>${alive}</strong> ${s.practice ? 'Practice' : 'remaining'} <span style="color:#8fa2a5"> / ${s.players.length}</span></div><div class="net">STONE ARENA · ROUND ${s.round}<br>${ping} ms · ${scene.fps} FPS<br>${mobile ? 'Touch controls · landscape recommended' : '<kbd>ESC</kbd> Menu &nbsp; <kbd>TAB</kbd> Scoreboard &nbsp; <kbd>F5 / V</kbd> View'}</div></div><div class="feed">${s.events.filter(e => e.type === 'kill').slice(-4).map(e => `<div>${escape(e.text ?? '')}</div>`).join('')}</div>${p?.alive ? `${settings.perspective === 'first' && !scene.inspectArmor ? '<div class="crosshair"></div>' : ''}<div class="bottom">${hotbar(p, weapon)}<div class="charge" role="progressbar" aria-label="${weapon === 'apple' ? 'Eating golden apple' : weapon === 'bow' ? 'Bow draw' : weapon === 'crossbow' ? 'Crossbow load' : 'Attack strength'}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round((weapon === 'apple' ? p.charge / APPLE.seconds : weapon === 'bow' ? p.charge : weapon === 'crossbow' ? p.loaded ? 1 : p.charge / 1.25 : attackStrength(p)) * 100)}"><i style="width:${Math.min(100, (weapon === 'apple' ? p.charge / APPLE.seconds : weapon === 'bow' ? p.charge : weapon === 'crossbow' ? p.loaded ? 1 : p.charge / 1.25 : attackStrength(p)) * 100)}%"></i></div><div class="combat-hint">${weapon === 'apple' ? p.apples === 0 ? 'No apples left this round' : p.hp >= 100 ? 'Full health · Save your apples' : `${mobile ? 'Hold Eat' : 'Hold left mouse'} to eat · Restores up to 4 hearts` : mobile ? weapon === 'bow' ? 'Hold Attack to draw · release to shoot' : weapon === 'crossbow' ? p.loaded ? 'Loaded · tap Attack to fire' : p.charge ? 'Loading…' : 'Tap Attack to load' : 'Time hits for full power · Hold Attack to repeat' : weapon === 'bow' ? 'Hold left mouse to draw · release to shoot' : weapon === 'crossbow' ? p.loaded ? 'Loaded · click to fire' : p.charge ? 'Loading…' : 'Click to load · click again to fire' : 'Left mouse to attack'}${offhand === 'totem' ? p.totems ? ' · Totem ready · Saves you at 2 hearts' : ' · Totem used · Swap to shield' : mobile ? '' : ' · Right mouse to block'}${mobile ? '' : ' · F swaps left hand'}${dragLook ? ' · Alt + drag to look' : ''}</div></div>` : `<div class="spectate interactive"><span class="eyebrow" style="justify-content:center;margin:0">Eliminated · Spectating</span><p>${escape(s.players.filter(q => q.alive)[scene.spectator % Math.max(1, alive)]?.name ?? 'Round finished')}</p><button class="btn" data-action="spectate">Next player →</button></div>`}</div>`;
     if (!scene.inspectArmor) html += `<div class="perspective-hint" aria-label="Perspective">${PERSPECTIVE_LABELS[settings.perspective]}${settings.perspective !== 'first' ? '<small>Attacks follow your character’s facing direction</small>' : ''}</div>`;
     if (s.phase === 'countdown') html += `<div class="center-message"><div class="eyebrow" style="justify-content:center">One life. Make it count.</div><div class="count">${Math.ceil(s.countdown)}</div></div>`;
     if (s.phase === 'active' && p?.alive && !controlling() && !modal && !scoreboard && !disconnected) html += `<div class="center-message interactive ${scene.inspectArmor ? 'armor-inspection' : ''}"><button class="btn gold" data-action="play">${scene.inspectArmor ? 'Resume play' : `${mobile ? 'Tap' : 'Click'} to enter the arena`}</button>${scene.inspectArmor ? '<button class="btn" data-action="settings">Settings</button>' : ''}<p>${scene.inspectArmor ? 'Character preview · The round continues' : mobile ? 'Left stick to move · Swipe right side to aim' : 'WASD to move · Mouse to aim'}</p></div>`;
     if (s.phase === 'results') html += `<div class="overlay interactive"><div class="panel results"><div class="eyebrow">${s.winner ? 'Last player standing' : 'No survivors'}</div><h2>${escape(s.result)}</h2><p>One life. Every decision mattered.</p>${scores()}${s.host === room.sessionId ? `<button class="btn gold wide" data-action="lobby" ${performance.now() - resultsEnteredAt < 3100 ? 'disabled' : ''}>${performance.now() - resultsEnteredAt < 3100 ? 'Next round in ' + Math.ceil((3100 - (performance.now() - resultsEnteredAt)) / 1000) + '…' : 'Back to lobby · Rematch'}</button>` : '<p class="help">Waiting for the host to return to the lobby.</p>'}<button class="text-btn" data-action="leave">Leave arena</button></div></div>`;
     if (scoreboard && s.phase !== 'results') html += `<div class="overlay interactive"><div class="panel results"><h2>Round ${s.round}</h2>${scores()}<p class="help">Survival decides the winner.</p><button class="btn gold" data-action="close-scores">Return to game</button></div></div>`;
   }
+  if (!p?.alive || s?.phase !== 'active') totemPopup.hidden = true;
   if (notice) html += `<div class="notice" role="status">${escape(notice)}</div>`;
   if (modal) {
     html += `<div class="overlay interactive"><div class="panel"><div class="eyebrow">Stone Arena</div><h2>${modal === 'settings' ? 'Your settings' : 'Hold your ground.'}</h2>`;
     if (modal === 'settings') html += `<div class="settings-grid"><label class="setting">Aim sensitivity<input data-setting="sensitivity" type="range" min="0.2" max="2.5" step="0.1" value="${settings.sensitivity}"></label><label class="setting">Sound volume<input data-setting="volume" type="range" min="0" max="1" step="0.05" value="${settings.volume}"></label><label class="setting" for="camera-fov">Field of view <output aria-hidden="true">${settings.fov}°</output><input id="camera-fov" data-setting="fov" type="range" min="60" max="120" step="1" value="${settings.fov}"></label><label class="setting">Perspective<select data-setting="perspective">${PERSPECTIVES.map(v => `<option value="${v}" ${v === settings.perspective ? 'selected' : ''}>${PERSPECTIVE_LABELS[v]}</option>`).join('')}</select></label><label class="setting">Graphics<select data-setting="quality">${['low', 'medium', 'high'].map(q => `<option ${q === settings.quality ? 'selected' : ''}>${q}</option>`).join('')}</select></label><label class="setting">Reduced camera motion<input type="checkbox" data-setting="reduced" ${settings.reduced ? 'checked' : ''}></label></div>${snapshot?.practice && snapshot.phase === 'active' ? `<label class="setting">Practice armor<select data-practice-armor>${ARMOR_TIERS.map(t => `<option value="${t.level}" ${t.level === armorTier(me()?.xp ?? 0).level ? 'selected' : ''}>Level ${t.level} · ${t.name}</option>`).join('')}</select></label>` : ''}${snapshot?.phase === 'active' && me()?.alive ? '<button class="text-btn" data-action="inspect-armor">View your character · 360°</button>' : ''}<p class="help">The round continues while the menu is open.</p>`;
-    else html += '<p class="mobile-instructions">Touch: left thumbstick to move, swipe the right side to aim. Hold Attack to swing or draw a bow; release to shoot. Tap twice to load and fire a crossbow. Hold Shield, tap Jump, toggle Sprint, and tap the weapon bar to equip. Tap View to change perspective.</p><p>Up to five players. One life each. The final survivor wins. After elimination, watch your friends finish the round.</p><div class="controls"><span><kbd>W A S D</kbd> Move</span><span><kbd>MOUSE</kbd> Aim</span><span><kbd>SPACE</kbd> Jump</span><span><kbd>CTRL / SHIFT</kbd> Sprint</span><span><kbd>LMB</kbd> Attack / draw</span><span><kbd>RMB</kbd> Shield</span><span><kbd>1 – 5</kbd> Select item</span><span><kbd>TAB</kbd> Scoreboard</span><span><kbd>F5 / V</kbd> Perspective</span></div><p class="help">Time melee hits for full power. Sprint hits push enemies back; strike while falling without sprinting for a critical hit. Shields block the front after raising; axe hits disable them for 5 seconds. Bows charge while held. Crossbows take one click to load and another to fire. No respawns or time limit. Select slot 5 and hold left mouse (Eat on mobile) to eat a golden apple: 1.6 seconds, up to 4 hearts restored, two per round. Releasing, switching items or blocking cancels eating.</p><p class="help">Deal damage to earn 1 XP per HP, plus 50 XP per elimination. Level 2 at 50 XP equips Guard armor (20% damage reduction). Level 3 at 150 XP equips Enchanted armor (35%). Everyone starts at level 1 each round. Armor never heals you.</p><p class="help">F5 or V cycles first person, third-person rear, and third-person front. Mobile: tap View. Movement and attacks still follow your character’s facing direction. Settings also offers a 360° character preview; the round keeps running.</p>';
+    else html += '<p class="mobile-instructions">Touch: left thumbstick to move, swipe the right side to aim. Hold Attack to swing or draw a bow; release to shoot. Tap twice to load and fire a crossbow. Tap Swap to choose a shield or totem. Hold Shield to block, tap Jump, toggle Sprint, and tap the weapon bar to equip. Tap View to change perspective.</p><p>Up to five players. One life each. The final survivor wins. After elimination, watch your friends finish the round.</p><div class="controls"><span><kbd>W A S D</kbd> Move</span><span><kbd>MOUSE</kbd> Aim</span><span><kbd>SPACE</kbd> Jump</span><span><kbd>CTRL / SHIFT</kbd> Sprint</span><span><kbd>LMB</kbd> Attack / draw</span><span><kbd>RMB</kbd> Shield</span><span><kbd>1 – 5</kbd> Select item</span><span><kbd>F</kbd> Swap shield / totem</span><span><kbd>TAB</kbd> Scoreboard</span><span><kbd>F5 / V</kbd> Perspective</span></div><p class="help">Time melee hits for full power. Sprint hits push enemies back; strike while falling without sprinting for a critical hit. Shields block the front after raising; axe hits disable them for 5 seconds. Bows charge while held. Crossbows take one click to load and another to fire. No respawns or time limit. Select slot 5 and hold left mouse (Eat on mobile) to eat a golden apple: 1.6 seconds, up to 4 hearts restored, two per round. Releasing, switching items or blocking cancels eating.</p><p class="help">Press F, click the left-hand item, or tap Swap on mobile to choose a shield or a totem. One totem per round: while held, a hit that would leave you at two hearts or fewer consumes it and leaves two hearts. It cannot block attacks. Once used, swap back to your shield. Totems do not prevent forfeits.</p><p class="help">Deal damage to earn 1 XP per HP, plus 50 XP per elimination. Level 2 at 50 XP equips Guard armor (20% damage reduction). Level 3 at 150 XP equips Enchanted armor (35%). Everyone starts at level 1 each round. Armor never heals you.</p><p class="help">F5 or V cycles first person, third-person rear, and third-person front. Mobile: tap View. Movement and attacks still follow your character’s facing direction. Settings also offers a 360° character preview; the round keeps running.</p>';
     html += `<button class="btn gold wide" data-action="close">${snapshot?.phase === 'active' && me()?.alive ? 'Resume game' : 'Got it'}</button>${room ? `<div class="row">${snapshot?.practice ? '<button class="text-btn" data-action="lobby">Return to lobby</button>' : ''}<button class="text-btn" data-action="leave">Leave room</button></div>` : ''}</div></div>`;
   }
   // Preserve focused inputs and slider drags; HUD remains independently render-driven.
@@ -197,6 +208,7 @@ function renderUI() {
   lastModal = modal;
 }
 app.addEventListener('pointerdown', e => {
+  if ((e.target as HTMLElement).closest('[data-action=offhand]')) { e.preventDefault(); swapOffhand(); return; }
   const target = (e.target as HTMLElement).closest<HTMLElement>('[data-weapon]');
   if (target && WEAPONS.includes(target.dataset.weapon as Weapon)) { e.preventDefault(); weapon = target.dataset.weapon as Weapon; mouseAttack = false; attackQueued = false; renderUI(); }
 });
@@ -215,6 +227,7 @@ app.addEventListener('click', async e => {
   if (action === 'create' || action === 'join') { const code = document.querySelector<HTMLInputElement>('#code')?.value ?? ''; void connect(action, code); }
   if (action === 'weapon' && WEAPONS.includes(target?.dataset.weapon as Weapon)) { weapon = target!.dataset.weapon as Weapon; mouseAttack = false; attackQueued = false; renderUI(); }
   if (action === 'close-scores') { scoreboard = false; if (me()?.alive && snapshot?.phase === 'active') void lockPointer(); else renderUI(); }
+  if (action === 'offhand' && e.detail === 0) swapOffhand();
   if (action === 'ready' && !disconnected && me()) room?.send('ready', { ready: !me()!.ready });
   if (action === 'start' && !disconnected) { room?.send('start', { practice: snapshot?.players.length === 1 }); void lockPointer(); }
   if (action === 'lobby') room?.send('lobby');
@@ -230,6 +243,7 @@ app.addEventListener('click', async e => {
 document.addEventListener('keydown', e => {
   if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
   if ((e.code === 'F5' || e.code === 'KeyV') && room && snapshot?.phase !== 'waiting' && !modal && !scoreboard && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); if (!e.repeat) setPerspective(nextPerspective(settings.perspective)); return; }
+  if (e.code === 'KeyF' && controlling() && !modal && !scoreboard && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); if (!e.repeat) swapOffhand(); return; }
   if (controlling() && !modal && ['Tab', 'Space'].includes(e.code)) e.preventDefault();
   if (e.code === 'Tab' && controlling() && !modal) scoreboard = true;
   if (e.code === 'Escape' && room && !locked()) { releasePointer(); modal = modal ? '' : 'settings'; renderUI(); }
@@ -253,8 +267,8 @@ function frame(now: number) {
   while (accumulator >= DT) {
     accumulator -= DT;
     if (room && snapshot?.phase === 'active' && p?.alive && !disconnected && local) {
-      const i: Input = { ...idleInput(), seq: ++seq, x: Math.max(-1, Math.min(1, Number(keys.has('KeyD')) - Number(keys.has('KeyA')) + touch.x)), z: Math.max(-1, Math.min(1, Number(keys.has('KeyW')) - Number(keys.has('KeyS')) + touch.z)), yaw, pitch, jump: keys.has('Space') || touch.jump || touch.jumpQueued, sprint: doubleTapSprint || keys.has('ControlLeft') || keys.has('ControlRight') || keys.has('ShiftLeft') || keys.has('ShiftRight') || touch.sprint, attack: mouseAttack || attackQueued, block: mouseBlock, weapon };
-      move(local, { ...i, block: i.block && p.shieldDisabled <= 0 }, DT, (p.charge ?? 0) > 0); pending.push(i); if (pending.length > 120) pending.shift(); room.send('input', i); attackQueued = false; touch.jumpQueued = false;
+      const i: Input = { ...idleInput(), seq: ++seq, x: Math.max(-1, Math.min(1, Number(keys.has('KeyD')) - Number(keys.has('KeyA')) + touch.x)), z: Math.max(-1, Math.min(1, Number(keys.has('KeyW')) - Number(keys.has('KeyS')) + touch.z)), yaw, pitch, jump: keys.has('Space') || touch.jump || touch.jumpQueued, sprint: doubleTapSprint || keys.has('ControlLeft') || keys.has('ControlRight') || keys.has('ShiftLeft') || keys.has('ShiftRight') || touch.sprint, attack: mouseAttack || attackQueued, block: mouseBlock && offhand === 'shield', weapon, offhand };
+      move(local, { ...i, block: i.block && i.offhand === 'shield' && p.shieldDisabled <= 0 }, DT, (p.charge ?? 0) > 0); pending.push(i); if (pending.length > 120) pending.shift(); room.send('input', i); attackQueued = false; touch.jumpQueued = false;
     }
   }
   scene.render(dt, snapshot, p, local, yaw, pitch, controlling(), keys.size > 0 || Math.hypot(touch.x, touch.z) > .1);

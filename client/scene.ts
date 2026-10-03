@@ -3,24 +3,24 @@ import { BOXES, COLORS, EYE, armorTier, attackStrength, type Body, type GameEven
 import { locomotionPose } from './animation.js';
 import { TextureLibrary, type Surface } from './textures.js';
 import { FlameAtlas, armorMaterial } from './effects.js';
-import { swordBlade, appleBody } from './items.js';
+import { swordBlade, appleBody, totemBody } from './items.js';
 import { clipCamera, thirdPersonCamera, type Perspective } from './camera.js';
 
 export class ArenaScene {
   renderer: THREE.WebGLRenderer; scene = new THREE.Scene(); camera = new THREE.PerspectiveCamera(120, 1, .05, 130);
-  avatars = new Map<string, THREE.Group>(); arrowMeshes = new Map<number, THREE.Mesh>(); weapon = new THREE.Group();
+  avatars = new Map<string, THREE.Group>(); arrowMeshes = new Map<number, THREE.Mesh>(); weapon = new THREE.Group(); leftHand = new THREE.Group();
   textures = new TextureLibrary(); surfaceMaterials = new Map<string, THREE.MeshLambertMaterial>();
   flameAtlas = new FlameAtlas(); flames: THREE.MeshBasicMaterial[] = [];
   armorTime = { value: 0 };
   armorMaterials = [armorMaterial(this.textures.get('metal'), false, this.armorTime), armorMaterial(this.textures.get('metal'), true, this.armorTime)];
-  swordGeo = swordBlade(); appleGeo = appleBody();
+  swordGeo = swordBlade(); appleGeo = appleBody(); totemGeo = totemBody();
   swordMaterial = armorMaterial(this.textures.get('metal'), true, this.armorTime);
   sun = new THREE.DirectionalLight('#fff0d6', 2.1);
   contactShadows = new THREE.Group(); shadowGeo = new THREE.PlaneGeometry(1, 1);
   avatarShadows = new Map<string, THREE.Mesh>();
   contactMaterial = new THREE.MeshBasicMaterial({ color: '#172838', transparent: true, opacity: .2, depthWrite: false });
   materials = new Map<string, THREE.MeshLambertMaterial>(); boxGeo = new THREE.BoxGeometry(1, 1, 1);
-  arrowGeo = new THREE.BoxGeometry(.055, .055, .7); lastWeapon = ''; swing = 0; time = 0; quality = 'medium'; inspectArmor = false; configuredFov = 120; perspective: Perspective = 'first';
+  arrowGeo = new THREE.BoxGeometry(.055, .055, .7); lastWeapon = ''; lastOffhand = ''; swing = 0; time = 0; quality = 'medium'; inspectArmor = false; configuredFov = 120; perspective: Perspective = 'first';
   cameraDistance = 0; lastCamera = new THREE.Vector3(); cameraTracking = '';
   rigs = new Map<string, { head: THREE.Group; leftArm: THREE.Group; rightArm: THREE.Group; leftLeg: THREE.Group; rightLeg: THREE.Group; tool: THREE.Group; toolName: string; distance: number; speed: number; swing: number; landed: number; grounded: boolean }>();
   frames = 0; fps = 60; fpsTime = 0; spectator = 0; reduced = false; renderScale = 1;
@@ -73,7 +73,7 @@ export class ArenaScene {
     for (const [x, z, color] of [[-12, -12, COLORS[0]], [12, 12, COLORS[1]], [-12, 12, COLORS[2]], [12, -12, COLORS[3]], [0, -13, COLORS[4]]] as [number, number, string][]) {
       const tile = this.box(this.scene, [1.8, .015, 1.8], [x, .018, z], color); tile.material = new THREE.MeshLambertMaterial({ color, transparent: true, opacity: .5 });
     }
-    this.scene.add(this.camera); this.camera.add(this.weapon); this.weapon.scale.setScalar(.55); this.weapon.position.set(.36, -.4, -.65);
+    this.scene.add(this.camera); this.camera.add(this.weapon, this.leftHand); this.leftHand.scale.setScalar(.55); this.leftHand.position.set(-.36, -.4, -.65); this.weapon.scale.setScalar(.55); this.weapon.position.set(.36, -.4, -.65);
     window.addEventListener('resize', () => this.resize()); this.resize();
   }
   repeatUV(geometry: THREE.BufferGeometry, u: number, v: number) {
@@ -123,6 +123,7 @@ export class ArenaScene {
     const leftArm = pivot(-.42, 1.37), rightArm = pivot(.42, 1.37);
     for (const arm of [leftArm, rightArm]) this.box(arm, [.22, .67, .25], [0, -.335, 0], color, 'cloth');
     const shield = this.box(leftArm, [.12, .67, .49], [-.15, -.34, -.1], '#d3b382', 'wood'); shield.name = 'shield';
+    const totem = new THREE.Group(); totem.name = 'totem'; totem.position.set(0, -.55, -.18); totem.scale.setScalar(.65); leftArm.add(totem); this.buildTotem(totem);
     const tool = new THREE.Group(); tool.position.set(0, -.6, -.15); tool.scale.setScalar(.65); rightArm.add(tool);
     this.buildWeapon(tool, p.weapon);
     // Plates follow the same head/limb pivots as walking, jumping, blocking and swings.
@@ -150,12 +151,26 @@ export class ArenaScene {
     const mesh = new THREE.Mesh(this.boxGeo, this.armorMaterials[0]); mesh.scale.set(...size as [number, number, number]); mesh.position.set(...position as [number, number, number]);
     mesh.userData.armor = true; mesh.castShadow = mesh.receiveShadow = parent !== this.weapon; parent.add(mesh); return mesh;
   }
-  setWeapon(name: Weapon, block: boolean, xp: number) {
-    const level = armorTier(xp).level; const key = `${name}:${block}:${level}`; if (key === this.lastWeapon) return; this.lastWeapon = key; this.weapon.clear();
-    if (level > 1 && block) { const glove = this.plate(this.weapon, [.19, .22, .18], [block ? -.36 : 0, -.18, .03]); glove.material = this.armorMaterials[level - 2]; }
-    if (block) { this.box(this.weapon, [.66, .78, .12], [-.36, .2, -.3], '#8a673c', 'wood'); this.box(this.weapon, [.12, .78, .14], [-.36, .2, -.32], '#b6b6a3', 'metal'); return; }
+  setWeapon(name: Weapon, xp: number) {
+    const level = armorTier(xp).level, key = `${name}:${level}`; if (key === this.lastWeapon) return; this.lastWeapon = key;
     this.buildWeapon(this.weapon, name);
     if (level > 1) { const glove = this.plate(this.weapon, [.19, .22, .18], [0, -.18, .03]); glove.material = this.armorMaterials[level - 2]; }
+  }
+  buildTotem(group: THREE.Group) {
+    const charm = new THREE.Mesh(this.totemGeo, this.material('#d6a346')); charm.castShadow = charm.receiveShadow = group !== this.leftHand; group.add(charm);
+    for (const side of [-1, 1]) {
+      const gem = this.box(group, [.13, .13, .02], [0, .17, side * .06], '#64e8bf'); gem.rotation.z = Math.PI / 4;
+      this.box(group, [.16, .04, .02], [0, .32, side * .06], '#ffe59a');
+      for (const x of [-.21, .21]) this.box(group, [.13, .04, .02], [x, .12, side * .06], '#ffe59a');
+    }
+  }
+  setOffhand(p: Player) {
+    const level = armorTier(p.xp).level, key = `${p.offhand}:${p.totems}:${level}`;
+    if (key === this.lastOffhand) return; this.lastOffhand = key; this.leftHand.clear();
+    if (p.offhand === 'totem') { if (p.totems > 0) this.buildTotem(this.leftHand); else return; }
+    else { this.box(this.leftHand, [.55, .67, .12], [0, .08, 0], '#8a673c', 'wood'); this.box(this.leftHand, [.09, .67, .14], [0, .08, -.02], '#b6b6a3', 'metal'); }
+    if (level > 1) { const glove = this.plate(this.leftHand, [.19, .22, .18], [0, -.18, .03]); glove.material = this.armorMaterials[level - 2]; }
+    this.leftHand.traverse(o => { if (o instanceof THREE.Mesh) o.castShadow = o.receiveShadow = false; });
   }
   buildWeapon(group: THREE.Group, name: Weapon) {
     group.clear();
@@ -215,8 +230,11 @@ export class ArenaScene {
     const fov = inspecting ? 55 : this.configuredFov;
     if (this.camera.fov !== fov) { this.camera.fov = fov; this.camera.updateProjectionMatrix(); }
     if (inspecting && me) { const angle = this.reduced ? Math.PI + me.yaw : this.time * .3; this.camera.position.copy(clipCamera({ x: me.x, y: me.y + EYE, z: me.z }, { x: me.x + Math.sin(angle) * 3.8, y: me.y + 1.8, z: me.z + Math.cos(angle) * 3.8 })); this.camera.lookAt(me.x, me.y + .85, me.z); }
-    this.weapon.visible = !thirdPerson && !inspecting && !!inRound && !!me?.alive && snapshot?.phase !== 'results' && (me.weapon !== 'apple' || me.apples > 0 || me.block);
-    if (me) { this.setWeapon(me.weapon, me.block, me.xp); this.swing = Math.max(0, this.swing - dt * 5); this.weapon.rotation.set(-this.swing * 1.2, 0, -.2 - this.swing * .8); this.weapon.position.y = -.43 - ((me.weapon === 'sword' || me.weapon === 'axe') ? (1 - attackStrength(me)) * .1 : 0) + (moving && local?.grounded && !this.reduced ? Math.sin(this.cameraDistance * 5) * .02 : 0); this.weapon.position.z = -.65 + me.charge * .035; }
+    this.weapon.visible = !thirdPerson && !inspecting && !!inRound && !!me?.alive && snapshot?.phase !== 'results' && (me.weapon !== 'apple' || me.apples > 0);
+    if (me) { this.setWeapon(me.weapon, me.xp); this.setOffhand(me); this.swing = Math.max(0, this.swing - dt * 5); this.weapon.rotation.set(-this.swing * 1.2, 0, -.2 - this.swing * .8); this.weapon.position.y = -.43 - ((me.weapon === 'sword' || me.weapon === 'axe') ? (1 - attackStrength(me)) * .1 : 0) + (moving && local?.grounded && !this.reduced ? Math.sin(this.cameraDistance * 5) * .02 : 0); this.weapon.position.z = -.65 + me.charge * .035; }
+    this.leftHand.visible = !thirdPerson && !inspecting && !!inRound && !!me?.alive && snapshot?.phase !== 'results' && (me.offhand === 'shield' || me.totems > 0);
+    this.leftHand.position.set(me?.block ? -.2 : -.36, me?.block ? -.12 : this.weapon.position.y, me?.block ? -.5 : -.65);
+    this.leftHand.rotation.set(0, me?.block ? -.1 : .1, .1);
     const eating = me?.weapon === 'apple' && me.charge > 0;
     this.weapon.position.x = eating ? .15 : .36;
     if (eating) { this.weapon.position.y += .18 + (this.reduced ? 0 : Math.sin(this.time * 18) * .025); this.weapon.position.z += .2; this.weapon.rotation.z = -.4; }
@@ -244,7 +262,8 @@ export class ArenaScene {
       rig.rightArm.rotation.x = rig.swing > 0 ? -Math.sin(rig.swing * Math.PI) * 1.8 : p.weapon === 'apple' && p.charge > 0 ? 1.65 + (this.reduced ? 0 : Math.sin(this.time * 18) * .06) : p.charge > 0 || (p.weapon === 'crossbow' && p.loaded) ? -1.3 + p.pitch : pose.rightArm;
       rig.tool.visible = p.weapon !== 'apple' || p.apples > 0;
       rig.tool.rotation.x = p.weapon === 'apple' && p.charge > 0 ? -1.65 : 0;
-      const shield = g.getObjectByName('shield')!; shield.visible = p.block;
+      const shield = g.getObjectByName('shield')!; shield.visible = p.offhand === 'shield';
+      g.getObjectByName('totem')!.visible = p.offhand === 'totem' && p.totems > 0;
       if (rig.toolName !== p.weapon) { rig.toolName = p.weapon; this.buildWeapon(rig.tool, p.weapon); }
       g.traverse(o => { if (o instanceof THREE.Mesh) { o.userData.baseMaterial ??= o.material; if (o.userData.armor) { const level = armorTier(p.xp).level; o.visible = level > 1; o.material = p.hurtTime > 0 ? this.material('#e77979') : this.armorMaterials[Math.max(0, level - 2)]; } else o.material = p.hurtTime > 0 ? this.material('#e77979') : o.userData.baseMaterial; } });
     }

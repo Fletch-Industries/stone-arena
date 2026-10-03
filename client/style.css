@@ -30,3 +30,15 @@ button.slot{color:inherit}.screen,.overlay{overflow-y:auto;overscroll-behavior:c
 .center-message.armor-inspection{top:12%;font-size:11px}.armor-inspection .btn{padding:10px 16px}
 
 .perspective-hint{position:absolute;top:88px;left:50%;transform:translateX(-50%);text-align:center;color:#f5f0e5;font-size:11px;text-shadow:0 1px 3px #000;pointer-events:none}.perspective-hint small{display:block;font-size:9px;margin-top:5px;color:#d2dadd}.mobile .perspective-hint{top:112px;min-width:230px;font-size:10px}@media(max-height:500px){.mobile .perspective-hint{top:64px;font-size:9px}.mobile .perspective-hint small{font-size:8px}}
+
+/* Left-hand switching remains clickable on the HUD and stable touch menu. */
+button.offhand{background:#111d25bd;border:1px solid #ffffff38;padding:3px 6px;min-height:32px;border-radius:3px;font:inherit;touch-action:manipulation}
+.offhand small{color:#eac37c;font-size:12px}.offhand:hover{border-color:#eac37c}
+.totem-activation{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;pointer-events:none;text-shadow:0 2px 5px #000;z-index:3}
+.totem-activation svg{width:clamp(110px,20vw,200px);height:clamp(110px,20vw,200px);filter:drop-shadow(0 0 28px #66e8bd77);animation:totem-appear .45s ease-out}
+.totem-activation strong{font-size:18px;color:#fff0b9}.totem-activation span{font-size:12px;color:#d0ffe8}
+@keyframes totem-appear{from{transform:scale(.35) rotate(-15deg);opacity:0}to{transform:scale(1);opacity:1}}
+@media(prefers-reduced-motion:reduce){.totem-activation svg{animation:none}}
+@media(max-height:500px){.totem-activation svg{width:100px;height:100px}.totem-activation{gap:5px}.mobile .offhand{padding:2px;min-height:28px}}
+
+.totem-popup{position:fixed;inset:0;pointer-events:none;z-index:3}.totem-popup[hidden]{display:none}
