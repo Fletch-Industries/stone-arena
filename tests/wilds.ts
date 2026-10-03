@@ -1,3 +1,6 @@
+import { Construction, type ConstructionState, type ConstructionChanges } from '../shared/construction.js';
+import { weaveTarget } from '../shared/weaving.js';
+import { saveWorld } from '../shared/world-save.js';
 import { Client, type Room } from '@colyseus/sdk';
 import assert from 'node:assert/strict';
 import { VERSION, idleInput, type Snapshot } from '../shared/game.js';
@@ -6,11 +9,12 @@ import { waystoneSites } from '../shared/waystones.js';
 import { shardSites } from '../shared/expedition.js';
 import { navigator } from './navigation.js';
 const client = new Client(process.env.TEST_ENDPOINT ?? 'http://127.0.0.1:3107'), rooms: Room[] = [], states = new Map<Room, Snapshot>(), sequences = new Map<Room, number>();
+const building = process.argv.includes('--building'), constructions = new Map<Room, Construction>();
 const expedition = process.argv.includes('--expedition'), waystones = process.argv.includes('--waystones'), actionErrors = new Map<Room, string[]>();
 let timer: ReturnType<typeof setInterval> | undefined;
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 async function until(check: () => boolean, seconds = 80) { const end = Date.now() + seconds * 1000; while (!check()) { if (Date.now() > end) throw Error('Wilds timed out: ' + JSON.stringify([...states.values()].map(s => ({ world: s.world, players: s.players.map(p => ({ id: p.id, realm: p.realm, x: p.x, y: p.y, z: p.z, hp: p.hp })) })))); await wait(25); } }
-function track(r: Room) { rooms.push(r); r.onMessage('snapshot', (s: Snapshot) => states.set(r, s)); r.onMessage('latency', (n: number) => r.send('latencyAck', n)); r.onMessage('pong', () => {}); r.onMessage('actionError', (message: string) => actionErrors.set(r,[...(actionErrors.get(r)??[]),message].slice(-50)));  r.reconnection.enabled = false; r.send('sync'); return r; }
+function track(r: Room) { rooms.push(r); const blocks = new Construction(); constructions.set(r, blocks); r.onMessage('construction', (full: ConstructionState) => { assert(blocks.restore(full)); }); r.onMessage('constructionChanges', (delta: ConstructionChanges) => { assert(blocks.apply(delta)); }); r.onMessage('worldRestored', () => {}); r.onMessage('snapshot', (s: Snapshot) => { s.world.construction = blocks; states.set(r, s); }); r.onMessage('latency', (n: number) => r.send('latencyAck', n)); r.onMessage('pong', () => {}); r.onMessage('actionError', (message: string) => actionErrors.set(r,[...(actionErrors.get(r)??[]),message].slice(-50)));  r.reconnection.enabled = false; r.send('sync'); return r; }
 const me = (r: Room) => states.get(r)!.players.find(p => p.id === r.sessionId)!;
 function controls(r: Room, value = {}) { const seq = (sequences.get(r) ?? me(r).ack) + 1; sequences.set(r, seq); r.send('input', { ...idleInput(), seq, ...value }); }
 async function walk(r: Room, x: number, z: number, stop = () => Math.hypot(me(r).x - x, me(r).z - z) < .5, path = true) {
@@ -31,11 +35,46 @@ function wildRoute(from: {x:number;z:number}, target:{x:number;z:number}, seed:n
   if(!found)throw Error('No route to the skyshard');const route=[found];while(parents.get(key(route[0][0],route[0][1])))route.unshift(parents.get(key(route[0][0],route[0][1]))!);return route.map(v=>[v[0]*2,v[1]*2]);
 }
 async function followWildRoute(r:Room,target:{x:number;z:number},stop:()=>boolean=()=>Math.hypot(me(r).x-target.x,me(r).z-target.z)<1){const route=wildRoute(me(r),target,states.get(r)!.world.seed);let point=0;timer=setInterval(()=>{const p=me(r);while(point<route.length-1&&Math.hypot(p.x-route[point][0],p.z-route[point][1])<.65)point++;const goal=point===route.length-1?[target.x,target.z]:route[point],d=Math.hypot(p.x-goal[0],p.z-goal[1]);controls(r,{yaw:Math.atan2(p.x-goal[0],p.z-goal[1]),z:1,sprint:true,dash:d>7&&(p.dashCooldown??0)<=0});for(const other of rooms)if(other!==r&&other.connection.isOpen)other.send('ping',Date.now());},33);try{await until(stop,100);}finally{clearInterval(timer);timer=undefined;controls(r);}}
+async function constructionChecks(host: Room, guest: Room) {
+  const seed=states.get(host)!.world.seed;
+  let aim:{yaw:number;pitch:number}|undefined;
+  for(let n=0;n<48;n++){const candidate={yaw:n*Math.PI/24-Math.PI,pitch:-.7};const target=weaveTarget({...me(host),...candidate},states.get(host)!.world,false,states.get(host)!.players);if(target?.valid){aim=candidate;break;}}
+  assert(aim,'Explorer must find clear ground to weave');
+  controls(host,{...aim,weaving:true,weaveKind:0,attack:true});
+  await until(()=>[host,guest].every(r=>constructions.get(r)!.size===1),5);controls(host,{...aim,weaving:true,weaveKind:0});
+  const block={...[...constructions.get(host)!.values()][0]}, beforeSupplies={hp:me(host).hp,ammo:me(host).ammo,apples:me(host).apples,totems:me(host).totems};
+  assert.deepEqual(constructions.get(host)!.state(seed),constructions.get(guest)!.state(seed));
+  await wait(300);const dx=block.x+.5-me(host).x,dz=block.z+.5-me(host).z, face={yaw:Math.atan2(-dx,-dz),pitch:Math.atan2(block.y+.8-me(host).y-1.62,Math.hypot(dx,dz))};
+  controls(host,{...face,weaving:true,weaveKind:5,attack:true});await until(()=>[host,guest].every(r=>constructions.get(r)!.size===2),5);controls(host,{...face,weaving:true,weaveKind:5});
+  assert([...constructions.get(guest)!.values()].some(b=>b.kind===5));assert.deepEqual({hp:me(host).hp,ammo:me(host).ammo,apples:me(host).apples,totems:me(host).totems},beforeSupplies);
+  console.log('PASS: ordinary aim built two shared runes, including Windlift, without consuming combat supplies');
+  await walk(guest,-26,-46);await walk(guest,-26,-65,()=>me(guest).realm==='wilds',false);
+  await followWildRoute(guest,{x:me(host).x+2,z:me(host).z+2});
+  await wait(120);const gx=block.x+.5-me(guest).x,gz=block.z+.5-me(guest).z, eraseAim={yaw:Math.atan2(-gx,-gz),pitch:Math.atan2(block.y+.8-me(guest).y-1.62,Math.hypot(gx,gz))};
+  const selected=weaveTarget({...me(guest),...eraseAim},states.get(guest)!.world,true,states.get(guest)!.players);assert(selected?.valid&&selected.existing);
+  controls(guest,{...eraseAim,weaving:true,weaveKind:0,block:true});
+  await until(()=>[host,guest].every(r=>constructions.get(r)!.size===1),5);controls(guest);
+  assert(!constructions.get(host)!.get(selected.x,selected.y,selected.z));assert.equal(me(guest).block,false);
+  console.log('PASS: a co-op friend erased a shared rune through ordinary aim; erase did not become shield protection');
+  const saved=saveWorld(states.get(host)!.world,'Multiplayer rune garden'), token=guest.reconnectionToken, oldId=guest.sessionId;
+  guest.connection.close();await until(()=>states.get(host)?.players.some(p=>p.id===oldId&&!p.connected)===true,5);
+  guest=track(await client.reconnect(token));await until(()=>states.get(guest)?.players.find(p=>p.id===guest.sessionId)?.connected===true&&constructions.get(guest)!.size===1,5);assert.equal(guest.sessionId,oldId);assert.deepEqual(constructions.get(guest)!.state(seed),constructions.get(host)!.state(seed));
+  host.send('lobby');await until(()=>[host,guest].every(r=>states.get(r)?.phase==='waiting'));assert.equal(constructions.get(host)!.size,1);
+  const {blocks,...header}=saved, errors=actionErrors.get(guest)?.length??0;
+  guest.send('worldRestore',{type:'begin',header,count:blocks.length});await until(()=>(actionErrors.get(guest)?.length??0)>errors,5);assert.equal(constructions.get(host)!.size,1);
+  host.send('ready');guest.send('ready');await until(()=>states.get(host)!.players.every(p=>p.ready));
+  host.send('worldRestore',{type:'begin',header,count:blocks.length});host.send('worldRestore',{type:'chunk',offset:0,blocks});host.send('worldRestore',{type:'commit'});
+  await until(()=>[host,guest].every(r=>states.get(r)?.players.every(p=>!p.ready)===true&&[...constructions.get(r)!.values()].every(b=>b.owner.startsWith('memory:'))),5);
+  assert.deepEqual(saveWorld(states.get(guest)!.world,saved.title),saved);
+  host.send('ready');guest.send('ready');await until(()=>states.get(host)!.players.every(p=>p.ready));host.send('start');await until(()=>[host,guest].every(r=>states.get(r)?.phase==='active'));
+  assert.equal(constructions.get(host)!.size,1);assert(states.get(host)!.players.every(p=>p.relics===0&&!p.weaving));assert.equal(states.get(host)!.world.seed,seed);
+  console.log('PASS: reconnect retained buildings; only a lobby host restored a portable world; readiness reset and a fresh round kept the shared construction');
+}
 try {
   const host = track(await client.create('arena', { name: 'Wilds explorer', version: VERSION, private: true }));
   let guest = track(await client.joinById(host.roomId, { name: 'Terrain observer', version: VERSION }));
   await until(() => rooms.every(r => states.get(r)?.players.length === 2)); assert.equal(states.get(host)!.world.seed, states.get(guest)!.world.seed);
-  if (expedition || waystones) { host.send('mode', { mode: 'expedition' }); await until(() => rooms.every(r => states.get(r)?.mode === 'expedition')); }
+  if (expedition || waystones || building) { host.send('mode', { mode: 'expedition' }); await until(() => rooms.every(r => states.get(r)?.mode === 'expedition')); }
   host.send('ready'); guest.send('ready'); await until(() => states.get(host)!.players.every(p => p.ready)); host.send('start'); await until(() => states.get(host)?.phase === 'active');
   guest.send('interact'); await wait(100); assert(!states.get(host)!.world.doorOpen);
   await walk(host, -26, -46); host.send('interact'); await until(() => rooms.every(r => states.get(r)?.world.doorOpen === true));
@@ -62,6 +101,7 @@ try {
   await walk(host, target.x, target.z, undefined, false);
   for (const r of rooms) { const s = states.get(r)!, p = s.players.find(p => p.id === host.sessionId)!; assert.equal(p.realm, 'wilds'); assert(Math.abs(p.y - terrainHeight(p.x, p.z, s.world.seed)) < .03); assert.equal(p.hp, 100); }
   console.log('PASS: shared procedural hills match authoritative footing for both clients');
+  if (building) { await constructionChecks(host,guest); } else {
   const site=shardSites(states.get(host)!.world.seed)[0]; await followWildRoute(host,site,()=>rooms.filter(r=>r.connection.isOpen).every(r=>states.get(r)?.players.some(p=>p.id===host.sessionId&&(p.relics&1)!==0)===true));
   assert.equal(me(host).relics,1);assert.equal(me(guest).relics,0);console.log('PASS: ordinary exploration discovered the Dawn skyshard for its explorer in both snapshots');
   if (waystones) {
@@ -117,5 +157,6 @@ try {
     host.send('ready'); guest.send('ready'); await until(() => states.get(host)!.players.every(p => p.ready)); host.send('start'); await until(() => [host, guest].every(r => states.get(r)?.phase === 'active'));
     assert(states.get(host)!.players.every(p => p.relics === 0 && p.wins === 1)); assert.equal(states.get(host)!.world.seed, seed);
     console.log('PASS: expedition rematch preserved shared wins and world seed while resetting the trail');
+  }
   }
 } finally { if (timer) clearInterval(timer); await Promise.all(rooms.filter(r => r.connection.isOpen).map(r => r.leave())); }

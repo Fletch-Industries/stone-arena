@@ -1,8 +1,9 @@
 import { WINDSTEP } from './expedition.js';
+import { BUILD, validKind } from './construction.js';
 import { LIMIT } from './arena.js';
 import { movementLimit, terrainHeight, worldBoxes, type Realm, type WorldState } from './world.js';
 export { BOXES, LIMIT, SPAWNS, ARENA_SIZE, type Box } from './arena.js';
-export const VERSION = 11;
+export const VERSION = 12;
 export type Mode = 'ffa' | 'teams' | 'ctf' | 'expedition';
 export type Team = 'red' | 'blue';
 export const MODES = { ffa: 'Free for all', teams: 'Team survival', ctf: 'Capture the flag', expedition: 'Co-op expedition' } as const;
@@ -37,10 +38,11 @@ export type Weapon = 'sword' | 'axe' | 'bow' | 'crossbow' | 'apple';
 export const WEAPONS: Weapon[] = ['sword', 'axe', 'bow', 'crossbow', 'apple'];
 export const COLORS = ['#f3b85b', '#6adbc8', '#a8a0ff', '#f58f9c', '#8ece6b'];
 export type Phase = 'waiting' | 'countdown' | 'active' | 'results';
-export interface Input { seq: number; x: number; z: number; yaw: number; pitch: number; jump: boolean; dash?: boolean; sprint: boolean; block: boolean; attack: boolean; weapon: Weapon; offhand: Offhand }
+export interface Input { seq: number; x: number; z: number; yaw: number; pitch: number; jump: boolean; dash?: boolean; weaving?: boolean; weaveKind?: number; sprint: boolean; block: boolean; attack: boolean; weapon: Weapon; offhand: Offhand }
 export const idleInput = (): Input => ({ seq: 0, x: 0, z: 0, yaw: 0, pitch: 0, jump: false, dash: false, sprint: false, block: false, attack: false, weapon: 'sword', offhand: 'shield' });
 export interface Body { dashTime?: number; dashCooldown?: number; dashYaw?: number; dashHeld?: boolean; realm?: Realm; x: number; y: number; z: number; vy: number; grounded: boolean; vx?: number; vz?: number; sprinting?: boolean; sprintLocked?: boolean }
 export interface Player extends Body {
+  weaving?: boolean; weaveKind?: number; weaveReadyAt?: number; buildCount?: number;
   warpTick?: number; warpReadyAt?: number;
   relics: number; realm: Realm; team: Team; respawnAt: number; immuneUntil: number; captures: number; flagReturns: number;
   id: string; name: string; color: number; yaw: number; pitch: number; hp: number; alive: boolean;
@@ -49,7 +51,7 @@ export interface Player extends Body {
   hurtTime: number; lastDamage: number; shieldRaise: number; swingWait: number; moveSpeed: number; cooldown: number; charge: number; loaded: boolean; shieldDisabled: number; eliminatedAt: number;
 }
 export interface Arrow { realm?: Realm; id: number; owner: string; x: number; y: number; z: number; vx: number; vy: number; vz: number; damage: number; age: number; critical?: boolean }
-export interface GameEvent { id: number; type: 'hit' | 'kill' | 'shot' | 'swing' | 'start' | 'result' | 'level' | 'heal' | 'totem' | 'flag_pickup' | 'flag_drop' | 'flag_return' | 'flag_capture' | 'door' | 'travel' | 'dash' | 'relic' | 'waystone' | 'warp'; actor?: string; target?: string; team?: Team; text?: string; blocked?: boolean; critical?: boolean; sprintHit?: boolean; sweep?: boolean }
+export interface GameEvent { id: number; type: 'hit' | 'kill' | 'shot' | 'swing' | 'start' | 'result' | 'level' | 'heal' | 'totem' | 'flag_pickup' | 'flag_drop' | 'flag_return' | 'flag_capture' | 'door' | 'travel' | 'dash' | 'relic' | 'waystone' | 'warp' | 'weave' | 'erase' | 'windlift'; actor?: string; target?: string; team?: Team; text?: string; position?: { x: number; y: number; z: number }; blocked?: boolean; critical?: boolean; sprintHit?: boolean; sweep?: boolean }
 export interface Snapshot { world: WorldState; mode: Mode; winnerTeam: Team | ''; scores: Record<Team, number>; flags: Flag[]; tick: number; phase: Phase; countdown: number; result: string; winner: string; round: number; host: string; practice: boolean; players: Player[]; arrows: Arrow[]; events: GameEvent[] }
 export function validInput(a: unknown): a is Input {
   if (!a || typeof a !== 'object') return false;
@@ -57,7 +59,7 @@ export function validInput(a: unknown): a is Input {
   return Number.isSafeInteger(i.seq) && i.seq >= 0 && i.seq < 2 ** 31 &&
     [i.x, i.z, i.yaw, i.pitch].every(Number.isFinite) && Math.abs(i.x) <= 1 && Math.abs(i.z) <= 1 &&
     Math.abs(i.yaw) <= Math.PI * 2 && Math.abs(i.pitch) <= 1.5 && WEAPONS.includes(i.weapon) && ['shield', 'totem'].includes(i.offhand) &&
-    (i.dash === undefined || typeof i.dash === 'boolean') && [i.jump, i.sprint, i.block, i.attack].every(v => typeof v === 'boolean');
+    (i.dash === undefined || typeof i.dash === 'boolean') && (i.weaving === undefined || typeof i.weaving === 'boolean') && (i.weaveKind === undefined || validKind(i.weaveKind)) && [i.jump, i.sprint, i.block, i.attack].every(v => typeof v === 'boolean');
 }
 export function direction(yaw: number, pitch = 0) { return { x: -Math.sin(yaw) * Math.cos(pitch), y: Math.sin(pitch), z: -Math.cos(yaw) * Math.cos(pitch) }; }
 // Velocity impulses share the same collision path as ordinary input on client/server.
@@ -77,7 +79,8 @@ export function move(body: Body, i: Input, dt = DT, slow = false, world?: WorldS
   const length = Math.max(1, Math.hypot(i.x, i.z));
   const speed = (body.sprinting ? SPRINT_SPEED : WALK_SPEED) * (i.block || slow ? .3 : 1);
   if (i.jump && body.grounded) {
-    body.vy = Math.sqrt(2 * GRAVITY * JUMP_HEIGHT); body.grounded = false;
+    const wind = body.realm === 'wilds' && world?.construction?.boxes(body.x - RADIUS, body.z - RADIUS, body.x + RADIUS, body.z + RADIUS).some(b => b.runeKind === 5 && Math.abs(body.y - (b.y! + 1)) < .03);
+    body.vy = Math.sqrt(2 * GRAVITY * (wind ? BUILD.windJump : JUMP_HEIGHT)); body.grounded = false;
     if (body.sprinting) { const d = direction(i.yaw); body.vx = (body.vx ?? 0) + d.x * 4; body.vz = (body.vz ?? 0) + d.z * 4; }
   }
   const dash = (body.dashTime ?? 0) > 0 && body.realm === 'wilds';
@@ -120,7 +123,7 @@ export function move(body: Body, i: Input, dt = DT, slow = false, world?: WorldS
     }
     body[axis] = next;
   }
-  if (realm === 'wilds') { const floor = terrainHeight(body.x, body.z, world?.seed ?? 0); if (body.y <= floor || body.grounded && Math.abs(body.y - floor) < .41) { body.y = floor; body.vy = 0; body.grounded = true; } }
+  if (realm === 'wilds') { const floor = terrainHeight(body.x, body.z, world?.seed ?? 0); if (body.y <= floor || body.grounded && Math.abs(body.y - floor) < .41 && !boxes.some(b => 'runeKey' in b && Math.abs(body.x - b.x) < b.w / 2 + RADIUS && Math.abs(body.z - b.z) < b.d / 2 + RADIUS && Math.abs(body.y - ((b.y ?? 0) + b.h)) < .001)) { body.y = floor; body.vy = 0; body.grounded = true; } }
   const friction = Math.pow(body.grounded ? .546 : .91, dt * 20);
   body.vx = (body.vx ?? 0) * friction; body.vz = (body.vz ?? 0) * friction;
   if (Math.abs(body.vx) < .001) body.vx = 0;
@@ -139,10 +142,12 @@ export function segmentBox(a: { x: number; y: number; z: number }, b: { x: numbe
 export function wallHit(a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number }, realm: Realm = 'arena', world?: WorldState) {
   let t = Infinity;
   for (const box of worldBoxes(Math.min(a.x, b.x), Math.min(a.z, b.z), Math.max(a.x, b.x), Math.max(a.z, b.z), realm, world)) t = Math.min(t, segmentBox(a, b, [box.x - box.w / 2, box.y ?? 0, box.z - box.d / 2], [box.x + box.w / 2, (box.y ?? 0) + box.h, box.z + box.d / 2]));
-  if (realm === 'wilds') {
-    const steps = Math.max(1, Math.min(64, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z) * 4)));
-    const below = (f: number) => a.y + (b.y - a.y) * f <= terrainHeight(a.x + (b.x - a.x) * f, a.z + (b.z - a.z) * f, world?.seed ?? 0);
-    for (let n = 0; n <= steps; n++) if (below(n / steps)) { let lo = Math.max(0, (n - 1) / steps), hi = n / steps; for (let k = 0; k < 12; k++) { const mid = (lo + hi) / 2; if (below(mid)) hi = mid; else lo = mid; } t = Math.min(t, hi); break; }
-  }
+  if (realm === 'wilds') t = Math.min(t, terrainHit(a, b, world?.seed ?? 0));
   return t;
+}
+export function terrainHit(a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number }, seed: number) {
+    const steps = Math.max(1, Math.min(64, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z) * 4)));
+    const below = (f: number) => a.y + (b.y - a.y) * f <= terrainHeight(a.x + (b.x - a.x) * f, a.z + (b.z - a.z) * f, seed);
+    for (let n = 0; n <= steps; n++) if (below(n / steps)) { let lo = Math.max(0, (n - 1) / steps), hi = n / steps; for (let k = 0; k < 12; k++) { const mid = (lo + hi) / 2; if (below(mid)) hi = mid; else lo = mid; } return hi; }
+    return Infinity;
 }

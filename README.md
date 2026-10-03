@@ -33,8 +33,8 @@ distance appear on the HUD. Discovery persists through rematches and reconnects.
 
 Travel preserves health, equipment and supplies. Combat works between players in
 the same area. Capture-the-flag objectives stay in the citadel: entering the tunnel
-drops a carried flag. This is an exploration landscape, without mining, building,
-saved progression or extra lives.
+drops a carried flag. Weave original structures in the Wilds and keep a portable
+world save; mining and survival crafting are still ahead.
 
 Follow the **Dawn, Tide and Dusk skyshard beacons** in the Wilds. Touch each
 floating rune to collect it. Find all three to earn a **Warden aura** visible to
@@ -85,6 +85,36 @@ wind, a quiet ambient melody, weapon swings, bow strings, shield impacts and
 skyshard chimes. Sound starts after a play gesture. Settings offers volume and an
 **Ambient melody** toggle. Attack arcs, held hands, moving scarves, landing motion,
 rune spark effects and a rotating Warden aura bring movement and combat to life.
+
+## Weave your own world
+
+Press **B** or tap **Rune build** in the Wilds to hold a crystal weaving wand.
+Choose **Runestone, Sunwood, Moon glass, Mossstone, Glow rune or Windlift** with
+1–6, the wheel, or the touch palette. Aim within six blocks: left mouse / Weave
+places a rune on ground or beside an existing rune, and right mouse / Erase
+removes it. Switch B again to use your tools. Rune cover blocks players, arrows,
+melee sightlines and third-person cameras using the same authoritative geometry.
+**Windlift tiles turn a jump into a four-block leap**, making shared parkour
+courses, elevated paths and hidden sky lodges possible. Rune effects, wand arcs,
+and gentle weave/erase sounds use the existing bounded animation and audio pools.
+
+Each explorer has room for **512 runes**, with **4,096 per world**. Erasing refunds
+space. Build above ground and below 64 blocks high. The arrival clearing,
+skyshards, waystones, native trees and other players remain clear. Construction
+rests for five seconds after damage. In co-op, friends can erase shared builds;
+competitive players erase their own runes, and the host can tidy any structure.
+Rune structures remain in the room across rematches and reconnects.
+
+Open **Saved worlds** in the lobby or Settings. The host's browser automatically
+keeps up to **three recent worlds**, saving changes about every ten seconds and
+when leaving normally. **Download this world** makes a portable JSON file that
+contains terrain seed, buildings, the open door and awakened waystones. Restore a
+recent world or open its file **as a lobby host**, then everyone readies again.
+Health, supplies and personal skyshards start fresh; player names and combat stats
+are excluded. Restored structures belong to the world; the host and co-op friends
+can edit them. Browser storage can be cleared or unavailable: keep a downloaded
+file for anything you want to retain. Rooms are still temporary and server restarts
+do not restore them automatically.
 
 ## Teams and capture the flag
 

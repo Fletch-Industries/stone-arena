@@ -31,3 +31,5 @@ jobs:
           npx tsx tests/wilds.ts
           npx tsx tests/wilds.ts --expedition
           npx tsx tests/wilds.ts --waystones
+          npx tsx tests/wilds.ts --building
+          npx tsx tests/world-capacity.ts

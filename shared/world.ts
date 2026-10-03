@@ -4,8 +4,9 @@ import { waystoneSites, waystoneBoxes } from './waystones.js';
 import { hash, noise } from './noise.js';
 export { hash } from './noise.js';
 import { BOXES, LIMIT, type Box } from './arena.js';
+import type { Construction } from './construction.js';
 export type Realm = 'arena' | 'wilds';
-export interface WorldState { seed: number; doorOpen: boolean; waystones?: number }
+export interface WorldState { seed: number; doorOpen: boolean; waystones?: number; title?: string; buildRevision?: number; construction?: Construction }
 export const SECRET = { x: -26, z: -48, halfWidth: 2, end: -65 } as const;
 export const WORLD_LIMIT = 4096;
 export const CHUNK_SIZE = 24;
@@ -68,6 +69,7 @@ export function worldBoxes(x0: number, z0: number, x1: number, z1: number, realm
     boxes.push({ x: t.x, z: t.z, w: .7, d: .7, h: t.height, y: t.y, surface: 'wood' }, { x: t.x, z: t.z, w: 4, d: 4, h: 4, y: t.y + t.height - 1 });
   }
   for (const site of waystoneSites(world?.seed ?? 0)) if (site.x > Math.min(x0, x1) - 7 && site.x < Math.max(x0, x1) + 7 && site.z > Math.min(z0, z1) - 7 && site.z < Math.max(z0, z1) + 7) boxes.push(...waystoneBoxes(site, world?.seed ?? 0));
+  if (world?.construction) boxes.push(...world.construction.boxes(x0 - .35, z0 - .35, x1 + .35, z1 + .35));
   return boxes;
 }
 export function movementLimit(axis: 'x' | 'z', x: number, z: number, next: number, realm: Realm, open: boolean) {

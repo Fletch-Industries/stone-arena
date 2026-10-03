@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-export type Surface = 'stone' | 'brick' | 'cobble' | 'paving' | 'wood' | 'metal' | 'cloth' | 'grass' | 'bark' | 'leaves';
+export type Surface = 'stone' | 'brick' | 'cobble' | 'paving' | 'wood' | 'metal' | 'cloth' | 'grass' | 'bark' | 'leaves' | 'rune' | 'wind-rune';
 /** Original seamless pixel maps. No downloaded textures or game assets. */
 export class TextureLibrary {
   private maps = new Map<Surface, THREE.CanvasTexture>();
@@ -24,7 +24,15 @@ export class TextureLibrary {
       const fine = Math.floor(noise(x, y, 3) * 5) * 2 - 4;
       const coarse = Math.floor(noise(Math.floor(x / 3), Math.floor(y / 3), 9) * 5) * 3 - 6;
       let v = 150 + fine + coarse, h = .7, rgb = [v, v + 1, v + 2];
-      if (surface === 'paving') {
+      if (surface === 'rune' || surface === 'wind-rune') {
+        const edge = x < 2 || y < 2 || x > 29 || y > 29;
+        const diamond = Math.abs(Math.abs(x - 15.5) + Math.abs(y - 15.5) - 8) < 1.25;
+        const corner = Math.abs(x - 15.5) < 1 && (y < 8 || y > 23) || Math.abs(y - 15.5) < 1 && (x < 8 || x > 23);
+        const arrow = y >= 9 && y <= 23 && Math.abs(x - 15.5) < 1.5 || y >= 7 && y < 14 && Math.abs(Math.abs(x - 15.5) - (y - 7)) < 1.5;
+        const mark = surface === 'wind-rune' ? arrow : diamond || corner;
+        v = edge ? 91 : mark ? 238 : 156 + fine + coarse * .4;
+        rgb = [v, v, v]; h = edge ? .25 : mark ? .85 : .65;
+      } else if (surface === 'paving') {
         const row = Math.floor(y / 16), xx = (x + row * 8) % 16, yy = y % 16;
         const seam = xx === 0 || yy === 0, bevel = xx === 1 || yy === 1;
         const slab = noise(Math.floor((x + row * 8) / 16), row, 57);

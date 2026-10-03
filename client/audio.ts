@@ -10,6 +10,9 @@ export class ArenaAudio {
   noise(seconds:number,cutoff:number,gain:number){const c=this.context;if(!c||!this.master||!this.noiseBuffer||this.voices>=32)return;this.voices++;const b=c.createBufferSource(),filter=c.createBiquadFilter(),g=c.createGain(),t=c.currentTime;b.buffer=this.noiseBuffer;filter.type='lowpass';filter.frequency.value=cutoff;g.gain.setValueAtTime(gain,t);g.gain.exponentialRampToValueAtTime(.0001,t+seconds);b.connect(filter);filter.connect(g);g.connect(this.master);b.start(t,Math.random()*.7);b.stop(t+seconds+.02);b.onended=()=>{b.disconnect();filter.disconnect();g.disconnect();this.voices--;}; }
   chime(gain=.1){[293.66,369.99,440,587.33].forEach((f,i)=>this.tone(f,.65,gain,i*.11));}
   event(e:GameEvent,local:boolean,gain=1){if(!this.context)return;gain*=local?1:.35;
+    if(e.type==='windlift'){this.tone(220,.38,.065*gain,0,'sine',880);this.noise(.22,2800,.055*gain);}
+    if(e.type==='weave'){this.tone(330,.17,.045*gain,0,'triangle',660);this.tone(990,.2,.018*gain,.04);this.noise(.06,2000,.035*gain);}
+    if(e.type==='erase'){this.tone(660,.15,.035*gain,0,'sine',220);this.noise(.13,1500,.035*gain);}
     if(e.type==='swing')this.noise(.15,1800,.1*gain);
     if(e.type==='shot'){this.tone(180,.18,.13*gain,0,'triangle',65);this.noise(.07,2800,.06*gain);}
     if(e.type==='hit'){this.noise(e.blocked ? .2 : .11,e.blocked?4000:1200,.18*gain);if(e.blocked)[540,880,1460].forEach(f=>this.tone(f,.3,.05*gain));else this.tone(e.critical?170:90,.14,.1*gain,0,'triangle',45);}

@@ -174,3 +174,24 @@ location and travel readiness. Phone layouts scroll and keep every destination
 accessible. The preview includes habitat/waystone controls, reduced motion, the
 atlas and bounded-cache counters. All art and audio are generated locally from
 original code; no Minecraft assets or external asset services are included.
+
+## Shared rune construction
+
+`shared/construction.ts` keeps at most 4,096 blocks in sparse 16m collision regions.
+Nearby movement, projectiles and camera queries reuse cached boxes. Normal 20Hz
+snapshots carry a revision and player counts, without full construction geometry.
+Compact ordered edit packets replicate changes; joins/reconnects and gap recovery
+receive a bounded full state. The client stages only edited cells for atomic updates.
+
+`client/construction.ts` uses six fixed-capacity instanced meshes and a single
+placement preview cube. Visible matrices rebuild only on edits, graphics changes
+or crossing a 16m camera region. All six materials share cube geometry; rune glyph
+textures, opaque opal glass, emissive tiles and the crystal wand are original assets.
+There are no per-rune point lights, individual meshes or postprocessing passes.
+Windlift jumps share client/server physics. Placement sparks share the fixed pool;
+weave and erase sounds use the 32-voice synth budget. Reduced motion suppresses sparks.
+
+Portable world uploads retain the 4KiB inbound WebSocket ceiling by sending up to
+64 coordinate tuples per packet. Validation checks the whole bounded world before
+replacing a lobby; landmarks, terrain and native geometry remain protected. The
+host's optional three-world browser book is bounded and stores no player names.

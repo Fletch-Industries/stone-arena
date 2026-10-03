@@ -4,6 +4,7 @@ import express from 'express';
 import { resolve } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { SeatRegistry } from './seats.js';
+import { WorldImport } from './world-import.js';
 import { Simulation } from './simulation.js';
 import { DT, VERSION, validInput } from '../shared/game.js';
 import { isUnavailable, unavailableMessage } from './availability.js';
@@ -19,6 +20,9 @@ export class ArenaRoom extends Room {
   lastSeen = new Map<string, number>();
   expired = new Set<string>();
   latencySent = new Map<string, number>();
+  lastBuildSync = new Map<string, number>();
+  worldImports = new Map<string, WorldImport>();
+  sendConstruction(c: Client, force = false) { const now = performance.now(); if (!force && now - (this.lastBuildSync.get(c.sessionId) ?? -1000) < 750) return; this.lastBuildSync.set(c.sessionId, now); c.send('construction', this.sim.world.construction!.state(this.sim.world.seed)); }
   onCreate(options: { private?: boolean } = {}) {
     if (options.private !== undefined && typeof options.private !== 'boolean') throw new ServerError(400, 'Invalid arena visibility.');
     if (isUnavailable()) throw new ServerError(503, unavailableMessage);
@@ -38,7 +42,16 @@ export class ArenaRoom extends Room {
     this.onMessage('lobby', c => this.sim.lobby(c.sessionId));
     this.onMessage('ping', (c, n) => { if (typeof n === 'number' && Number.isFinite(n)) { this.lastSeen.set(c.sessionId, performance.now()); c.send('pong', n); } });
     this.onMessage('latencyAck', (c, n) => { if (n === this.latencySent.get(c.sessionId)) { this.sim.rewindTicks.set(c.sessionId, Math.min(6, Math.round((performance.now() - n) / 2 / (1000 / 60)))); this.latencySent.delete(c.sessionId); } });
-    this.onMessage('sync', c => { this.lastSeen.set(c.sessionId, performance.now()); c.send('snapshot', this.sim.snapshot()); });
+    this.onMessage('sync', c => { this.lastSeen.set(c.sessionId, performance.now()); this.sendConstruction(c); c.send('snapshot', this.sim.snapshot()); });
+    this.onMessage('constructionSync', c => { const now = performance.now(); if (now - (this.lastBuildSync.get(c.sessionId) ?? -1000) < 1000) return; this.sendConstruction(c); });
+    this.onMessage('worldRestore', (c, data) => {
+      if (c.sessionId !== this.sim.host || this.sim.phase !== 'waiting' || !this.sim.players.get(c.sessionId)?.connected) { this.worldImports.delete(c.sessionId); c.send('actionError', 'The host can restore a world in the lobby.'); return; }
+      const now = performance.now(); this.lastSeen.set(c.sessionId, now);
+      let upload = this.worldImports.get(c.sessionId); if (!upload) { upload = new WorldImport(); this.worldImports.set(c.sessionId, upload); }
+      const ok = data?.type === 'begin' ? upload.begin(data.header, data.count, now) : data?.type === 'chunk' ? upload.chunk(data.offset, data.blocks, now) : data?.type === 'commit' ? this.sim.restore(c.sessionId, upload.finish(now)) : false;
+      if (!ok) { this.worldImports.delete(c.sessionId); c.send('actionError', 'That world could not be restored. Choose a Stone Arena world save.'); return; }
+      if (data.type === 'commit') { this.worldImports.delete(c.sessionId); for (const player of this.clients) this.sendConstruction(player, true); this.broadcast('snapshot', this.sim.snapshot()); c.send('worldRestored'); }
+    });
     this.setTimestep((elapsed) => {
       this.accumulator = Math.min(this.accumulator + elapsed / 1000, .1);
       while (this.accumulator >= DT) { this.sim.step(); this.accumulator -= DT; }
@@ -52,6 +65,7 @@ export class ArenaRoom extends Room {
     this.setPatchRate(null);
     this.clock.setInterval(() => {
       if (isUnavailable()) { this.broadcast('maintenance'); void this.disconnect(); return; }
+      for (const upload of this.worldImports.values()) upload.expire(performance.now());
       for (const c of this.clients) if (!this.expired.has(c.sessionId) && performance.now() - (this.lastSeen.get(c.sessionId) ?? 0) > heartbeatMs) {
         this.expired.add(c.sessionId); c.leave(4000, 'Connection inactive. Join the arena again.');
       }
@@ -59,9 +73,11 @@ export class ArenaRoom extends Room {
     this.clock.setInterval(() => { for (const c of this.clients) { const n = performance.now(); this.latencySent.set(c.sessionId, n); c.send('latency', n); } }, 2000);
     this.clock.setInterval(() => {
       const snapshot = this.sim.snapshot();
+      const construction = this.sim.world.construction!.drain(this.sim.world.seed);
       for (const c of this.clients) {
         const socket = c.raw as unknown as { bufferedAmount?: number };
         if ((socket.bufferedAmount ?? 0) > 256_000) { c.leave(4002, 'Connection too slow'); continue; }
+        if (construction) c.send('blocks' in construction ? 'construction' : 'constructionChanges', construction);
         c.send('snapshot', snapshot);
       }
     }, 50);
@@ -79,11 +95,11 @@ export class ArenaRoom extends Room {
     if (!seats.claim(opts.seatKey ?? c.sessionId, this.roomId, c.sessionId)) throw new ServerError(409, 'This browser tab already has a seat. Return to the existing arena or close the duplicate tab. Abandoned connections expire within 30 seconds.');
     try { this.sim.add(c.sessionId, opts.name.trim().replace(/[\u0000-\u001f<>]/g, '').slice(0, 24) || 'Player'); }
     catch (e) { seats.releasePlayer(this.roomId, c.sessionId); throw e; }
-    this.lastSeen.set(c.sessionId, performance.now()); c.send('snapshot', this.sim.snapshot());
+    this.lastSeen.set(c.sessionId, performance.now()); this.sendConstruction(c); c.send('snapshot', this.sim.snapshot());
   }
   async onDrop(c: Client) { this.sim.disconnect(c.sessionId); try { await this.allowReconnection(c, 15); } catch { /* onLeave finalizes the forfeit */ } }
-  onReconnect(c: Client) { this.lastSeen.set(c.sessionId, performance.now()); this.expired.delete(c.sessionId); const p = this.sim.players.get(c.sessionId); if (p) p.connected = true; this.sim.transferHost(); c.send('snapshot', this.sim.snapshot()); }
-  onLeave(c: Client) { this.sim.leave(c.sessionId); seats.releasePlayer(this.roomId, c.sessionId); this.lastSeen.delete(c.sessionId); this.expired.delete(c.sessionId); this.latencySent.delete(c.sessionId); }
+  onReconnect(c: Client) { this.lastSeen.set(c.sessionId, performance.now()); this.expired.delete(c.sessionId); const p = this.sim.players.get(c.sessionId); if (p) p.connected = true; this.sim.transferHost(); this.sendConstruction(c, true); c.send('snapshot', this.sim.snapshot()); }
+  onLeave(c: Client) { this.sim.leave(c.sessionId); seats.releasePlayer(this.roomId, c.sessionId); this.lastSeen.delete(c.sessionId); this.expired.delete(c.sessionId); this.latencySent.delete(c.sessionId); this.lastBuildSync.delete(c.sessionId); this.worldImports.delete(c.sessionId); }
   onDispose() { activeRooms.delete(this.roomId); seats.releaseRoom(this.roomId); }
 }
 
