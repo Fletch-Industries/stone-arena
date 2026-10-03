@@ -32,7 +32,8 @@ try {
   const visible = (await listing()).find(a => a.roomId === host.roomId)!;
   assert.deepEqual(Object.keys(visible).sort(), ['capacity', 'host', 'mode', 'players', 'roomId']);
   assert.equal(visible.mode, 'ffa'); host.send('mode', { mode: 'ctf' });
-  await until(async () => (await listing()).some(a => a.roomId === host.roomId && a.mode === 'ctf')); host.send('mode', { mode: 'ffa' });
+  await until(async () => (await listing()).some(a => a.roomId === host.roomId && a.mode === 'ctf')); host.send('mode', { mode: 'expedition' });
+  await until(async () => (await listing()).some(a => a.roomId === host.roomId && a.mode === 'expedition')); host.send('mode', { mode: 'ffa' });
   assert.equal(visible.host, 'Host & friends'); assert.equal(visible.capacity, 5);
   const guests: Room[] = [];
   for (let n = 0; n < 4; n++) guests.push(track(await client.joinById(visible.roomId, { name: `Guest ${n}`, version: VERSION })));

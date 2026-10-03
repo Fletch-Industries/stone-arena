@@ -32,7 +32,7 @@ export class ArenaRoom extends Room {
     this.onMessage('interact', c => { this.lastSeen.set(c.sessionId, performance.now()); if (!this.sim.interact(c.sessionId)) c.send('actionError', 'Move closer to the unusual stone panel.'); });
     this.onMessage('mode', (c, data) => { if (!this.sim.selectMode(c.sessionId, data?.mode)) c.send('actionError', 'Only the host can change mode in the lobby.'); });
     this.onMessage('team', (c, data) => { if (!this.sim.selectTeam(c.sessionId, data?.team)) c.send('actionError', 'Choose Red or Blue in the lobby. Each team holds three players.'); });
-    this.onMessage('start', (c, data) => { this.lastSeen.set(c.sessionId, performance.now()); if (this.sim.start(c.sessionId, data?.practice === true)) void this.lock(); else c.send('actionError', 'The host can start when everyone is ready. Team modes need both teams, balanced within one player. With one player, choose Practice solo.'); });
+    this.onMessage('start', (c, data) => { this.lastSeen.set(c.sessionId, performance.now()); if (this.sim.start(c.sessionId, data?.practice === true)) void this.lock(); else c.send('actionError', 'The host can start when everyone is ready. Team modes need both teams, balanced within one player. Solo expeditions can start normally; other solo modes use Practice solo.'); });
     this.onMessage('practiceArmor', (c, data) => { if (this.sim.previewArmor(c.sessionId, data?.level)) c.send('snapshot', this.sim.snapshot()); else c.send('actionError', 'Armor preview is available during solo practice.'); });
     this.onMessage('lobby', c => this.sim.lobby(c.sessionId));
     this.onMessage('ping', (c, n) => { if (typeof n === 'number' && Number.isFinite(n)) { this.lastSeen.set(c.sessionId, performance.now()); c.send('pong', n); } });

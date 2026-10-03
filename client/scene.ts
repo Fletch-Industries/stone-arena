@@ -4,7 +4,7 @@ import { RuneLandmarks } from './landmarks.js';
 import { SECRET, PASSAGE, RETURN_PASSAGE } from '../shared/world.js';
 import { TerrainStreamer } from './terrain.js';
 import * as THREE from 'three';
-import { TEAMS, playerColor, type Mode, type Team, ARENA_SIZE, SPAWNS, BOXES, COLORS, EYE, armorTier, attackStrength, type Body, type GameEvent, type Player, type Snapshot, type Weapon } from '../shared/game.js';
+import { TEAMS, isTeamMode, playerColor, type Mode, type Team, ARENA_SIZE, SPAWNS, BOXES, COLORS, EYE, armorTier, attackStrength, type Body, type GameEvent, type Player, type Snapshot, type Weapon } from '../shared/game.js';
 import { LANDMARKS } from '../shared/arena.js';
 import { locomotionPose } from './animation.js';
 import { TextureLibrary, type Surface } from './textures.js';
@@ -17,6 +17,8 @@ export class ArenaScene {
   arena = new THREE.Group(); worldDecor = new THREE.Group(); terrain = new TerrainStreamer(); secretDoor = new THREE.Group();
   atmosphere: Atmosphere; sparks: SparkPool; runeLandmarks = new RuneLandmarks();
   auraGeometry = new THREE.TorusGeometry(.7,.022,4,24); runeGeometry = new THREE.IcosahedronGeometry(.17,0);
+  auraMaterial = new THREE.MeshBasicMaterial({color:'#76fff1'});
+  runeMaterials = ['#ffcd6b','#60e1e6','#c197ff'].map(color => new THREE.MeshBasicMaterial({color}));
   viewRealm = 'arena'; dashTrailTime = 0; lastWeaponYaw = 0; landingKick = 0; wasGrounded = true;
   bases = new Map<Team, THREE.Group>(); flags = new Map<Team, THREE.Group>();
   avatars = new Map<string, THREE.Group>(); arrowMeshes = new Map<number, THREE.Mesh>(); weapon = new THREE.Group(); leftHand = new THREE.Group();
@@ -50,7 +52,7 @@ export class ArenaScene {
     this.scene.add(this.sun, this.sun.target, this.contactShadows);
     this.scene.add(this.arena, this.terrain.group, this.worldDecor); this.worldDecor.visible = false;
     const floorGeo = new THREE.PlaneGeometry(ARENA_SIZE, ARENA_SIZE); this.repeatUV(floorGeo, ARENA_SIZE/3, ARENA_SIZE/3);
-    const floor = new THREE.Mesh(floorGeo, this.surface('cobble')); floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; this.arena.add(floor);
+    const floor = new THREE.Mesh(floorGeo, this.surface('paving')); floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; this.arena.add(floor);
     // Unit masonry keeps a consistent pixel density. All wall blocks share one draw call.
     const positions: number[][] = [];
     const edge = ARENA_SIZE / 2 + .5;
@@ -306,7 +308,7 @@ export class ArenaScene {
     for (const p of snapshot?.players ?? []) {
       const g = this.avatars.get(p.id) ?? this.makeAvatar(p, snapshot!.mode); g.visible = p.realm === realm && p.alive && (inspecting || (thirdPerson && cameraGap > .65) || p.id !== (inRound ? follow?.id : undefined));
       g.userData.realm=p.realm;
-      let aura=g.getObjectByName('warden-aura'); if(!aura){aura=new THREE.Group();aura.name='warden-aura';const ring=new THREE.Mesh(this.auraGeometry,new THREE.MeshBasicMaterial({color:'#76fff1'}));ring.rotation.x=Math.PI/2;ring.position.y=.15;aura.add(ring);for(let n=0;n<3;n++){const shard=new THREE.Mesh(this.runeGeometry,new THREE.MeshBasicMaterial({color:['#ffcd6b','#60e1e6','#c197ff'][n]}));shard.position.set(Math.cos(n*2.094)*.8,1.4,Math.sin(n*2.094)*.8);aura.add(shard);}g.add(aura);} aura.visible=p.relics===7; aura.rotation.y=this.reduced?0:this.time*.8;
+      let aura=g.getObjectByName('warden-aura'); if(!aura){aura=new THREE.Group();aura.name='warden-aura';const ring=new THREE.Mesh(this.auraGeometry,this.auraMaterial);ring.rotation.x=Math.PI/2;ring.position.y=.15;aura.add(ring);for(let n=0;n<3;n++){const shard=new THREE.Mesh(this.runeGeometry,this.runeMaterials[n]);shard.position.set(Math.cos(n*2.094)*.8,1.4,Math.sin(n*2.094)*.8);aura.add(shard);}g.add(aura);} aura.visible=p.relics===7; aura.rotation.y=this.reduced?0:this.time*.8;
       // Hide only the followed avatar's name; it otherwise blocks the aiming area.
       for (const child of g.children) if (child instanceof THREE.Sprite) child.visible = p.id !== follow?.id || !inRound;
       const shadow = this.avatarShadows.get(p.id)!; shadow.visible = !wild && p.realm === realm && p.alive && p.y < 1.5; shadow.position.set(p.x, .014, p.z); shadow.scale.setScalar(.7 + p.y * .15);
@@ -338,7 +340,7 @@ export class ArenaScene {
     for (const [id, m] of this.arrowMeshes) if (!arrowIds.has(id)) { this.scene.remove(m); this.arrowMeshes.delete(id); }
     for (const a of snapshot?.arrows ?? []) { let m = this.arrowMeshes.get(a.id); if (!m) { m = new THREE.Mesh(this.arrowGeo, this.material('#d8b277')); this.scene.add(m); this.arrowMeshes.set(a.id, m); } m.visible = (a.realm ?? 'arena') === realm; m.position.set(a.x, a.y, a.z); m.lookAt(a.x + a.vx, a.y + a.vy, a.z + a.vz); }
     for (const [team, base] of this.bases) {
-      base.visible = !!snapshot && snapshot.mode !== 'ffa';
+      base.visible = !!snapshot && isTeamMode(snapshot.mode);
       const flag = this.flags.get(team)!, state = snapshot?.flags.find(f => f.team === team); flag.visible = snapshot?.mode === 'ctf' && !!state;
       if (state) {
         const carrier = snapshot?.players.find(p => p.id === state.carrier), body = carrier?.id === me?.id && local ? local : carrier;

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-export type Surface = 'stone' | 'brick' | 'cobble' | 'wood' | 'metal' | 'cloth' | 'grass' | 'bark' | 'leaves';
+export type Surface = 'stone' | 'brick' | 'cobble' | 'paving' | 'wood' | 'metal' | 'cloth' | 'grass' | 'bark' | 'leaves';
 /** Original seamless pixel maps. No downloaded textures or game assets. */
 export class TextureLibrary {
   private maps = new Map<Surface, THREE.CanvasTexture>();
@@ -24,7 +24,13 @@ export class TextureLibrary {
       const fine = Math.floor(noise(x, y, 3) * 5) * 2 - 4;
       const coarse = Math.floor(noise(Math.floor(x / 3), Math.floor(y / 3), 9) * 5) * 3 - 6;
       let v = 150 + fine + coarse, h = .7, rgb = [v, v + 1, v + 2];
-      if (surface === 'brick') {
+      if (surface === 'paving') {
+        const row = Math.floor(y / 16), xx = (x + row * 8) % 16, yy = y % 16;
+        const seam = xx === 0 || yy === 0, bevel = xx === 1 || yy === 1;
+        const slab = noise(Math.floor((x + row * 8) / 16), row, 57);
+        v = (seam ? 86 : 125 + slab * 16 + (bevel ? 7 : 0)) + fine * .3 + coarse * .3;
+        rgb = [v * .87, v * .96, v]; h = seam ? .3 : bevel ? .8 : .7;
+      } else if (surface === 'brick') {
         const row = Math.floor(y / 8), xx = (x + (row % 2) * 8) % 16, yy = y % 8;
         const seam = xx === 0 || yy === 0, edge = xx === 1 || yy === 1;
         v = seam ? 104 + fine : 153 + fine + coarse + (edge ? 13 : xx === 15 || yy === 7 ? -10 : 0);

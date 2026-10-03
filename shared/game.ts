@@ -2,14 +2,15 @@ import { WINDSTEP } from './expedition.js';
 import { LIMIT } from './arena.js';
 import { movementLimit, terrainHeight, worldBoxes, type Realm, type WorldState } from './world.js';
 export { BOXES, LIMIT, SPAWNS, ARENA_SIZE, type Box } from './arena.js';
-export const VERSION = 9;
-export type Mode = 'ffa' | 'teams' | 'ctf';
+export const VERSION = 10;
+export type Mode = 'ffa' | 'teams' | 'ctf' | 'expedition';
 export type Team = 'red' | 'blue';
-export const MODES = { ffa: 'Free for all', teams: 'Team survival', ctf: 'Capture the flag' } as const;
+export const MODES = { ffa: 'Free for all', teams: 'Team survival', ctf: 'Capture the flag', expedition: 'Co-op expedition' } as const;
+export const isTeamMode = (mode?: Mode) => mode === 'teams' || mode === 'ctf';
 export const TEAMS = { red: { name: 'Red', color: '#ff7777', x: -40, z: 0 }, blue: { name: 'Blue', color: '#75baff', x: 40, z: 0 } } as const;
 export const CTF = { target: 3, respawnTicks: 300, returnTicks: 1800, protectionTicks: 120, radius: 1.4 } as const;
 export interface Flag { team: Team; state: 'home' | 'carried' | 'dropped'; x: number; y: number; z: number; carrier: string; returnAt: number }
-export const playerColor = (p: Player, mode: Mode = 'ffa') => mode === 'ffa' ? COLORS[p.color] : TEAMS[p.team].color;
+export const playerColor = (p: Player, mode: Mode = 'ffa') => isTeamMode(mode) ? TEAMS[p.team].color : COLORS[p.color];
 // Round progression is an arena rule, not Minecraft's XP/armor formula.
 export const ARMOR_TIERS = [
   { level: 1, xp: 0, name: 'Unarmored', reduction: 0 },

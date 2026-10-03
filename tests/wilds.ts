@@ -5,6 +5,7 @@ import { terrainHeight, worldBoxes } from '../shared/world.js';
 import { shardSites } from '../shared/expedition.js';
 import { navigator } from './navigation.js';
 const client = new Client(process.env.TEST_ENDPOINT ?? 'http://127.0.0.1:3107'), rooms: Room[] = [], states = new Map<Room, Snapshot>(), sequences = new Map<Room, number>();
+const expedition = process.argv.includes('--expedition');
 let timer: ReturnType<typeof setInterval> | undefined;
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 async function until(check: () => boolean, seconds = 80) { const end = Date.now() + seconds * 1000; while (!check()) { if (Date.now() > end) throw Error('Wilds timed out: ' + JSON.stringify([...states.values()].map(s => ({ world: s.world, players: s.players.map(p => ({ id: p.id, realm: p.realm, x: p.x, y: p.y, z: p.z, hp: p.hp })) })))); await wait(25); } }
@@ -30,6 +31,7 @@ try {
   const host = track(await client.create('arena', { name: 'Wilds explorer', version: VERSION, private: true }));
   let guest = track(await client.joinById(host.roomId, { name: 'Terrain observer', version: VERSION }));
   await until(() => rooms.every(r => states.get(r)?.players.length === 2)); assert.equal(states.get(host)!.world.seed, states.get(guest)!.world.seed);
+  if (expedition) { host.send('mode', { mode: 'expedition' }); await until(() => rooms.every(r => states.get(r)?.mode === 'expedition')); }
   host.send('ready'); guest.send('ready'); await until(() => states.get(host)!.players.every(p => p.ready)); host.send('start'); await until(() => states.get(host)?.phase === 'active');
   guest.send('interact'); await wait(100); assert(!states.get(host)!.world.doorOpen);
   await walk(host, -26, -46); host.send('interact'); await until(() => rooms.every(r => states.get(r)?.world.doorOpen === true));
@@ -37,6 +39,14 @@ try {
   await walk(host, -26, -65, () => rooms.every(r => states.get(r)?.players.some(p => p.id === host.sessionId && p.realm === 'wilds') === true), false);
   assert.equal(me(host).hp, 100); assert.equal(me(guest).realm, 'arena');
   console.log('PASS: both clients observed traversing the passage into the Wilds');
+  const beforeDash = { ...me(host) }, guestBeforeDash = { ...me(guest) };
+  controls(host, { dash: true });
+  await until(() => rooms.every(r => (states.get(r)?.players.find(p => p.id === host.sessionId)?.dashCooldown ?? 0) > 0), 5);
+  controls(host);
+  await until(() => rooms.every(r => (states.get(r)?.players.find(p => p.id === host.sessionId)?.dashTime ?? 0) === 0), 5);
+  for (const r of rooms) { const p = states.get(r)!.players.find(p => p.id === host.sessionId)!; assert(Math.hypot(p.x - beforeDash.x, p.z - beforeDash.z) > 6); assert(Math.hypot(p.x - beforeDash.x, p.z - beforeDash.z) < 7.5); assert.equal(p.hp, 100); }
+  assert.equal(me(guest).x, guestBeforeDash.x); assert.equal(me(guest).z, guestBeforeDash.z);
+  console.log('PASS: Windstep replicated its seven-block dash and cooldown to both clients without moving the observer');
   // Pick a clear radial route from the spawn, avoiding generated trunk/foliage
   // collisions through the same shared geometry used by ordinary movement.
   let target = { x: 0, z: -38 };
@@ -57,4 +67,22 @@ try {
   assert.equal(states.get(guest)!.players.find(p=>p.id===host.sessionId)!.relics,1); await followWildRoute(host,{x:0,z:0}); await walk(host, 0, 10, () => me(host).realm === 'arena', false);
   assert.equal(me(host).hp, 100); assert(Math.abs(me(host).x + 26) < .01); assert(me(host).z < -59); assert.equal(states.get(host)!.phase, 'active');
   console.log('PASS: reconnect preserved world discovery; return tunnel restored arena location and health');
+  if (expedition) {
+    await walk(host, -26, -65, () => me(host).realm === 'wilds', false);
+    for (const remaining of shardSites(seed).slice(1)) await followWildRoute(host, remaining, () => (me(host).relics & 1 << remaining.id) !== 0);
+    await followWildRoute(host, { x: 0, z: 0 }); await walk(host, 0, 10, () => me(host).realm === 'arena', false);
+    assert.equal(me(host).relics, 7); assert.equal(states.get(host)!.phase, 'active'); assert.equal(me(host).wins, 0);
+    console.log('PASS: one completed explorer returning home does not prematurely end the expedition');
+    await walk(guest, -26, -46); await walk(guest, -26, -65, () => me(guest).realm === 'wilds', false);
+    for (const site of shardSites(seed)) await followWildRoute(guest, site, () => (me(guest).relics & 1 << site.id) !== 0);
+    assert.equal(states.get(host)!.phase, 'active');
+    await followWildRoute(guest, { x: 0, z: 0 }); await walk(guest, 0, 10, () => me(guest).realm === 'arena', false);
+    await until(() => [host, guest].every(r => states.get(r)?.phase === 'results'));
+    for (const r of [host, guest]) { const s = states.get(r)!; assert.match(s.result, /Everyone made it home/); assert(s.players.every(p => p.relics === 7 && p.wins === 1 && p.hp === 100 && p.realm === 'arena')); }
+    console.log('PASS: two ordinary clients collected all three skyshards each, returned through the tunnel and received a shared win');
+    await wait(3100); host.send('lobby'); await until(() => [host, guest].every(r => states.get(r)?.phase === 'waiting'));
+    host.send('ready'); guest.send('ready'); await until(() => states.get(host)!.players.every(p => p.ready)); host.send('start'); await until(() => [host, guest].every(r => states.get(r)?.phase === 'active'));
+    assert(states.get(host)!.players.every(p => p.relics === 0 && p.wins === 1)); assert.equal(states.get(host)!.world.seed, seed);
+    console.log('PASS: expedition rematch preserved shared wins and world seed while resetting the trail');
+  }
 } finally { if (timer) clearInterval(timer); await Promise.all(rooms.filter(r => r.connection.isOpen).map(r => r.leave())); }

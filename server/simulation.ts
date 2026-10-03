@@ -1,6 +1,6 @@
 import { shardSites, shardCount } from '../shared/expedition.js';
 import { nearSecret, SECRET, WORLD_LIMIT, type Realm, type WorldState } from '../shared/world.js';
-import { CTF, TEAMS, LIMIT, type Mode, type Team, type Flag, APPLE, TOTEM, ARMOR_TIERS, armorTier, MELEE, attackStrength, meleeRecovery, knockback, DT, EYE, HEIGHT, SPAWNS, direction, idleInput, move, segmentBox, wallHit, type Arrow, type GameEvent, type Input, type Player, type Snapshot, type Phase } from '../shared/game.js';
+import { CTF, MODES, isTeamMode, TEAMS, LIMIT, type Mode, type Team, type Flag, APPLE, TOTEM, ARMOR_TIERS, armorTier, MELEE, attackStrength, meleeRecovery, knockback, DT, EYE, HEIGHT, SPAWNS, direction, idleInput, move, segmentBox, wallHit, type Arrow, type GameEvent, type Input, type Player, type Snapshot, type Phase } from '../shared/game.js';
 
 export class Simulation {
   world: WorldState;
@@ -25,15 +25,15 @@ export class Simulation {
   flags: Flag[] = this.homeFlags();
   homeFlags(): Flag[] { return (['red', 'blue'] as Team[]).map(team => ({ team, state: 'home', x: TEAMS[team].x, z: TEAMS[team].z, y: 0, carrier: '', returnAt: 0 })); }
   resetFlags() { this.flags = this.homeFlags(); this.scores = { red: 0, blue: 0 }; this.winnerTeam = ''; }
-  teammates(a: Player, b: Player) { return this.mode !== 'ffa' && a.team === b.team; }
+  teammates(a: Player, b: Player) { return this.mode === 'expedition' || (isTeamMode(this.mode) && a.team === b.team); }
   balanced() { const ps = [...this.players.values()]; const red = ps.filter(p => p.team === 'red').length; return red > 0 && red < ps.length && Math.abs(red - (ps.length - red)) <= 1; }
   selectMode(id: string, value: unknown) {
-    if (id !== this.host || this.phase !== 'waiting' || !['ffa', 'teams', 'ctf'].includes(value as string)) return false;
+    if (id !== this.host || this.phase !== 'waiting' || typeof value !== 'string' || !Object.hasOwn(MODES, value)) return false;
     this.mode = value as Mode; this.resetFlags(); for (const p of this.players.values()) p.ready = false; this.positionPlayers(); return true;
   }
   selectTeam(id: string, value: unknown) {
     const p = this.players.get(id);
-    if (!p?.connected || this.phase !== 'waiting' || this.mode === 'ffa' || !['red', 'blue'].includes(value as string)) return false;
+    if (!p?.connected || this.phase !== 'waiting' || !isTeamMode(this.mode) || !['red', 'blue'].includes(value as string)) return false;
     if ([...this.players.values()].filter(q => q.id !== id && q.team === value).length >= 3) return false;
     p.team = value as Team; for (const q of this.players.values()) q.ready = false; this.positionPlayers(); return true;
   }
@@ -57,10 +57,10 @@ export class Simulation {
     this.players.set(id, p); this.inputs.set(id, idleInput()); if (!this.host) this.host = id; this.positionPlayers(); return p;
   }
   spawn(p: Player, index: number) {
-    const s = this.mode === 'ffa' ? SPAWNS[(index + this.round * 2) % SPAWNS.length] : [p.team === 'red' ? -43 : 43, (index - 1) * 5];
+    const s = !isTeamMode(this.mode) ? SPAWNS[(index + this.round * 2) % SPAWNS.length] : [p.team === 'red' ? -43 : 43, (index - 1) * 5];
     Object.assign(p, { dashTime: 0, dashHeld: false, dashCooldown: 0, realm: 'arena', x: s[0], z: s[1], y: 0, vy: 0, vx: 0, vz: 0, grounded: true, sprinting: false, sprintLocked: false, yaw: Math.atan2(s[0], s[1]), pitch: 0 });
   }
-  positionPlayers() { let n = 0; const teams = { red: 0, blue: 0 }; for (const p of this.players.values()) this.spawn(p, this.mode === 'ffa' ? n++ : teams[p.team]++); }
+  positionPlayers() { let n = 0; const teams = { red: 0, blue: 0 }; for (const p of this.players.values()) this.spawn(p, !isTeamMode(this.mode) ? n++ : teams[p.team]++); }
   dropFlag(id: string) {
     const p = this.players.get(id); if (!p) return;
     for (const f of this.flags) if (f.carrier === id) {
@@ -109,10 +109,10 @@ export class Simulation {
   input(id: string, i: Input) { const p = this.players.get(id); if (p && i.seq > p.ack && i.seq > (this.inputs.get(id)?.seq ?? -1)) { const previous = this.inputs.get(id); if (i.attack && !previous?.attack) this.attackPress.add(id); if (!i.attack && previous?.attack) this.attackRelease.add(id); this.inputs.set(id, i); this.lastInput.set(id, this.tick); } }
   start(id: string, practice = false) {
     const ps = [...this.players.values()];
-    if (id !== this.host || this.phase !== 'waiting' || !ps.every(p => p.connected && p.ready) || (practice ? ps.length !== 1 : ps.length < 2)) return false;
-    if (!practice && this.mode !== 'ffa' && !this.balanced()) return false;
+    if (id !== this.host || this.phase !== 'waiting' || !ps.every(p => p.connected && p.ready) || (practice ? ps.length !== 1 : ps.length < (this.mode === 'expedition' ? 1 : 2))) return false;
+    if (!practice && isTeamMode(this.mode) && !this.balanced()) return false;
     this.resetFlags();
-    this.practice = practice; this.round++; this.phase = 'countdown'; this.countdown = 5; this.result = ''; this.winner = ''; this.arrows = []; this.events = []; this.damageHistory.clear();
+    this.practice = practice && this.mode !== 'expedition'; this.round++; this.phase = 'countdown'; this.countdown = 5; this.result = ''; this.winner = ''; this.arrows = []; this.events = []; this.damageHistory.clear();
     for (const p of ps) { Object.assign(p, { relics: 0, respawnAt: 0, immuneUntil: 0, captures: 0, flagReturns: 0, hp: 100, xp: 0, alive: true, weapon: 'sword', offhand: 'shield', block: false, ammo: 20, apples: APPLE.count, totems: TOTEM.count, kills: 0, damage: 0, assists: 0, cooldown: 0, charge: 0, loaded: false, shieldDisabled: 0, hurtTime: 0, lastDamage: 0, shieldRaise: 0, swingWait: 0, moveSpeed: 0, vx: 0, vz: 0, sprinting: false, sprintLocked: false, eliminatedAt: 0, ack: 0 }); this.inputs.set(p.id, idleInput()); this.lastAttack.set(p.id, false); }
     this.history = []; this.attackPress.clear(); this.attackRelease.clear(); this.positionPlayers(); return true;
   }
@@ -135,15 +135,29 @@ export class Simulation {
     this.transferHost(); this.checkWinner();
   }
   lobby(id: string) {
-    if (id !== this.host || (this.phase !== 'results' && !this.practice)) return;
+    if (id !== this.host || (this.phase !== 'results' && !this.practice && !(this.mode === 'expedition' && this.phase === 'active'))) return;
     if (this.phase === 'results' && this.tick - this.resultTime < 180) return;
     this.phase = 'waiting'; this.practice = false; this.arrows = []; this.resetFlags();
     for (const [key, p] of this.players) { if (this.departed.has(key)) this.removePlayer(key); else { p.ready = false; p.respawnAt = 0; p.immuneUntil = 0; p.captures = p.flagReturns = 0; p.xp = 0; p.apples = APPLE.count; p.totems = TOTEM.count; p.charge = 0; p.alive = true; p.hp = 100; p.hurtTime = 0; p.block = false; p.shieldRaise = 0; p.moveSpeed = 0; } }
     this.positionPlayers();
   }
   checkWinner() {
-    if (this.phase !== 'active' || this.practice) return;
-    if (this.mode !== 'ffa') {
+    if (this.phase !== 'active') return;
+    if (this.mode === 'expedition') {
+      const party = [...this.players.values()].filter(p => !this.departed.has(p.id));
+      // A reconnecting explorer remains part of the party and cannot accidentally
+      // grant a win. Only explicit departures remove a seat from the expedition.
+      const complete = party.length > 0 && party.every(p => p.connected && p.alive && p.relics === 7 && p.realm === 'arena');
+      if (complete || party.length === 0) {
+        this.phase = 'results'; this.resultTime = this.tick; this.winner = ''; this.winnerTeam = '';
+        this.result = complete ? 'Expedition complete · Everyone made it home!' : 'Expedition ended';
+        if (complete) for (const p of party) p.wins++;
+        this.event({ type: 'result', text: this.result }); this.arrows = [];
+      }
+      return;
+    }
+    if (this.practice) return;
+    if (isTeamMode(this.mode)) {
       const teams = (['red', 'blue'] as Team[]).filter(team => [...this.players.values()].some(p => p.team === team && !this.departed.has(p.id) && (this.mode === 'ctf' || p.alive)));
       const scoring = (['red', 'blue'] as Team[]).filter(team => this.scores[team] >= CTF.target);
       if (teams.length <= 1 || scoring.length) {
@@ -237,7 +251,7 @@ export class Simulation {
   step() {
     this.tick++;
     if (this.phase === 'countdown') {
-      if ([...this.players.values()].some(p => !p.connected) || this.players.size < (this.practice ? 1 : 2)) { this.phase = 'waiting'; return; }
+      if ([...this.players.values()].some(p => !p.connected) || this.players.size < (this.practice || this.mode === 'expedition' ? 1 : 2)) { this.phase = 'waiting'; return; }
       this.countdown = Math.max(0, this.countdown - DT);
       if (this.countdown <= .001) { this.phase = 'active'; this.event({ type: 'start' }); }
       return;
