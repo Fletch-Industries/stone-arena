@@ -44,6 +44,7 @@ test('live availability switch blocks HTTP, matchmaking and sockets, clears room
     }
     assert.equal((await fetch(`${endpoint}/sw.js`)).status, 200);
     assert.equal((await (await fetch(`${endpoint}/config.json`)).json()).available, false);
+    assert.equal((await fetch(`${endpoint}/arenas`)).status, 503);
     await assert.rejects(client.create('arena', options));
     await assert.rejects(client.joinById(room.roomId, options));
     await new Promise<void>((resolve, reject) => {

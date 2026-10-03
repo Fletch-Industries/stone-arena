@@ -5,10 +5,10 @@ const endpoint=process.env.TEST_ENDPOINT??'http://127.0.0.1:3107';
 const client=new Client(endpoint), rooms:Room[]=[], states=new Map<Room,Snapshot>();
 let timer:ReturnType<typeof setInterval>|undefined, seq=0, corner=false;
 const wait=(ms:number)=>new Promise(r=>setTimeout(r,ms));
-async function until(fn:()=>boolean, ms=25000){const end=Date.now()+ms;while(!fn()){if(Date.now()>end)throw Error('Healing integration timed out');await wait(30);}}
+async function until(fn:()=>boolean, ms=90000){const end=Date.now()+ms;while(!fn()){if(Date.now()>end)throw Error('Healing integration timed out');await wait(30);}}
 function track(r:Room){rooms.push(r);r.onMessage('snapshot',(s:Snapshot)=>states.set(r,s));r.onMessage('latency',(n:number)=>r.send('latencyAck',n));r.onMessage('pong',()=>{});r.send('sync');return r;}
 try{
- const a=track(await client.create('arena',{name:'Sword test',version:VERSION})),b=track(await client.joinById(a.roomId,{name:'Apple test',version:VERSION}));
+ const a=track(await client.create('arena',{name:'Sword test',version:VERSION,private:true})),b=track(await client.joinById(a.roomId,{name:'Apple test',version:VERSION}));
  await until(()=>states.get(a)?.players.length===2);a.send('ready');b.send('ready');await until(()=>states.get(a)!.players.every(p=>p.ready));a.send('start',{practice:false});await until(()=>states.get(b)?.phase==='active');
  // Walk the clear outside corridor using ordinary inputs; no privileged test routes.
  timer=setInterval(()=>{

@@ -1,4 +1,4 @@
-import { BOXES, segmentBox } from '../shared/game.js';
+import { BOXES, ARENA_SIZE, segmentBox } from '../shared/game.js';
 
 export const PERSPECTIVES = ['first', 'rear', 'front'] as const;
 export type Perspective = typeof PERSPECTIVES[number];
@@ -8,7 +8,7 @@ export const nextPerspective = (view: Perspective): Perspective => PERSPECTIVES[
 type Point = { x: number; y: number; z: number };
 // Include the cover caps and lantern cages, not only the player collision boxes.
 const obstacles = [
-  ...BOXES.map(b => ({ min: [b.x - b.w / 2 - .04, 0, b.z - b.d / 2 - .04], max: [b.x + b.w / 2 + .04, b.h, b.z + b.d / 2 + .04] })),
+  ...BOXES.map(b => ({ min: [b.x - b.w / 2 - .04, b.y ?? 0, b.z - b.d / 2 - .04], max: [b.x + b.w / 2 + .04, (b.y ?? 0) + b.h, b.z + b.d / 2 + .04] })),
   ...[-14, 14].flatMap(x => [-14, 14].map(z => ({ min: [x - .29, 0, z - .29], max: [x + .29, 2.8, z + .29] }))),
 ];
 /** Retract the camera boom before its near plane enters cover, floor or walls. */
@@ -17,8 +17,8 @@ export function clipCamera(origin: Point, desired: Point, radius = .22): Point {
   for (const box of obstacles) fraction = Math.min(fraction, segmentBox(origin, desired, box.min.map(n => n - radius), box.max.map(n => n + radius)));
   for (const axis of ['x', 'z'] as const) {
     const delta = desired[axis] - origin[axis];
-    if (delta > 0) fraction = Math.min(fraction, (16 - radius - origin[axis]) / delta);
-    if (delta < 0) fraction = Math.min(fraction, (-16 + radius - origin[axis]) / delta);
+    if (delta > 0) fraction = Math.min(fraction, (ARENA_SIZE / 2 - radius - origin[axis]) / delta);
+    if (delta < 0) fraction = Math.min(fraction, (-ARENA_SIZE / 2 + radius - origin[axis]) / delta);
   }
   if (desired.y < radius) fraction = Math.min(fraction, (origin.y - radius) / (origin.y - desired.y));
   const length = Math.hypot(desired.x - origin.x, desired.y - origin.y, desired.z - origin.z);

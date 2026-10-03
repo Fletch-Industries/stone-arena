@@ -3,9 +3,35 @@
 Play at **https://moriah.fletchindustries.com/**.
 
 A browser-based, first- and third-person arena from Fletch Industries. Two to five players,
-one life each, no match timer. The last survivor wins. Includes private invitations,
+one life each, no match timer. The last survivor wins. Includes open-arena discovery, private invitations,
 solo practice, sword/axe/bow/crossbow/shield combat, spectating, results, rematches,
 and a 15-second reconnect window.
+
+## Explore the Stone Citadel
+
+The arena is **96 × 96 blocks**, nine times the original courtyard's area. Spread
+out through two chamber wings with connected hiding rooms, two ruined gardens,
+roofed north/south tunnels, and a **7.2-block lookout tower**. Walk up the stone
+steps without jumping, watch the approaches from the battlements, or escape
+through the passages below. The outer walk connects widely separated spawns;
+every district has multiple routes. Landmark signs and the HUD location label
+help you find your way. Walls, roofs and stairs provide real server-authoritative
+cover, including for arrows and third-person cameras.
+
+The extra distance and cover give players more room to explore, hide and flank.
+There is still no match timer, shrinking boundary or forced reveal; the last
+survivor wins. Solo practice is available to learn the layout.
+
+## Find a game
+
+Choose a nickname and click **Join** beside an arena on the home screen. The
+**Open arenas** list refreshes every five seconds and shows the host and player
+count. It contains only waiting arenas with an open seat. Full arenas and rounds
+that have started disappear from the list; refresh if a seat fills before you join.
+
+**Create an arena** makes an open lobby by default. Check **Invite-only** before
+creating to hide it from discovery; friends can still use its link or room code.
+No accounts are required. Hosts still choose when to start after everyone readies.
 
 Source: [Fletch-Industries/stone-arena](https://github.com/Fletch-Industries/stone-arena).
 [Request a feature or report a bug](https://github.com/Fletch-Industries/stone-arena/issues/new/choose).
@@ -76,7 +102,7 @@ npm run dev
 ```
 
 Open the Vite URL (normally `http://127.0.0.1:5173`). Create an arena and share its
-invite link. Everyone readies up, then the host starts. For local multi-browser
+invite link, or join an open arena from the list. Everyone readies up, then the host starts. For local multi-browser
 testing, open the link in a second tab and use another nickname. Network friends
 need a reachable deployed URL rather than your localhost link.
 
@@ -185,6 +211,8 @@ npm run build
 npm start
 # With a server running:
 npx tsx tests/multiplayer.ts
+npx tsx tests/lobby-discovery.ts
+npx tsx tests/exploration.ts
 npx tsx tests/healing-multiplayer.ts
 npx tsx tests/totem-multiplayer.ts
 npx tsx tests/reconnect.ts
@@ -196,10 +224,17 @@ TEST_ROUNDS=10 npx tsx tests/multiplayer.ts
 tests create private rooms, drive five ordinary protocol clients through combat,
 check capacity/results, and dispose of those rooms. They have no privileged game
 endpoint. Reconnection tests intentionally disconnect their own test participants.
+The discovery test temporarily creates its own open lobby to verify listing,
+capacity, privacy and lifecycle behavior. Run it locally or on an authorized
+staging endpoint. Exploration drives ordinary clients into a chamber and up the
+lookout steps and verifies both clients agree on the authoritative position.
+`/tests/arena-preview.html` is a development-only visual geometry preview and
+is excluded from the production build.
 
 ## Architecture
 
-- `shared/game.ts`: protocol, map, validated controls, shared movement and collision.
+- `shared/arena.ts`: shared citadel geometry, spawns and landmarks.
+- `shared/game.ts`: protocol, validated controls, shared movement and collision.
 - `server/simulation.ts`: fixed 60 Hz authority for movement, weapons, health,
   projectiles, one-life elimination, victory, and match lifecycle.
 - `server/index.ts`: Colyseus rooms and WebSocket transport, Express static assets,
@@ -215,7 +250,9 @@ sent at 60 Hz; simulation time always comes from the server, never the input rat
 Melee rewinds target history by up to 100 ms using server-measured round-trip timing.
 Arrows use swept projectile collision. Rendering runs independently of simulation.
 Eight rooms is the default hard server cap, with five participants per room. There
-are no accounts, databases, purchases, public room lists, chat, or external assets.
+are no accounts, databases, purchases, chat, or external assets. The public
+`/arenas` directory exposes only open waiting-room IDs, host nicknames and counts;
+invite-only rooms remain hidden. The directory returns 503 while the game is closed.
 
 ## Production
 

@@ -8,8 +8,8 @@ const wait = (ms: number) => new Promise(r => setTimeout(r, ms));
 async function until(f: () => boolean, ms = 20000) { const end = Date.now() + ms; while (!f()) { if (Date.now() > end) throw Error('Reconnect test timed out'); await wait(50); } }
 function sub(r: Room) { r.onMessage('snapshot', (s: Snapshot) => states.set(r.sessionId, s)); r.onMessage('latency', (n: number) => r.send('latencyAck', n)); r.send('sync'); }
 try {
-  rooms.push(await clients[0].create('arena', { version: VERSION, name: 'ReconnectHost' })); sub(rooms[0]);
-  for (let i = 1; i < 3; i++) { rooms.push(await clients[i].joinById(rooms[0].roomId, { version: VERSION, name: `Reconnect${i}` })); sub(rooms[i]); }
+  rooms.push(await clients[0].create('arena', { version: VERSION, private: true, name: 'ReconnectHost' })); sub(rooms[0]);
+  for (let i = 1; i < 3; i++) { rooms.push(await clients[i].joinById(rooms[0].roomId, { version: VERSION, private: true, name: `Reconnect${i}` })); sub(rooms[i]); }
   for (const r of rooms) r.send('ready');
   await until(() => states.get(rooms[0].sessionId)?.players.every(p => p.ready) ?? false); rooms[0].send('start', { practice: false });
   await until(() => states.get(rooms[0].sessionId)?.phase === 'active');
