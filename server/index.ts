@@ -2,6 +2,9 @@ import { Server, Room, ServerError, createRouter, type Client } from '@colyseus/
 import { WebSocketTransport } from '@colyseus/ws-transport';
 import express from 'express';
 import { resolve } from 'node:path';
+import type { IncomingMessage } from 'node:http';
+import { PlayTimeLimiter, canonicalIP, clientIP } from './play-time.js';
+import { breakMessage } from '../shared/play-time.js';
 import { randomBytes, createHash } from 'node:crypto';
 import { SeatRegistry } from './seats.js';
 import { WorldImport } from './world-import.js';
@@ -20,6 +23,14 @@ let draining = false;
 const seats = new SeatRegistry();
 const worldVault = process.env.ARENA_WORLD_STORE_DIR ? await WorldVault.open(process.env.ARENA_WORLD_STORE_DIR) : undefined;
 const heartbeatMs = Math.max(1000, Number(process.env.ARENA_HEARTBEAT_MS ?? 30000));
+const playTime = await PlayTimeLimiter.open(process.env.ARENA_PLAY_TIME_FILE ?? (process.env.ARENA_WORLD_STORE_DIR ? resolve(process.env.ARENA_WORLD_STORE_DIR, '../play-time.json') : undefined));
+const trustedProxies = new Set((process.env.ARENA_TRUSTED_PROXIES ?? '').split(',').filter(Boolean).map(ip => { const canonical = canonicalIP(ip); if (!canonical) throw new Error('Invalid trusted proxy address.'); return canonical; }));
+const socketIPs = new WeakMap<object, string>();
+function requestIP(req: IncomingMessage) { const forwarded = req.headers['x-forwarded-for']; return clientIP(req.socket.remoteAddress, typeof forwarded === 'string' ? forwarded : undefined, trustedProxies); }
+function socketKey(c: Client) { const ip = socketIPs.get((c as unknown as { ref: object }).ref); if (!ip) throw new ServerError(503, 'Client network could not be identified.'); return playTime.key(ip); }
+class LimitedTransport extends WebSocketTransport {
+  protected async onConnection(raw: any, req: IncomingMessage, upgrade?: any) { socketIPs.set(raw, requestIP(req)); await super.onConnection(raw, req, upgrade); }
+}
 export class ArenaRoom extends Room {
   publicLobby = true;
   sim = new Simulation(randomBytes(4).readUInt32LE()); accumulator = 0; lastPhase = 'waiting'; idleTicks = 0;
@@ -36,6 +47,9 @@ export class ArenaRoom extends Room {
   lastKeepHost = '';
   lastKeepRequest = -KEEP.messageMs;
   playerKeys = new Map<string, string>();
+  playKeys = new Map<string, string>();
+  detachPlay(c: Client) { const key = this.playKeys.get(c.sessionId); if (key) { this.playKeys.delete(c.sessionId); return playTime.leave(key, `${this.roomId}:${c.sessionId}`); } return Promise.resolve(); }
+  endPlay(c: Client, seconds: number) { if (this.expired.has(c.sessionId)) return; this.expired.add(c.sessionId); this.rememberPlaces(); void this.checkpointWorld(); c.send('playTime', playTime.status(this.playKeys.get(c.sessionId)!)); c.leave(4008, breakMessage(seconds)); }
   sendKeep(c: Client) { if (c.sessionId === this.sim.host && this.keeper) c.send('worldKeep', this.keeper.status); }
   rememberPlaces() { if (this.sim.phase === 'active' && isExplorationMode(this.sim.mode)) for (const p of this.sim.players.values()) { const key = this.playerKeys.get(p.id); if (key && p.alive && p.connected) this.keeper?.rememberPlace(key, placeOf(p)); } }
   checkpointWorld() { this.rememberPlaces(); return this.keeper?.save(this.sim.world, this.sim.mode) ?? Promise.resolve(); }
@@ -117,6 +131,7 @@ export class ArenaRoom extends Room {
       if (this.lastKeepHost !== this.sim.host) { this.lastKeepHost = this.sim.host; const host = this.clients.find(c => c.sessionId === this.sim.host); if (host) this.sendKeep(host); }
       if (isUnavailable()) { this.broadcast('maintenance'); void this.disconnect(); return; }
       for (const upload of this.worldImports.values()) upload.expire(performance.now());
+      for (const c of this.clients) { const key = this.playKeys.get(c.sessionId); if (key) { try { const status = playTime.status(key); if (status.retryAfterSeconds) this.endPlay(c, status.retryAfterSeconds); } catch { c.leave(4010, 'Play-time tracking unavailable. Try again shortly.'); } } }
       for (const c of this.clients) if (!this.expired.has(c.sessionId) && performance.now() - (this.lastSeen.get(c.sessionId) ?? 0) > heartbeatMs) {
         this.expired.add(c.sessionId); c.leave(4000, 'Connection inactive. Join the arena again.');
       }
@@ -150,26 +165,31 @@ export class ArenaRoom extends Room {
     if (typeof opts.name !== 'string' || !opts.name.trim() || opts.name.length > 24) throw new ServerError(400, 'Enter a nickname (1–24 characters).');
     if (opts.seatKey !== undefined && (typeof opts.seatKey !== 'string' || !/^[a-zA-Z0-9_-]{16,80}$/.test(opts.seatKey))) throw new ServerError(400, 'Invalid browser session. Refresh the page.');
     if (opts.playerKey !== undefined && (typeof opts.playerKey !== 'string' || !/^[a-zA-Z0-9_-]{16,80}$/.test(opts.playerKey))) throw new ServerError(400, 'Invalid player profile. Refresh the page.');
+    const status = playTime.status(socketKey(_c)); if (status.retryAfterSeconds) throw new ServerError(429, breakMessage(status.retryAfterSeconds));
     return true;
   }
   async onJoin(c: Client, opts: { name: string; seatKey?: string; playerKey?: string }) {
     if (isUnavailable()) throw new ServerError(503, unavailableMessage);
     if (!seats.claim(opts.seatKey ?? c.sessionId, this.roomId, c.sessionId)) throw new ServerError(409, 'This browser tab already has a seat. Return to the existing arena or close the duplicate tab. Abandoned connections expire within 30 seconds.');
+    const playKey = socketKey(c);
+    this.playKeys.set(c.sessionId, playKey);
+    try { const status = await playTime.join(playKey, `${this.roomId}:${c.sessionId}`); c.send('playTime', status); } catch (e) { await this.detachPlay(c).catch(() => {}); seats.releasePlayer(this.roomId, c.sessionId); throw new ServerError(429, e instanceof Error ? e.message : 'Play-time tracking unavailable.'); }
     const key = opts.playerKey && createHash('sha256').update(opts.playerKey).digest('hex');
     try { this.sim.add(c.sessionId, opts.name.trim().replace(/[\u0000-\u001f<>]/g, '').slice(0, 24) || 'Player', key ? this.keeper?.place(key) : undefined); if (key) this.playerKeys.set(c.sessionId, key); }
-    catch (e) { seats.releasePlayer(this.roomId, c.sessionId); throw e; }
+    catch (e) { await this.detachPlay(c); seats.releasePlayer(this.roomId, c.sessionId); throw e; }
     this.lastSeen.set(c.sessionId, performance.now());
     if (this.sim.mode === 'creative' && this.sim.phase === 'waiting') this.sim.start(this.sim.host);
     if (c.sessionId === this.sim.host) await this.keeper?.save(this.sim.world, this.sim.mode, true);
     this.sendConstruction(c); this.sendExcavation(c); this.sendKeep(c); this.sendWorldInvite(c); c.send('snapshot', this.sim.snapshot());
   }
-  async onDrop(c: Client) { this.rememberPlaces(); this.sim.disconnect(c.sessionId); void this.checkpointWorld(); try { await this.allowReconnection(c, isExplorationMode(this.sim.mode) ? 300 : 15); } catch { /* onLeave finalizes the departure */ } }
-  onReconnect(c: Client) { this.lastSeen.set(c.sessionId, performance.now()); this.expired.delete(c.sessionId); const p = this.sim.players.get(c.sessionId), key = this.playerKeys.get(c.sessionId); if (p) { p.connected = true; if (key && isExplorationMode(this.sim.mode)) this.sim.resumePlace(p, this.keeper?.place(key)); } this.sim.transferHost(); this.sendConstruction(c, true); this.sendForage(c, true); this.sendExcavation(c, true); this.sendKeep(c); this.sendWorldInvite(c); c.send('snapshot', this.sim.snapshot()); }
-  onLeave(c: Client) { this.rememberPlaces(); this.sim.leave(c.sessionId); void this.checkpointWorld(); seats.releasePlayer(this.roomId, c.sessionId); this.playerKeys.delete(c.sessionId); this.lastSeen.delete(c.sessionId); this.expired.delete(c.sessionId); this.latencySent.delete(c.sessionId); this.lastBuildSync.delete(c.sessionId); this.lastForageSync.delete(c.sessionId); this.lastExcavationSync.delete(c.sessionId); this.sendExcavationAfterStall.delete(c.sessionId); this.stoneTransfers.delete(c.sessionId); this.worldImports.delete(c.sessionId); }
+  async onDrop(c: Client) { await this.detachPlay(c).catch(() => {}); this.rememberPlaces(); this.sim.disconnect(c.sessionId); void this.checkpointWorld(); if (this.expired.has(c.sessionId)) return; try { await this.allowReconnection(c, isExplorationMode(this.sim.mode) ? 300 : 15); } catch { /* onLeave finalizes the departure */ } }
+  async onReconnect(c: Client) { const playKey = socketKey(c), status = await playTime.join(playKey, `${this.roomId}:${c.sessionId}`); this.playKeys.set(c.sessionId, playKey); c.send('playTime', status); this.lastSeen.set(c.sessionId, performance.now()); this.expired.delete(c.sessionId); const p = this.sim.players.get(c.sessionId), key = this.playerKeys.get(c.sessionId); if (p) { p.connected = true; if (key && isExplorationMode(this.sim.mode)) this.sim.resumePlace(p, this.keeper?.place(key)); } this.sim.transferHost(); this.sendConstruction(c, true); this.sendForage(c, true); this.sendExcavation(c, true); this.sendKeep(c); this.sendWorldInvite(c); c.send('snapshot', this.sim.snapshot()); }
+  async onLeave(c: Client) { await this.detachPlay(c).catch(() => {}); this.rememberPlaces(); this.sim.leave(c.sessionId); void this.checkpointWorld(); seats.releasePlayer(this.roomId, c.sessionId); this.playerKeys.delete(c.sessionId); this.lastSeen.delete(c.sessionId); this.expired.delete(c.sessionId); this.latencySent.delete(c.sessionId); this.lastBuildSync.delete(c.sessionId); this.lastForageSync.delete(c.sessionId); this.lastExcavationSync.delete(c.sessionId); this.sendExcavationAfterStall.delete(c.sessionId); this.stoneTransfers.delete(c.sessionId); this.worldImports.delete(c.sessionId); }
   async onDispose() { this.rememberPlaces(); try { await this.keeper?.close(this.sim.world, this.sim.mode); } finally { activeRooms.delete(this.roomId); seats.releaseRoom(this.roomId); } }
 }
 
-const transport = new WebSocketTransport({
+const transport = new LimitedTransport({
+  verifyClient: (info, done) => { try { const status = playTime.status(playTime.key(requestIP(info.req))); if (status.retryAfterSeconds) { done(false, 429, breakMessage(status.retryAfterSeconds), { 'Retry-After': String(status.retryAfterSeconds), 'Cache-Control': 'no-store' }); return; } done(true); } catch { done(false, 503, 'Play-time tracking unavailable.'); } },
   maxPayload: 4096, perMessageDeflate: false, pingInterval: 3000, pingMaxRetries: 2,
   beforeUpgrade: (_url, ctx) => {
     if (isUnavailable()) return new Response(unavailableMessage, { status: 503, headers: { 'Cache-Control': 'no-store', 'Retry-After': '300' } });
@@ -191,6 +211,7 @@ const server = new Server({ transport, greet: false, express: app => {
   if (process.env.ACME_CHALLENGE_DIR) app.use('/.well-known/acme-challenge', express.static(process.env.ACME_CHALLENGE_DIR, { dotfiles: 'deny' }));
   app.get('/health', (_req, res) => { res.setHeader('Cache-Control', 'no-store'); res.status(draining ? 503 : 200).json({ ok: !draining, available: !isUnavailable(), version: VERSION, rooms: activeRooms.size, uptime: Math.floor(process.uptime()) }); });
   app.get('/config.json', (_req, res) => { res.setHeader('Cache-Control', 'no-store'); res.json({ api: process.env.ARENA_API_URL ?? '/arena-api', available: !isUnavailable() }); });
+  app.get('/play-time', (req, res) => { res.setHeader('Cache-Control', 'no-store'); try { res.json(playTime.status(playTime.key(req.headers['x-real-ip'] as string))); } catch { res.status(503).json({ error: 'Play-time tracking unavailable. Try again shortly.' }); } });
   app.get('/arenas', (_req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     if (isUnavailable() || draining) { res.status(503).json({ error: 'Arena is temporarily unavailable.' }); return; }
@@ -218,10 +239,15 @@ const server = new Server({ transport, greet: false, express: app => {
   app.use(express.static(resolve('dist'), { maxAge: '1h', setHeaders(res, path) { if (['index.html', 'sw.js', 'manifest.webmanifest'].some(file => path.endsWith(file))) res.setHeader('Cache-Control', 'no-cache'); } }));
 } });
 // Colyseus handles matchmaking before Express. Reject seat reservations here too.
-server.router = createRouter({}, { onRequest: () => {
+server.router = createRouter({}, { onRequest: request => {
+  if (request.method === 'POST') { try { const status = playTime.status(playTime.key(request.headers.get('x-real-ip')!)); if (status.retryAfterSeconds) return Response.json({ code: 429, error: breakMessage(status.retryAfterSeconds) }, { status: 429, headers: { 'Cache-Control': 'no-store', 'Retry-After': String(status.retryAfterSeconds) } }); } catch { return Response.json({ code: 503, error: 'Play-time tracking unavailable.' }, { status: 503 }); } }
   if (isUnavailable()) return Response.json({ code: 503, error: unavailableMessage }, { status: 503, headers: { 'Cache-Control': 'no-store', 'Retry-After': '300' } });
 } });
 server.define('arena', ArenaRoom);
-server.onBeforeShutdown(async () => { draining = true; await Promise.all([...activeRooms.values()].map(room => room.checkpointWorld())); });
+server.onBeforeShutdown(async () => { draining = true; await playTime.close(); await Promise.all([...activeRooms.values()].map(room => room.checkpointWorld())); });
 await server.listen(Number(process.env.PORT ?? 3107), process.env.HOST ?? '127.0.0.1');
+// Run before Colyseus routing: its default IP resolver trusts arbitrary headers.
+transport.server!.prependListener('request', (req: IncomingMessage) => { try { const ip = requestIP(req); req.headers['x-real-ip'] = ip; req.headers['x-forwarded-for'] = ip; delete req.headers['x-client-ip']; } catch { delete req.headers['x-real-ip']; delete req.headers['x-forwarded-for']; delete req.headers['x-client-ip']; } });
+const playTimer = setInterval(() => { void playTime.checkpoint().catch(() => { for (const room of activeRooms.values()) for (const c of room.clients) c.leave(4010, 'Play-time tracking unavailable. Try again shortly.'); }); for (const room of activeRooms.values()) for (const c of room.clients) { const key = room.playKeys.get(c.sessionId); if (key) { try { c.send('playTime', playTime.status(key)); } catch { /* storage failure is handled above */ } } } }, 5000);
+playTimer.unref();
 console.log(`Stone Arena listening on ${process.env.HOST ?? '127.0.0.1'}:${process.env.PORT ?? 3107}`);

@@ -568,3 +568,11 @@ reconnection window; competitive rooms retain their fifteen-second reservation.
 Hosted worlds are bounded to 128 slots with atomic current/backup checkpoints,
 private directory/files, and a maximum 400 KiB record. Clearing browser storage
 removes that browser's anonymous profile; keep an invite or downloaded world file.
+
+### Play periods and breaks
+
+Every client IP shares 15 minutes of connected arena time across rooms, tabs and devices, followed by a mandatory 30-minute break. Simultaneous players use one wall-clock timer. Lobby, menus and spectators count; leaving preserves the unused allowance, and 30 continuous minutes with no connected players resets it. The server enforces admission, reconnects and cutoff; browser storage cannot reset the timer. Creative worlds and saved positions remain intact.
+
+When `ARENA_WORLD_STORE_DIR` is set, private play budgets persist in `../play-time.json`; `ARENA_PLAY_TIME_FILE` can explicitly select an absolute path. Without a storage path, development servers keep budgets in memory. IPs are canonicalized and persisted only as keyed hashes, with a 4,096-network bound. Storage failure closes admission instead of resetting allowances. Unexpected server downtime conservatively counts open connections until exhaustion.
+
+Set `ARENA_TRUSTED_PROXIES` to a comma-separated list of exact immediate reverse-proxy IP addresses only. Forwarded IP headers are ignored for other peers; a trusted proxy must supply its appended client IP. Never trust all addresses or accept browser-supplied identities. `/play-time` returns only the caller’s remaining play and break seconds with no cache. Shared public networks share a budget; changing public IP, a VPN, or rotating IPv6 addresses can evade an IP-only rule.

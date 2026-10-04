@@ -18,26 +18,34 @@ jobs:
         run: npx tsx tests/creative-world-runtime.ts
       - name: Room lifecycle integration
         run: |
-          npm run server > /tmp/stone-arena-server.log 2>&1 &
-          arena_pid=$!
-          trap 'kill "$arena_pid"' EXIT
-          for attempt in $(seq 1 30); do
-            if curl -fsS http://127.0.0.1:3107/health; then break; fi
-            sleep 1
-          done
-          npx tsx tests/room-lifecycle.ts
-          npx tsx tests/lobby-discovery.ts
-          npx tsx tests/exploration.ts
-          npx tsx tests/multiplayer.ts
-          npx tsx tests/healing-multiplayer.ts
-          npx tsx tests/totem-multiplayer.ts
-          npx tsx tests/capture-flag.ts
-          npx tsx tests/wilds.ts
-          npx tsx tests/wilds.ts --expedition
-          npx tsx tests/wilds.ts --waystones
-          npx tsx tests/wilds.ts --building
-          npx tsx tests/wilds.ts --crafting
-          TEST_WORLD_SEED=1160079627 npx tsx tests/wilds.ts --crafting
-          npx tsx tests/living-world.ts
-          npx tsx tests/mining-world.ts
-          npx tsx tests/world-capacity.ts
+          run_arena_test() {
+            node --import tsx server/index.ts > /tmp/stone-arena-server.log 2>&1 &
+            arena_pid=$!
+            trap 'kill "$arena_pid" 2>/dev/null || true' EXIT
+            for attempt in $(seq 1 30); do
+              if curl -fsS http://127.0.0.1:3107/health; then break; fi
+              sleep 1
+            done
+            # Each independent suite gets a fresh development budget. Production
+            # persists its IP allowance; these suites must not share test usage.
+            npx tsx "$@"
+            kill "$arena_pid"
+            wait "$arena_pid" || true
+            trap - EXIT
+          }
+          run_arena_test tests/room-lifecycle.ts
+          run_arena_test tests/lobby-discovery.ts
+          run_arena_test tests/exploration.ts
+          run_arena_test tests/multiplayer.ts
+          run_arena_test tests/healing-multiplayer.ts
+          run_arena_test tests/totem-multiplayer.ts
+          run_arena_test tests/capture-flag.ts
+          run_arena_test tests/wilds.ts
+          run_arena_test tests/wilds.ts --expedition
+          run_arena_test tests/wilds.ts --waystones
+          run_arena_test tests/wilds.ts --building
+          run_arena_test tests/wilds.ts --crafting
+          TEST_WORLD_SEED=1160079627 run_arena_test tests/wilds.ts --crafting
+          run_arena_test tests/living-world.ts
+          run_arena_test tests/mining-world.ts
+          run_arena_test tests/world-capacity.ts

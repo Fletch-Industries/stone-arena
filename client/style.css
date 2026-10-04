@@ -119,3 +119,5 @@ button.offhand{background:#111d25bd;border:1px solid #ffffff38;padding:3px 6px;m
 @media(max-width:900px){.creative-invite{top:110px;left:10px;max-width:160px}.creative-invite small{font-size:10px}}
 
 .creative-actions{display:flex;flex-wrap:wrap;gap:8px}.creative-actions button{min-height:44px;min-width:44px;touch-action:manipulation}
+
+.play-time-badge{position:fixed;top:72px;right:20px;z-index:5;padding:5px 9px;border-radius:6px;background:#142d32e8;color:#bbf5de;font-size:12px;pointer-events:none}.play-time-badge[hidden],.play-break[hidden]{display:none}.play-break{position:fixed;inset:0;z-index:30;display:grid;place-items:center;padding:16px;background:#08171bf2;overflow:auto}.play-break .panel{max-width:480px;width:100%;box-sizing:border-box}.play-break-countdown{font-size:28px;font-variant-numeric:tabular-nums;color:#bbf5de}.play-break button{min-height:44px}.mobile .play-time-badge{top:72px;right:10px;font-size:11px}
