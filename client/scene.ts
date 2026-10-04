@@ -14,6 +14,7 @@ import { TerrainStreamer } from './terrain.js';
 import * as THREE from 'three';
 import { TEAMS, isTeamMode, playerColor, type Mode, type Team, ARENA_SIZE, SPAWNS, BOXES, COLORS, EYE, armorTier, attackStrength, type Body, type GameEvent, type Player, type Snapshot, type Weapon } from '../shared/game.js';
 import { LANDMARKS } from '../shared/arena.js';
+import { ArenaSigns } from './arena-signs.js';
 import { locomotionPose } from './animation.js';
 import { TextureLibrary, type Surface } from './textures.js';
 import { FlameAtlas, armorMaterial } from './effects.js';
@@ -46,6 +47,7 @@ export class ArenaScene {
   materials = new Map<string, THREE.MeshLambertMaterial>(); boxGeo = new THREE.BoxGeometry(1, 1, 1);
   arrowGeo = new THREE.BoxGeometry(.055, .055, .7); lastWeapon = ''; lastOffhand = ''; swing = 0; time = 0; quality = 'medium'; inspectArmor = false; configuredFov = 120; perspective: Perspective = 'first';
   cameraDistance = 0; lastCamera = new THREE.Vector3(); cameraTracking = '';
+  arenaSigns = new ArenaSigns();
   rigs = new Map<string, { head: THREE.Group; leftArm: THREE.Group; rightArm: THREE.Group; leftLeg: THREE.Group; rightLeg: THREE.Group; tool: THREE.Group; toolName: string; distance: number; speed: number; swing: number; landed: number; grounded: boolean }>();
   frames = 0; fps = 60; fpsTime = 0; spectator = 0; reduced = false; renderScale = 1;
   constructor(canvas: HTMLCanvasElement) {
@@ -107,9 +109,10 @@ export class ArenaScene {
       const label = document.createElement('canvas'); label.width = 512; label.height = 96;
       const ctx = label.getContext('2d')!; ctx.fillStyle = '#263538'; ctx.fillRect(0, 0, 512, 96);
       ctx.strokeStyle = '#bf9860'; ctx.lineWidth = 8; ctx.strokeRect(4, 4, 504, 88);
-      ctx.fillStyle = '#f6d79d'; ctx.font = 'bold 30px sans-serif'; ctx.textAlign = 'center'; ctx.fillText(place.name.toUpperCase(), 256, 59);
-      const sign = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(label), depthTest: true }));
-      sign.scale.set(4.5, .85, 1); sign.position.set(place.x, place.name === 'Lookout tower' ? 9.8 : 4.9, place.z); this.arena.add(sign);
+      ctx.fillStyle = '#f6d79d'; ctx.font = 'bold 36px sans-serif'; ctx.textAlign = 'center'; ctx.fillText(place.name.toUpperCase(), 256, 61, 480);
+      const map = new THREE.CanvasTexture(label); map.colorSpace = THREE.SRGBColorSpace;
+      const sign = new THREE.Sprite(new THREE.SpriteMaterial({ map, depthTest: true }));
+      sign.name = 'arena-sign'; sign.scale.set(4.5, .85, 1); sign.position.set(place.x, place.name === 'Lookout tower' ? 9.8 : 4.9, place.z); this.arena.add(sign); this.arenaSigns.add(sign);
     }
     // Muted garden tiles distinguish ruined wings from the cobblestone courtyard.
     for (const side of [-1, 1]) this.box(this.arena, [17, .018, 17], [side * 26, .015, -side * 26], '#879378', 'stone');
@@ -388,6 +391,7 @@ export class ArenaScene {
         flag.rotation.set(0, this.reduced ? 0 : Math.sin(this.time * 2) * .08, state.state === 'dropped' ? -.65 : 0);
       }
     }
+    if (!wild) this.arenaSigns.update(this.camera, innerWidth, innerHeight);
     this.renderer.render(this.scene, this.camera);
   }
 }

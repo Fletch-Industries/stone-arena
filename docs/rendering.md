@@ -24,6 +24,20 @@ There are no post-processing passes or shadow-casting point lights. Mobile defau
 to Low, and Settings can change quality during play. Reduced camera motion and the
 120-degree FOV preference remain independent of lighting quality.
 
+## Citadel place signs
+
+The eight existing arena signs use a 32 CSS-pixel height across viewport sizes
+and camera FOVs, with larger original lettering and color-correct canvas maps. Nearby names take priority when
+their projected rectangles overlap; an eight-pixel gap keeps them separate.
+Names fade between 28 and 40 blocks and disappear beyond that range or at screen
+edges. Geometry still tests depth, so signs remain behind solid cover. The HUD
+location label continues to identify the current area. Team bases, flags, player
+names and Wilds beacons retain their existing behavior.
+
+The layout reuses eight entries and two vectors. It adds no textures, dynamic
+lights, DOM nodes or render passes; hidden signs avoid their sprite draw calls.
+This is a screen-layout bound, not a hardware frame-rate guarantee.
+
 ## Fire and equipment
 
 `client/effects.ts` generates an original sixteen-frame 16×32 pixel flame atlas
