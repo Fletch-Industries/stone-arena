@@ -14,3 +14,21 @@ export function locomotionPose(distance: number, speed: number, grounded: boolea
     ? { leftLeg: stride, rightLeg: -stride, leftArm: -stride, rightArm: stride, lean: sprinting ? -.09 : 0 }
     : { leftLeg: -.25, rightLeg: .25, leftArm: vy > 0 ? -.45 : -.2, rightArm: vy > 0 ? -.45 : -.2, lean: 0 };
 }
+
+/** A short elapsed-time transition; reduced motion selects the final stance. */
+export function advancePoseBlend(amount: number, dt: number, reduced: boolean) {
+  if (reduced || amount === 1) return 1;
+  const next = 1 - (1 - amount) * Math.exp(-Math.max(0, dt) * 12);
+  return 1 - next < .001 ? 1 : next;
+}
+
+/** Reuse the ordinary target pose, blending from the last displayed stance. */
+export function blendLocomotionPose(from: ReturnType<typeof locomotionPose>, target: ReturnType<typeof locomotionPose>, amount: number) {
+  if (amount === 1) return target;
+  target.leftLeg = from.leftLeg + (target.leftLeg - from.leftLeg) * amount;
+  target.rightLeg = from.rightLeg + (target.rightLeg - from.rightLeg) * amount;
+  target.leftArm = from.leftArm + (target.leftArm - from.leftArm) * amount;
+  target.rightArm = from.rightArm + (target.rightArm - from.rightArm) * amount;
+  target.lean = from.lean + (target.lean - from.lean) * amount;
+  return target;
+}

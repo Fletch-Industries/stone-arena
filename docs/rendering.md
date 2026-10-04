@@ -164,6 +164,12 @@ motion and shield/aim/swing priorities remain; reduced motion keeps the wings
 still. Ordinary walking and separate jump/fall poses retain their existing
 movement thresholds. This uses existing pivots and shared geometry/materials,
 with no new per-frame scene objects, textures, lights or render passes.
+Switching into or out of flight blends from the previous displayed stance over
+about a quarter second to 95% of the new pose, then settles exactly. This includes
+ground-to-air expedition launches and reversals during the transition. Newly
+joined avatars use their current stance immediately. Reduced motion skips this
+transition; shield, aiming and swing poses keep their immediate priority. Each
+avatar keeps a bounded amount of pose state and reuses the existing pose result.
 
 `client/audio.ts` synthesizes original tones and filtered noise. It has one loop
 for ambient wind, at most 32 transient voices, a master volume and a compressor.

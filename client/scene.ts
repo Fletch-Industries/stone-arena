@@ -15,7 +15,7 @@ import * as THREE from 'three';
 import { TEAMS, isTeamMode, playerColor, type Mode, type Team, ARENA_SIZE, SPAWNS, BOXES, COLORS, EYE, armorTier, attackStrength, type Body, type GameEvent, type Player, type Snapshot, type Weapon } from '../shared/game.js';
 import { LANDMARKS } from '../shared/arena.js';
 import { ArenaSigns } from './arena-signs.js';
-import { isSailing, locomotionPose } from './animation.js';
+import { advancePoseBlend, blendLocomotionPose, isSailing, locomotionPose } from './animation.js';
 import { TextureLibrary, type Surface } from './textures.js';
 import { FlameAtlas, armorMaterial } from './effects.js';
 import { swordBlade, appleBody, totemBody } from './items.js';
@@ -48,7 +48,7 @@ export class ArenaScene {
   arrowGeo = new THREE.BoxGeometry(.055, .055, .7); lastWeapon = ''; lastOffhand = ''; swing = 0; time = 0; quality = 'medium'; inspectArmor = false; configuredFov = 120; perspective: Perspective = 'first';
   cameraDistance = 0; lastCamera = new THREE.Vector3(); cameraTracking = '';
   arenaSigns = new ArenaSigns();
-  rigs = new Map<string, { head: THREE.Group; leftArm: THREE.Group; rightArm: THREE.Group; leftLeg: THREE.Group; rightLeg: THREE.Group; tool: THREE.Group; toolName: string; distance: number; speed: number; swing: number; landed: number; grounded: boolean }>();
+  rigs = new Map<string, { head: THREE.Group; leftArm: THREE.Group; rightArm: THREE.Group; leftLeg: THREE.Group; rightLeg: THREE.Group; tool: THREE.Group; toolName: string; distance: number; speed: number; swing: number; landed: number; grounded: boolean; sailing?: boolean; pose?: ReturnType<typeof locomotionPose>; fromPose?: ReturnType<typeof locomotionPose>; poseBlend?: number; leftArmZ?: number; rightArmZ?: number; fromLeftArmZ?: number; fromRightArmZ?: number }>();
   frames = 0; fps = 60; fpsTime = 0; spectator = 0; reduced = false; renderScale = 1;
   constructor(canvas: HTMLCanvasElement) {
     this.swordMaterial.color.set('#a88abf');
@@ -359,9 +359,18 @@ export class ArenaScene {
       const target = new THREE.Vector3(body.x, body.y, body.z); if (body === local || g.position.distanceTo(target) > 4) g.position.copy(target); else g.position.lerp(target, 1 - Math.exp(-dt * 18));
       const travelled = Math.hypot(g.position.x - oldX, g.position.z - oldZ);
       const sailing = isSailing(body);
+      if (rig.sailing !== undefined && rig.sailing !== sailing) {
+        rig.fromPose = rig.pose; rig.fromLeftArmZ = rig.leftArmZ; rig.fromRightArmZ = rig.rightArmZ; rig.poseBlend = 0;
+      }
+      rig.sailing = sailing; rig.poseBlend = advancePoseBlend(rig.poseBlend ?? 1, dt, this.reduced);
       if (travelled < 1 && body.grounded && !sailing) rig.distance += travelled;
       rig.speed += ((snapshot?.phase === 'active' ? p.moveSpeed : 0) - rig.speed) * (1 - Math.exp(-dt * 15));
       const pose = locomotionPose(rig.distance, rig.speed, body.grounded, !!body.sprinting, body.vy, sailing);
+      if (rig.fromPose) blendLocomotionPose(rig.fromPose, pose, rig.poseBlend);
+      rig.pose = pose;
+      const leftArmZ = sailing ? -.55 : Math.sin(rig.distance * 1.3) * .04, rightArmZ = sailing ? .55 : .04;
+      rig.leftArmZ = rig.poseBlend === 1 ? leftArmZ : (rig.fromLeftArmZ ?? leftArmZ) + (leftArmZ - (rig.fromLeftArmZ ?? leftArmZ)) * rig.poseBlend;
+      rig.rightArmZ = rig.poseBlend === 1 ? rightArmZ : (rig.fromRightArmZ ?? rightArmZ) + (rightArmZ - (rig.fromRightArmZ ?? rightArmZ)) * rig.poseBlend;
       if (!rig.grounded && body.grounded) rig.landed = 1;
       rig.grounded = body.grounded; rig.landed = Math.max(0, rig.landed - dt * 6);
       g.position.y -= Math.sin(rig.landed * Math.PI) * .06;
@@ -371,9 +380,10 @@ export class ArenaScene {
       rig.leftArm.rotation.x = p.block ? -1.1 : pose.leftArm;
       rig.swing = Math.max(0, rig.swing - dt / .3);
       rig.rightArm.rotation.x = p.sculpting && rig.swing === 0 ? -.5 + p.pitch * .65 + (this.reduced || !p.sculptProgress ? 0 : Math.sin(this.time * 22) * .035) : p.weaving && rig.swing === 0 ? -.35 + p.pitch * .65 : rig.swing > 0 ? -Math.sin(rig.swing * Math.PI) * 1.8 : p.weapon === 'apple' && p.charge > 0 ? 1.65 + (this.reduced ? 0 : Math.sin(this.time * 18) * .06) : p.charge > 0 || (p.weapon === 'crossbow' && p.loaded) ? -1.3 + p.pitch : pose.rightArm;
-      rig.leftArm.rotation.z = p.block ? -.2 : Math.sin(rig.distance*1.3)*.04; rig.rightArm.rotation.z = rig.swing>0 ? -.4*Math.sin(rig.swing*Math.PI) : .04;
+      rig.leftArm.rotation.z = p.block ? -.2 : rig.leftArmZ; rig.rightArm.rotation.z = rig.swing>0 ? -.4*Math.sin(rig.swing*Math.PI) : p.charge ? .04 : rig.rightArmZ;
       const sail = g.getObjectByName('sky-sail') as THREE.Group; sail.visible = sailing;
-      if (sail.visible) { this.sails.animate(sail, this.time + p.color, this.reduced); g.rotation.x = -.12; if (!p.block) rig.leftArm.rotation.z = -.55; if (!p.charge && rig.swing === 0) rig.rightArm.rotation.z = .55; }
+      if (sail.visible) this.sails.animate(sail, this.time + p.color, this.reduced);
+      if (rig.poseBlend === 1) { rig.fromPose = undefined; rig.fromLeftArmZ = rig.fromRightArmZ = undefined; }
       rig.tool.visible = !!p.sculpting || !!p.weaving || p.weapon !== 'apple' || p.apples > 0;
       rig.tool.rotation.x = !p.weaving && !p.sculpting && p.weapon === 'apple' && p.charge > 0 ? -1.65 : 0;
       const shield = g.getObjectByName('shield')!; shield.visible = !p.weaving && !p.sculpting && p.offhand === 'shield';
