@@ -35,9 +35,12 @@ export class TerrainStreamer {
         float terrainRockFactor = max(
           smoothstep(.10, .32, 1.0 - clamp(vTerrainShape.x, 0.0, 1.0)),
           smoothstep(18.0, 24.0, vTerrainShape.y) * .65);
+        // Derivatives must precede the per-fragment branch for stable mip levels.
+        vec2 terrainStrataDx = dFdx(vTerrainStrataUv);
+        vec2 terrainStrataDy = dFdy(vTerrainStrataUv);
         if (terrainRockFactor > .001) {
           sampledDiffuseColor.rgb = mix(sampledDiffuseColor.rgb,
-            texture2D(terrainStrataMap, vTerrainStrataUv).rgb, terrainRockFactor);
+            textureGrad(terrainStrataMap, vTerrainStrataUv, terrainStrataDx, terrainStrataDy).rgb, terrainRockFactor);
         }
         diffuseColor *= sampledDiffuseColor;`);
       shader.fragmentShader = 'uniform sampler2D terrainStrataMap;\n' + varyings + shader.fragmentShader.replace('#include <map_fragment>', texturedGround);
