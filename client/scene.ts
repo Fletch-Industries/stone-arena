@@ -321,7 +321,7 @@ export class ArenaScene {
     if(this.viewRealm!==realm)this.sparks.clear(); this.viewRealm = realm; this.terrain.time.value = this.reduced ? 0 : this.time;
     this.terrain.update(this.camera.position.x, this.camera.position.z, snapshot?.world.seed ?? 0, this.quality, wild, snapshot?.world.excavation);
     const fog = this.scene.fog as THREE.Fog; fog.near = wild ? vistaDistance(this.terrain.worker ? this.quality : 'low') * .48 : 80; fog.far = wild ? vistaDistance(this.terrain.worker ? this.quality : 'low') : 200;
-    this.atmosphere.update(this.camera,this.time,this.reduced); this.sparks.update(dt,!this.reduced);
+    this.atmosphere.update(this.camera,this.time,this.reduced,dt,wild,snapshot?.world.seed ?? 0); this.sparks.update(dt,!this.reduced);
     if (snapshot && wild) { this.runeLandmarks.build(snapshot.world.seed); this.runeLandmarks.update(this.time,me?.relics ?? 0,this.reduced); }
     if (snapshot && wild) { this.waystoneLandmarks.build(snapshot.world.seed); this.waystoneLandmarks.update(this.camera.position.x,this.camera.position.z,this.time,snapshot.world.waystones ?? 1,this.reduced,vistaDistance(this.terrain.worker ? this.quality : 'low')); }
     if (snapshot) this.construction.update(snapshot.world, me && local ? { ...local, id: me.id, weaveKind: me.weaveKind, yaw, pitch } : follow, this.quality, this.time, wild && this.weavePreview && playing && !!me?.alive, this.erasePreview, snapshot.players, snapshot.mode === 'expedition' || snapshot.host === me?.id);

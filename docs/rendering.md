@@ -369,3 +369,12 @@ Desktop shows the full perspective in the player badge; touch View includes 1st,
 Rear or Front, with the full perspective and facing-direction guidance available
 to assistive tools. F5 / V, the View button and Settings keep the same camera cycle
 and persisted setting. Aiming, clipping and character preview are unchanged.
+
+The Wilds sky and distance haze follow the same procedural habitat blend as the
+terrain: green-blue Verdant Reach, lilac Moonwood, amber Emberfields and teal
+Tideglade. Colors ease with elapsed time instead of switching at biome boundaries.
+The arrival clearing stays verdant; the Citadel restores its original sky and fog.
+Reduced motion keeps clouds still while walking can change the habitat palette.
+Five palette samples per second update two existing shader color uniforms and
+the existing fog color. Geometry, cloud instances, textures, lights and render
+passes stay fixed; renderer-count checks do not establish hardware frame rates.
