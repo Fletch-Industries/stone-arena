@@ -53,6 +53,19 @@ test('valid checksums cannot bypass terrain validation or follow a substituted s
   await rm(path); const other = join(directory, 'outside.json'); await writeFile(other, '{}'); await symlink(other, path);
   await assert.rejects(vault.acquire(created.lease.handle, 'new-room'));
 });
+test('promoting a terrain-validated recovery never replaces it with an invalid primary', async t => {
+  const { vault, directory, sim } = await fixture(t), created = await vault.create(saveWorld(sim.world), 'ffa', 'room-a');
+  sim.world.supplies = [4, 8, 12]; await vault.checkpoint(created.lease, saveWorld(sim.world), 'ctf'); vault.release(created.lease);
+  const path = join(directory, `${created.lease.handle.id}.json`), record = JSON.parse(await readFile(path, 'utf8'));
+  record.world.blocks = [[0, 0, 8, 0]]; delete record.checksum; record.checksum = createHash('sha256').update(JSON.stringify(record)).digest('hex'); await writeFile(path, JSON.stringify(record));
+  const restarted = await WorldVault.open(directory), recovered = await restarted.acquire(created.lease.handle, 'room-b'); assert(recovered.recovered);
+  await restarted.checkpoint(recovered.lease, saveWorld(recovered.world), recovered.mode);
+  const backup = JSON.parse(await readFile(join(directory, `${created.lease.handle.id}.bak`), 'utf8'));
+  assert(restoreWorld(backup.world), 'The validated recovery must remain usable after promotion');
+  await writeFile(path, '{broken'); restarted.release(recovered.lease);
+  const again = await (await WorldVault.open(directory)).acquire(created.lease.handle, 'room-c');
+  assert(again.recovered); assert.equal(again.mode, 'ffa'); assert.deepEqual(again.world.supplies, [0, 0, 0]);
+});
 test('storage quota is retained across restarts and removing a keep frees its slot', async t => {
   const { directory, vault, sim } = await fixture(t, 1), created = await vault.create(saveWorld(sim.world), 'ffa', 'room');
   await assert.rejects(vault.create(saveWorld(sim.world), 'ffa', 'other'), (e: unknown) => e instanceof KeepError && e.code === 507);

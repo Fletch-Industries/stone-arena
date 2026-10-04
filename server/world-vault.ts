@@ -21,6 +21,7 @@ const summary = (record: RecordBody): KeepSummary => ({ id: record.id, title: re
 export class WorldVault {
   private ids = new Set<string>();
   private leases = new Map<string, WorldLease>();
+  private recovering = new WeakSet<WorldLease>();
   private queue: Promise<unknown> = Promise.resolve();
   private constructor(private directory: string, private limit: number) {}
   static async open(directory: string, limit: number = KEEP.worlds) {
@@ -66,6 +67,7 @@ export class WorldVault {
       if (this.leases.has(handle.id)) throw new KeepError(409, 'This world already has an arena. Rejoin it or wait until everyone leaves.');
       const lease = { handle: { id: handle.id, key: handle.key }, owner, savedAt: found.record.savedAt };
       this.leases.set(handle.id, lease);
+      if (recovered) this.recovering.add(lease);
       return { lease, world, mode: found.record.mode, summary: summary(found.record), recovered };
     });
   }
@@ -99,15 +101,16 @@ export class WorldVault {
     const body: RecordBody = { format: 'stone-arena-keep', version: 1, id: lease.handle.id, keyHash: hash(lease.handle.key), savedAt: Math.max(Date.now(), lease.savedAt + 1), mode, world };
     const record: StoredKeep = { ...body, checksum: hash(JSON.stringify(body)) }, text = JSON.stringify(record);
     if (Buffer.byteLength(text) > KEEP.bytes) throw new KeepError(400, 'This world is too large to keep online.');
-    // Only a known-good previous checkpoint can replace the recovery copy.
-    const previous = await this.read(lease.handle.id, false, false);
+    // A recovered backup has passed terrain validation. Preserve it while
+    // replacing a rejected primary, even if that primary's checksum was valid.
+    const previous = this.recovering.has(lease) ? undefined : await this.read(lease.handle.id, false, false);
     if (previous) await this.atomic(lease.handle.id, 'bak', JSON.stringify(previous.record));
     await this.atomic(lease.handle.id, 'json', text);
     const directory = await open(this.directory, 'r');
     try { await directory.sync(); } finally { await directory.close(); }
-    lease.savedAt = body.savedAt; return summary(body);
+    this.recovering.delete(lease); lease.savedAt = body.savedAt; return summary(body);
   }
-  release(lease: WorldLease) { if (this.leases.get(lease.handle.id) === lease) this.leases.delete(lease.handle.id); }
+  release(lease: WorldLease) { if (this.leases.get(lease.handle.id) === lease) { this.leases.delete(lease.handle.id); this.recovering.delete(lease); } }
   remove(lease: WorldLease) {
     return this.serial(async () => {
       if (this.leases.get(lease.handle.id) !== lease) throw denied();
