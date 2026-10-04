@@ -2,6 +2,15 @@ import { terrainHeight, worldBoxes } from '../shared/world.js';
 import type { Construction } from '../shared/construction.js';
 import { BOXES, HEIGHT, LIMIT, RADIUS } from '../shared/game.js';
 type Point = { x: number; z: number };
+/** Visit the final detour before aiming at the exact target; it may skirt a rune. */
+export function routeFollower(route: number[][], target: Point, tolerance = .65) {
+  let next = 0;
+  const end = [target.x, target.z];
+  return (position: Point) => {
+    while (next < route.length && Math.hypot(position.x - route[next][0], position.z - route[next][1]) < tolerance) next++;
+    return next === route.length ? end : route[next];
+  };
+}
 const bound = Math.floor(LIMIT), key = (x: number, z: number) => `${x},${z}`;
 const blocked = new Set<string>();
 for (const box of BOXES) {

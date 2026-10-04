@@ -9,7 +9,7 @@ import { VERSION, idleInput, type Snapshot } from '../shared/game.js';
 import { terrainHeight, worldBoxes } from '../shared/world.js';
 import { waystoneSites } from '../shared/waystones.js';
 import { shardSites } from '../shared/expedition.js';
-import { navigator, wildRoute } from './navigation.js';
+import { navigator, wildRoute, routeFollower } from './navigation.js';
 const client = new Client(process.env.TEST_ENDPOINT ?? 'http://127.0.0.1:3107'), rooms: Room[] = [], states = new Map<Room, Snapshot>(), sequences = new Map<Room, number>();
 const building = process.argv.includes('--building'), crafting = process.argv.includes('--crafting'), constructions = new Map<Room, Construction>(), fields = new Map<Room, Forage>();
 const expedition = process.argv.includes('--expedition'), waystones = process.argv.includes('--waystones'), actionErrors = new Map<Room, string[]>();
@@ -34,7 +34,7 @@ async function walk(r: Room, x: number, z: number, stop = () => Math.hypot(me(r)
   }, 33);
   try { await until(stop); } finally { clearInterval(timer); timer = undefined; if (r.connection.isOpen) controls(r); }
 }
-async function followWildRoute(r:Room,target:{x:number;z:number},stop:()=>boolean=()=>Math.hypot(me(r).x-target.x,me(r).z-target.z)<1){const route=wildRoute(me(r),target,states.get(r)!.world.seed,states.get(r)!.world.construction);let point=0;timer=setInterval(()=>{const p=me(r);while(point<route.length-1&&Math.hypot(p.x-route[point][0],p.z-route[point][1])<.65)point++;const goal=point===route.length-1?[target.x,target.z]:route[point],d=Math.hypot(p.x-goal[0],p.z-goal[1]);controls(r,{yaw:Math.atan2(p.x-goal[0],p.z-goal[1]),z:1,sprint:true,dash:d>7&&(p.dashCooldown??0)<=0});for(const other of rooms)if(other!==r&&other.connection.isOpen)other.send('ping',Date.now());},33);try{await until(stop,100);}finally{clearInterval(timer);timer=undefined;controls(r);}}
+async function followWildRoute(r:Room,target:{x:number;z:number},stop:()=>boolean=()=>Math.hypot(me(r).x-target.x,me(r).z-target.z)<1){const route=wildRoute(me(r),target,states.get(r)!.world.seed,states.get(r)!.world.construction);const follow=routeFollower(route,target);timer=setInterval(()=>{const p=me(r),goal=follow(p),d=Math.hypot(p.x-goal[0],p.z-goal[1]);controls(r,{yaw:Math.atan2(p.x-goal[0],p.z-goal[1]),z:1,sprint:true,dash:d>7&&(p.dashCooldown??0)<=0});for(const other of rooms)if(other!==r&&other.connection.isOpen)other.send('ping',Date.now());},33);try{await until(stop,100);}finally{clearInterval(timer);timer=undefined;controls(r);}}
 async function constructionChecks(host: Room, guest: Room) {
   const seed=states.get(host)!.world.seed;
   await stopMoving(host);

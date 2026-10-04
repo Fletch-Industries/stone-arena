@@ -44,6 +44,7 @@ jobs:
           run_arena_test tests/wilds.ts --expedition
           run_arena_test tests/wilds.ts --waystones
           run_arena_test tests/wilds.ts --building
+          TEST_WORLD_SEED=391399180 run_arena_test tests/wilds.ts --building
           run_arena_test tests/wilds.ts --crafting
           TEST_WORLD_SEED=1160079627 run_arena_test tests/wilds.ts --crafting
           run_arena_test tests/living-world.ts

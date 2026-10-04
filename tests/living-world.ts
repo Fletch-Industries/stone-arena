@@ -5,7 +5,7 @@ import { CREATURES, WILDLIFE, WARDEN, creatureView, creatureTouch, guardianNests
 import { Construction, type ConstructionState, type ConstructionChanges } from '../shared/construction.js';
 import { Forage, suppliesNear, type ForageState, type ForageChanges } from '../shared/forage.js';
 import { saveWorld } from '../shared/world-save.js';
-import { navigator, wildRoute } from './navigation.js';
+import { navigator, wildRoute, routeFollower } from './navigation.js';
 
 const client=new Client(process.env.TEST_ENDPOINT??'http://127.0.0.1:3107'),rooms:Room[]=[],states=new Map<Room,Snapshot>(),seqs=new Map<Room,number>(),errors=new Map<Room,string[]>(),pings:number[]=[],sizes:number[]=[];
 let timer:ReturnType<typeof setInterval>|undefined;
@@ -20,8 +20,8 @@ const creatures=(r:Room)=>(states.get(r)!.creatures??[]).map(creatureView);
 const actor=(r:Room,id:string)=>creatures(r).find(c=>c.id===id);
 function input(r:Room,changes:Partial<Input>={}){const seq=(seqs.get(r)??me(r).ack)+1;seqs.set(r,seq);r.send('input',{...idleInput(),seq,...changes});}
 function heartbeat(r:Room){for(const other of rooms)if(other!==r&&other.connection.isOpen)other.send('ping',Date.now());}
-async function walk(r:Room,target:{x:number;z:number},stop=()=>Math.hypot(me(r).x-target.x,me(r).z-target.z)<.6,passage=false){const nav=navigator(),route=me(r).realm==='wilds'?wildRoute(me(r),target,states.get(r)!.world.seed,states.get(r)!.world.construction):undefined;let n=0;
-  timer=setInterval(()=>{if(stop()){input(r);return;}const p=me(r);while(route&&n<route.length-1&&Math.hypot(p.x-route[n][0],p.z-route[n][1])<.7)n++;const nearGoal=Math.hypot(p.x-target.x,p.z-target.z)<2.2;const point=route?(n===route.length-1?[target.x,target.z]:route[n]):passage||nearGoal?[target.x,target.z]:nav(p,target);input(r,{yaw:Math.atan2(p.x-point[0],p.z-point[1]),z:1,sprint:true,dash:!!route&&Math.hypot(p.x-point[0],p.z-point[1])>7&&(p.dashCooldown??0)<=0});heartbeat(r);},33);
+async function walk(r:Room,target:{x:number;z:number},stop=()=>Math.hypot(me(r).x-target.x,me(r).z-target.z)<.6,passage=false){const nav=navigator(),route=me(r).realm==='wilds'?wildRoute(me(r),target,states.get(r)!.world.seed,states.get(r)!.world.construction):undefined;const follow=route?routeFollower(route,target,.7):undefined;
+  timer=setInterval(()=>{if(stop()){input(r);return;}const p=me(r);const nearGoal=Math.hypot(p.x-target.x,p.z-target.z)<2.2;const point=follow?follow(p):passage||nearGoal?[target.x,target.z]:nav(p,target);input(r,{yaw:Math.atan2(p.x-point[0],p.z-point[1]),z:1,sprint:true,dash:!!route&&Math.hypot(p.x-point[0],p.z-point[1])>7&&(p.dashCooldown??0)<=0});heartbeat(r);},33);
   try{await until('Ordinary navigation',stop,100);}finally{clearInterval(timer);timer=undefined;input(r);}
 }
 const face=(r:Room,c:CreatureView)=>({yaw:Math.atan2(me(r).x-c.x,me(r).z-c.z),pitch:Math.atan2(c.y+(c.kind===4?1:.8)-me(r).y-EYE,Math.max(.1,Math.hypot(me(r).x-c.x,me(r).z-c.z)))});

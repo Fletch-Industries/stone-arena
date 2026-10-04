@@ -7,7 +7,7 @@ import { Construction, type ConstructionState, type ConstructionChanges } from '
 import { sculptTarget } from '../shared/mining.js';
 import { saveWorld, type WorldSave } from '../shared/world-save.js';
 import { carvedCave } from './mining-fixture.js';
-import { navigator, wildRoute } from './navigation.js';
+import { navigator, wildRoute, routeFollower } from './navigation.js';
 
 const client = new Client(process.env.TEST_ENDPOINT ?? 'http://127.0.0.1:3107'), rooms:Room[] = [], states = new Map<Room,Snapshot>(), terrain = new Map<Room,Excavation>(), seq = new Map<Room,number>(), errors:string[] = [], bytes:number[] = [];
 let timer:ReturnType<typeof setInterval>|undefined;
@@ -23,8 +23,8 @@ function track(r:Room){rooms.push(r);r.reconnection.enabled=false;const receiver
 }
 const me=(r:Room)=>states.get(r)!.players.find(p=>p.id===r.sessionId)!;
 function input(r:Room,changes:Partial<Input>&Record<string,unknown>={}){const next=(seq.get(r)??me(r).ack)+1;seq.set(r,next);r.send('input',{...idleInput(),seq:next,...changes});}
-async function walk(r:Room,target:{x:number;z:number},stop=()=>Math.hypot(me(r).x-target.x,me(r).z-target.z)<.6,passage=false){const nav=navigator(),route=me(r).realm==='wilds'?wildRoute(me(r),target,states.get(r)!.world.seed):undefined;let n=0;
-  timer=setInterval(()=>{if(stop()){input(r);return;}const p=me(r);while(route&&n<route.length-1&&Math.hypot(p.x-route[n][0],p.z-route[n][1])<.7)n++;const goal=route?(n===route.length-1?[target.x,target.z]:route[n]):passage||Math.hypot(p.x-target.x,p.z-target.z)<2.2?[target.x,target.z]:nav(p,target);input(r,{yaw:Math.atan2(p.x-goal[0],p.z-goal[1]),z:1,sprint:true});for(const other of rooms)if(other!==r&&other.connection.isOpen)other.send('ping',Date.now());},33);
+async function walk(r:Room,target:{x:number;z:number},stop=()=>Math.hypot(me(r).x-target.x,me(r).z-target.z)<.6,passage=false){const nav=navigator(),route=me(r).realm==='wilds'?wildRoute(me(r),target,states.get(r)!.world.seed):undefined;const follow=route?routeFollower(route,target,.7):undefined;
+  timer=setInterval(()=>{if(stop()){input(r);return;}const p=me(r);const goal=follow?follow(p):passage||Math.hypot(p.x-target.x,p.z-target.z)<2.2?[target.x,target.z]:nav(p,target);input(r,{yaw:Math.atan2(p.x-goal[0],p.z-goal[1]),z:1,sprint:true});for(const other of rooms)if(other!==r&&other.connection.isOpen)other.send('ping',Date.now());},33);
   try{await until('ordinary navigation',stop,100);}finally{clearInterval(timer);timer=undefined;input(r);}
 }
 async function upload(r:Room,save:WorldSave){const {blocks,cuts=[],veins=[],...header}=save;r.send('worldRestore',{type:'begin',header,count:blocks.length,cutsCount:cuts.length,veinsCount:veins.length});for(const [kind,rows]of [['blocks',blocks],['cuts',cuts],['veins',veins]]as const)for(let offset=0;offset<rows.length;offset+=64){const message={type:'chunk',kind,offset,blocks:rows.slice(offset,offset+64)};assert(Buffer.byteLength(JSON.stringify(message))<4096);r.send('worldRestore',message);await wait(35);}r.send('worldRestore',{type:'commit'});}
