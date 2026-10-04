@@ -1,6 +1,6 @@
 import { MODES, type Mode } from './game.js';
 
-export const KEEP = { worlds: 128, seconds: 10, messageMs: 2000, bytes: 386_048 } as const;
+export const KEEP = { worlds: 128, seconds: 10, messageMs: 2000, bytes: 409_600 } as const;
 export interface WorldHandle { id: string; key: string }
 export interface KeepSummary { id: string; title: string; seed: number; mode: Mode; savedAt: number; runes: number; openings: number }
 export interface KeepStatus { state: 'disabled' | 'off' | 'saving' | 'saved' | 'error' | 'full'; handle?: WorldHandle; summary?: KeepSummary }

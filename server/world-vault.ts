@@ -5,11 +5,12 @@ import { MODES, type Mode } from '../shared/game.js';
 import { KEEP, validHandle, type KeepSummary, type WorldHandle } from '../shared/world-keep.js';
 import { SAVE_BYTES, restoreWorld, validSaveHeader, type WorldSave } from '../shared/world-save.js';
 import type { WorldState } from '../shared/world.js';
+import { placeOf, validTrails, type PlayerTrail } from '../shared/player-place.js';
 
-interface RecordBody { format: 'stone-arena-keep'; version: 1; id: string; keyHash: string; savedAt: number; mode: Mode; world: WorldSave }
+interface RecordBody { format: 'stone-arena-keep'; version: 1; id: string; keyHash: string; savedAt: number; mode: Mode; world: WorldSave; trails?: PlayerTrail[]; inviteOnly?: boolean }
 interface StoredKeep extends RecordBody { checksum: string }
-export interface WorldLease { handle: WorldHandle; owner: string; savedAt: number }
-export interface LoadedKeep { lease: WorldLease; world: WorldState; mode: Mode; summary: KeepSummary; recovered: boolean }
+export interface WorldLease { handle: WorldHandle; owner: string; savedAt: number; keyHash?: string; inviteOnly?: boolean; guest?: boolean }
+export interface LoadedKeep { lease: WorldLease; world: WorldState; mode: Mode; summary: KeepSummary; recovered: boolean; trails: PlayerTrail[]; inviteOnly: boolean }
 export class KeepError extends Error {
   constructor(public code: number, message: string) { super(message); }
 }
@@ -17,7 +18,7 @@ const hash = (text: string) => createHash('sha256').update(text).digest('hex');
 const denied = () => new KeepError(404, 'That online world could not be opened. Use a downloaded world file if you have one.');
 const summary = (record: RecordBody): KeepSummary => ({ id: record.id, title: record.world.title, seed: record.world.seed, mode: record.mode, savedAt: record.savedAt, runes: record.world.blocks.length, openings: record.world.cuts?.length ?? 0 });
 
-/** Private capabilities, bounded files, atomic checkpoints; no player identities. */
+/** Private capabilities, bounded files, atomic checkpoints and anonymous places. */
 export class WorldVault {
   private ids = new Set<string>();
   private leases = new Map<string, WorldLease>();
@@ -49,6 +50,8 @@ export class WorldVault {
       if (!record || record.format !== 'stone-arena-keep' || record.version !== 1 || record.id !== id || typeof record.keyHash !== 'string' || !/^[a-f0-9]{64}$/.test(record.keyHash) || !Number.isSafeInteger(record.savedAt) || record.savedAt < 1 || typeof record.mode !== 'string' || !Object.hasOwn(MODES, record.mode)) return;
       const { checksum, ...body } = record;
       if (typeof checksum !== 'string' || hash(JSON.stringify(body)) !== checksum) return;
+      if (record.trails !== undefined && !validTrails(record.trails)) return;
+      if (record.inviteOnly !== undefined && typeof record.inviteOnly !== 'boolean') return;
       if (!validSaveHeader(record.world) || !Array.isArray(record.world.blocks) || record.world.blocks.length > 4096 || !Array.isArray(record.world.cuts) || record.world.cuts.length > 8192 || !Array.isArray(record.world.veins) || record.world.veins.length > 2048) return;
       const world = validateTerrain ? restoreWorld(record.world) : undefined; if (validateTerrain && !world) return;
       return { record, world };
@@ -56,33 +59,46 @@ export class WorldVault {
   }
   async acquire(handle: unknown, owner: string): Promise<LoadedKeep> {
     if (!validHandle(handle)) throw denied();
+    return this.load(handle, owner, false);
+  }
+  async acquireInvite(id: string, owner: string): Promise<LoadedKeep> {
+    if (!/^[a-f0-9]{32}$/.test(id)) throw denied();
+    return this.load({ id, key: '' }, owner, true);
+  }
+  async invite(id: string) {
+    if (!/^[a-f0-9]{32}$/.test(id)) return;
+    const found = await this.read(id, false, false) ?? await this.read(id, true, false);
+    if (found?.record.mode !== 'creative') return;
+    return { id, title: found.record.world.title, inviteOnly: found.record.inviteOnly === true };
+  }
+  private load(handle: WorldHandle, owner: string, guest: boolean): Promise<LoadedKeep> {
     return this.serial(async () => {
       const current = await this.read(handle.id, false, false);
       let found = current ?? await this.read(handle.id, true, false), recovered = !current;
-      const allowed = (value: typeof found) => value && timingSafeEqual(Buffer.from(value.record.keyHash, 'hex'), Buffer.from(hash(handle.key), 'hex'));
+      const allowed = (value: typeof found) => value && (guest ? value.record.mode === 'creative' : timingSafeEqual(Buffer.from(value.record.keyHash, 'hex'), Buffer.from(hash(handle.key), 'hex')));
       if (!allowed(found)) throw denied();
       let world = restoreWorld(found!.record.world);
       if (!world && current) { found = await this.read(handle.id, true, false); recovered = true; if (!allowed(found)) throw denied(); world = restoreWorld(found!.record.world); }
       if (!found || !world) throw denied();
       if (this.leases.has(handle.id)) throw new KeepError(409, 'This world already has an arena. Rejoin it or wait until everyone leaves.');
-      const lease = { handle: { id: handle.id, key: handle.key }, owner, savedAt: found.record.savedAt };
+      const lease: WorldLease = { handle: { id: handle.id, key: handle.key }, owner, savedAt: found.record.savedAt, keyHash: found.record.keyHash, inviteOnly: found.record.inviteOnly === true, guest };
       this.leases.set(handle.id, lease);
       if (recovered) this.recovering.add(lease);
-      return { lease, world, mode: found.record.mode, summary: summary(found.record), recovered };
+      return { lease, world, mode: found.record.mode, summary: summary(found.record), recovered, trails: (found.record.trails ?? []).map(p => ({ ...placeOf(p), key: p.key, at: p.at })), inviteOnly: lease.inviteOnly === true };
     });
   }
-  async create(world: WorldSave, mode: Mode, owner: string): Promise<{ lease: WorldLease; summary: KeepSummary }> {
+  async create(world: WorldSave, mode: Mode, owner: string, trails: PlayerTrail[] = [], inviteOnly = false): Promise<{ lease: WorldLease; summary: KeepSummary }> {
     return this.serial(async () => {
       if (this.ids.size >= this.limit) throw new KeepError(507, 'Online world storage is full. Keep a downloaded world file.');
       let id: string; do { id = randomBytes(16).toString('hex'); } while (this.ids.has(id));
-      const lease = { handle: { id, key: randomBytes(32).toString('hex') }, owner, savedAt: 0 };
+      const lease: WorldLease = { handle: { id, key: randomBytes(32).toString('hex') }, owner, savedAt: 0, inviteOnly };
       this.ids.add(id); this.leases.set(id, lease);
-      try { return { lease, summary: await this.write(lease, world, mode) }; }
+      try { return { lease, summary: await this.write(lease, world, mode, trails) }; }
       catch (error) { this.ids.delete(id); this.leases.delete(id); throw error; }
     });
   }
-  checkpoint(lease: WorldLease, world: WorldSave, mode: Mode) {
-    return this.serial(() => this.write(lease, world, mode));
+  checkpoint(lease: WorldLease, world: WorldSave, mode: Mode, trails: PlayerTrail[] = []) {
+    return this.serial(() => this.write(lease, world, mode, trails));
   }
   private async atomic(id: string, suffix: 'json' | 'bak', text: string) {
     const temporary = join(this.directory, `.${id}.${process.pid}.${randomBytes(8).toString('hex')}.tmp`);
@@ -92,13 +108,14 @@ export class WorldVault {
       await rename(temporary, join(this.directory, `${id}.${suffix}`));
     } finally { await unlink(temporary).catch(() => {}); }
   }
-  private async write(lease: WorldLease, save: WorldSave, mode: Mode): Promise<KeepSummary> {
+  private async write(lease: WorldLease, save: WorldSave, mode: Mode, trails: PlayerTrail[]): Promise<KeepSummary> {
     if (this.leases.get(lease.handle.id) !== lease) throw denied();
+    if (!validTrails(trails)) throw new KeepError(400, 'These saved locations could not be kept online.');
     if (typeof mode !== 'string' || !Object.hasOwn(MODES, mode) || !validSaveHeader(save) || !Array.isArray(save.blocks) || save.blocks.length > 4096 || !Array.isArray(save.cuts) || save.cuts.length > 8192 || !Array.isArray(save.veins) || save.veins.length > 2048) throw new KeepError(400, 'This world could not be kept online.');
     // Reconstruct the portable payload explicitly; never persist extra fields.
     const world: WorldSave = { format: 'stone-arena-world', version: 4, title: save.title, seed: save.seed, doorOpen: save.doorOpen, waystones: save.waystones, supplies: save.supplies && [...save.supplies], upgrades: save.upgrades, bonds: save.bonds, guardians: save.guardians, blocks: save.blocks.map(b => [b[0], b[1], b[2], b[3]]), cuts: save.cuts.map(c => [c[0], c[1], c[2]]), veins: save.veins.map(c => [c[0], c[1], c[2]]) };
     if (Buffer.byteLength(JSON.stringify(world)) > SAVE_BYTES) throw new KeepError(400, 'This world is too large to keep online.');
-    const body: RecordBody = { format: 'stone-arena-keep', version: 1, id: lease.handle.id, keyHash: hash(lease.handle.key), savedAt: Math.max(Date.now(), lease.savedAt + 1), mode, world };
+    const body: RecordBody = { format: 'stone-arena-keep', version: 1, id: lease.handle.id, keyHash: lease.keyHash ?? hash(lease.handle.key), savedAt: Math.max(Date.now(), lease.savedAt + 1), mode, world, trails: trails.map(p => ({ ...placeOf(p), key: p.key, at: p.at })), inviteOnly: lease.inviteOnly === true };
     const record: StoredKeep = { ...body, checksum: hash(JSON.stringify(body)) }, text = JSON.stringify(record);
     if (Buffer.byteLength(text) > KEEP.bytes) throw new KeepError(400, 'This world is too large to keep online.');
     // A recovered backup has passed terrain validation. Preserve it while
@@ -114,6 +131,7 @@ export class WorldVault {
   remove(lease: WorldLease) {
     return this.serial(async () => {
       if (this.leases.get(lease.handle.id) !== lease) throw denied();
+      if (lease.guest) throw new KeepError(403, 'Only the world creator can remove its online copy.');
       for (const suffix of ['json', 'bak']) await unlink(join(this.directory, `${lease.handle.id}.${suffix}`)).catch((error: NodeJS.ErrnoException) => { if (error.code !== 'ENOENT') throw error; });
       const directory = await open(this.directory, 'r'); try { await directory.sync(); } finally { await directory.close(); }
       this.ids.delete(lease.handle.id); this.release(lease);

@@ -325,7 +325,7 @@ export class ArenaScene {
     if (snapshot) this.sculpture.update(snapshot.world, me && local ? { ...me, ...local, yaw, pitch } : follow, this.time, this.reduced, wild && this.sculptPreview && playing && !!me?.alive, this.mendPreview, [...snapshot.players, ...(snapshot.creatures ?? []).map(creatureView).map(c => ({ ...c, realm: 'wilds' as const }))], snapshot.mode === 'expedition' || snapshot.host === me?.id);
     if (snapshot && wild && follow) this.resources.update(snapshot.world, local && follow.id === me?.id ? { ...local, yaw, pitch } : follow, snapshot.tick, this.time, this.quality, this.reduced);
     if(snapshot)this.creatures.update(snapshot.creatures??[],snapshot.world,this.camera,me?.id??'',this.time,dt,this.reduced,wild);
-    this.flightTips.visible = !!me?.alive && !thirdPerson && !inspecting && wild && ((local?.glideTime ?? me?.glideTime ?? 0) > 0);
+    this.flightTips.visible = !!me?.alive && !thirdPerson && !inspecting && wild && ((local?.glideTime ?? me?.glideTime ?? 0) > 0 || (local?.flying ?? me?.flying) === true);
     if (this.flightTips.visible) this.sails.animate(this.flightTips, this.time, this.reduced);
     this.wildlife.update(this.camera.position.x,this.camera.position.z,snapshot?.world.seed ?? 0,this.time,this.quality,this.reduced,wild);
     this.secretDoor.position.x += ((snapshot?.world.doorOpen ? SECRET.x + 4.3 : SECRET.x) - this.secretDoor.position.x) * Math.min(1, dt * 4);
@@ -367,7 +367,7 @@ export class ArenaScene {
       rig.swing = Math.max(0, rig.swing - dt / .3);
       rig.rightArm.rotation.x = p.sculpting && rig.swing === 0 ? -.5 + p.pitch * .65 + (this.reduced || !p.sculptProgress ? 0 : Math.sin(this.time * 22) * .035) : p.weaving && rig.swing === 0 ? -.35 + p.pitch * .65 : rig.swing > 0 ? -Math.sin(rig.swing * Math.PI) * 1.8 : p.weapon === 'apple' && p.charge > 0 ? 1.65 + (this.reduced ? 0 : Math.sin(this.time * 18) * .06) : p.charge > 0 || (p.weapon === 'crossbow' && p.loaded) ? -1.3 + p.pitch : pose.rightArm;
       rig.leftArm.rotation.z = p.block ? -.2 : Math.sin(rig.distance*1.3)*.04; rig.rightArm.rotation.z = rig.swing>0 ? -.4*Math.sin(rig.swing*Math.PI) : .04;
-      const sail = g.getObjectByName('sky-sail') as THREE.Group; sail.visible = (body.glideTime ?? 0) > 0;
+      const sail = g.getObjectByName('sky-sail') as THREE.Group; sail.visible = (body.glideTime ?? 0) > 0 || body.flying === true;
       if (sail.visible) { this.sails.animate(sail, this.time + p.color, this.reduced); g.rotation.x = -.12; if (!p.block) rig.leftArm.rotation.z = -.55; if (!p.charge && rig.swing === 0) rig.rightArm.rotation.z = .55; }
       rig.tool.visible = !!p.sculpting || !!p.weaving || p.weapon !== 'apple' || p.apples > 0;
       rig.tool.rotation.x = !p.weaving && !p.sculpting && p.weapon === 'apple' && p.charge > 0 ? -1.65 : 0;

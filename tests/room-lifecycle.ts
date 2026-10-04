@@ -10,7 +10,7 @@ async function until(f: () => boolean | Promise<boolean>, ms = 20000) { const en
 const count = () => fetch(`${endpoint}/health`).then(r => r.json()).then(s => s.rooms as number);
 function track(r: Room, heartbeat = true) {
   rooms.push(r); r.onMessage('snapshot', (s: Snapshot) => states.set(r, s));
-  r.onMessage('latency', (n: number) => r.send('latencyAck', n)); r.onMessage('pong', () => {}); r.onMessage('actionError', () => {});
+  r.onMessage('latency', (n: number) => { if (heartbeat) r.send('latencyAck', n); }); r.onMessage('pong', () => {}); r.onMessage('actionError', () => {});
   if (heartbeat) timers.push(setInterval(() => { if (r.connection.isOpen) r.send('ping', Date.now()); }, 1000));
   r.send('sync'); return r;
 }

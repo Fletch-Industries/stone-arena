@@ -535,3 +535,36 @@ For mobile compatibility, open `/tests/mobile-preview.html` on the Vite developm
 server. This renders the actual app in a 390×844 iframe with Pointer Lock APIs
 unavailable. Create, ready, solo practice, leave, rejoin, and reload must all work
 without browser exceptions. These test fixtures are excluded from production builds.
+
+
+### Creative worlds and returning explorers
+
+Choose **Create Creative world** on the home screen. Creative starts immediately,
+allows up to five friends to join during exploration, and has no damage, elimination
+or automatic round ending. All building tools, stone shaping and waystones are
+unlocked. Press **G** or **Fly** to toggle flight, **Space** to rise, **Shift** to
+descend, and **Ctrl** to fly faster. Touch players use **Up** and **Down**. Terrain,
+landmark protection and bounded construction still apply.
+
+**Invite friends** copies a stable world link. It continues to work after everyone
+leaves or the server restarts when online storage is configured. The next visitor
+reopens that world, and simultaneous visitors share one active room. Invite-only
+worlds stay out of the public arena directory. An invite permits playing and
+building; it does not reveal the creator's private checkpoint key or grant online
+copy removal when reopening a world.
+
+**Resume last world** and **Saved worlds → Creative worlds you visited** return to
+visited worlds. Keep the same nickname in the same browser to restore your own
+last position, realm and view; Creative also remembers whether you were flying.
+Player profiles are local browser keys. Hosted checkpoints store only hashed keys
+and up to 32 anonymous places per world, refreshed every ten seconds and on normal
+departure. Profiles and locations are not included in portable world downloads.
+New competitive rounds still begin at their normal spawns. If terrain now blocks
+a remembered spot, the game uses a safe spawn.
+
+Menus, idle exploration, waiting lobbies and spectators maintain their connection
+independently of movement. Creative and co-op explorers have a five-minute network
+reconnection window; competitive rooms retain their fifteen-second reservation.
+Hosted worlds are bounded to 128 slots with atomic current/backup checkpoints,
+private directory/files, and a maximum 400 KiB record. Clearing browser storage
+removes that browser's anonymous profile; keep an invite or downloaded world file.

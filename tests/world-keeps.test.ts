@@ -25,6 +25,29 @@ test('online checkpoints survive a new vault and contain no players or private c
   const restarted = await WorldVault.open(directory), restored = await restarted.acquire(created.lease.handle, 'another-room');
   assert.equal(restored.mode, 'expedition'); assert.deepEqual(saveWorld(restored.world), saveWorld(sim.world)); assert(!restored.recovered);
 });
+test('Creative invites reopen the same durable world without granting its creator key or delete permission', async t => {
+  const { directory, vault, sim } = await fixture(t), created = await vault.create(saveWorld(sim.world), 'creative', 'creator', [], true);
+  const id = created.lease.handle.id; vault.release(created.lease);
+  const next = await WorldVault.open(directory); assert.equal((await next.invite(id))?.id, id);
+  const guest = await next.acquireInvite(id, 'guest-room'); assert.equal(guest.lease.handle.key, ''); assert(guest.lease.guest); assert(guest.inviteOnly);
+  guest.world.supplies = [8, 9, 10]; await next.checkpoint(guest.lease, saveWorld(guest.world), 'creative');
+  await assert.rejects(next.remove(guest.lease), (e: unknown) => e instanceof KeepError && e.code === 403); next.release(guest.lease);
+  const owner = await next.acquire(created.lease.handle, 'creator-again'); assert.deepEqual(owner.world.supplies, [8, 9, 10]); assert(!owner.lease.guest);
+  await next.remove(owner.lease); assert.equal(await next.invite(id), undefined);
+  const competitive = await next.create(saveWorld(sim.world), 'ffa', 'arena'); next.release(competitive.lease);
+  assert.equal(await next.invite(competitive.lease.handle.id), undefined); await assert.rejects(next.acquireInvite(competitive.lease.handle.id, 'guest'));
+});
+test('each anonymous explorer resumes a separate server-captured position after all players leave and storage restarts', async t => {
+  const { directory, vault, sim } = await fixture(t), keeper = new WorldKeeper(vault, 'room', () => {});
+  const a = { realm: 'wilds' as const, x: 120, y: 70, z: -90, yaw: 1.2, pitch: .4, flying: true }, b = { ...a, x: -140, yaw: -.7 };
+  keeper.rememberPlace('a'.repeat(64), a); keeper.rememberPlace('b'.repeat(64), b); await keeper.save(sim.world, 'creative', true);
+  const handle = keeper.status.handle!; await keeper.close(sim.world, 'creative');
+  const restored = new WorldKeeper(await WorldVault.open(directory), 'next-room', () => {}); await restored.load(handle);
+  assert.deepEqual(restored.place('a'.repeat(64)), a); assert.deepEqual(restored.place('b'.repeat(64)), b); assert.equal(restored.place('c'.repeat(64)), undefined);
+  restored.rememberPlace('a'.repeat(64), { ...a, x: 121 }); await restored.save(sim.world, 'creative'); await restored.close(sim.world, 'creative');
+  const latest = await (await WorldVault.open(directory)).acquire(handle, 'third-room'); assert.equal(latest.trails.find(p => p.key === 'a'.repeat(64))!.x, 121);
+  const raw = await readFile(join(directory, `${handle.id}.json`), 'utf8'); assert(!raw.includes(handle.key)); assert(!raw.includes('creator-again'));
+});
 test('world keys and room leases prevent guesses, traversal and competing writers', async t => {
   const { vault, sim } = await fixture(t), created = await vault.create(saveWorld(sim.world), 'ffa', 'room-a');
   await assert.rejects(vault.acquire({ ...created.lease.handle, key: '0'.repeat(64) }, 'room-b'), (e: unknown) => e instanceof KeepError && e.code === 404);

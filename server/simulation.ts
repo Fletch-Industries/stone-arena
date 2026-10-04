@@ -10,8 +10,10 @@ import { HEARTHSTONE } from '../shared/sailing.js';
 import { HOME_WAYSTONE, nearbyWaystone, waystoneSites } from '../shared/waystones.js';
 import { WILDLIFE, guardianRay } from '../shared/creatures.js';
 import { Ecosystem, type Creature, type EcosystemHooks } from './ecosystem.js';
-import { nearSecret, SECRET, WORLD_LIMIT, terrainHeight, type Realm, type WorldState } from '../shared/world.js';
-import { CTF, MODES, isTeamMode, TEAMS, LIMIT, type Mode, type Team, type Flag, APPLE, TOTEM, ARMOR_TIERS, armorTier, MELEE, attackStrength, meleeRecovery, knockback, DT, EYE, HEIGHT, SPAWNS, direction, idleInput, move, segmentBox, wallHit, type Arrow, type GameEvent, type Input, type Player, type Snapshot, type Phase } from '../shared/game.js';
+import { nearSecret, SECRET, WORLD_LIMIT, terrainHeight, worldBoxes, type Realm, type WorldState } from '../shared/world.js';
+import { nativeBox } from '../shared/terrain-collision.js';
+import { placeOf, validPlace, type PlayerPlace } from '../shared/player-place.js';
+import { CTF, MODES, isExplorationMode, isTeamMode, TEAMS, LIMIT, type Mode, type Team, type Flag, APPLE, TOTEM, ARMOR_TIERS, armorTier, MELEE, attackStrength, meleeRecovery, knockback, DT, EYE, HEIGHT, RADIUS, SPAWNS, direction, idleInput, move, segmentBox, wallHit, type Arrow, type GameEvent, type Input, type Player, type Snapshot, type Phase } from '../shared/game.js';
 
 interface WorldActor { worldEnemy: true; id: string; name: string; x: number; z: number; realm: 'wilds' }
 export class Simulation {
@@ -23,16 +25,16 @@ export class Simulation {
   private clearSong(p: Player) { this.stoneSongs.delete(p.id); p.sculptProgress = 0; p.sculptCell = undefined; p.sculptMending = false; }
   private sculpt(p: Player, held: boolean, mend: boolean): (() => void) | undefined {
     if (!held || !p.sculpting || this.phase !== 'active' || !p.alive || !p.connected || p.realm !== 'wilds' || p.hurtTime > 0 || !this.rested(p.id)) { this.clearSong(p); return; }
-    const target = sculptTarget(p, this.world, mend, [...this.players.values(), ...this.ecosystem.creatures.values()], this.mode === 'expedition' || p.id === this.host);
+    const target = sculptTarget(p, this.world, mend, [...this.players.values(), ...this.ecosystem.creatures.values()], isExplorationMode(this.mode) || p.id === this.host);
     if (!target?.valid) { this.clearSong(p); return; }
-    const key = `${stoneKey(target.x, target.y, target.z)}:${mend}`, duration = mend ? 30 : target.stratum.ticks;
+    const key = `${stoneKey(target.x, target.y, target.z)}:${mend}`, duration = this.mode === 'creative' ? 6 : mend ? 30 : target.stratum.ticks;
     let song = this.stoneSongs.get(p.id); if (song?.key !== key) { song = { key, ticks: 0 }; this.stoneSongs.set(p.id, song); }
     song.ticks++; p.sculptCell = [target.x, target.y, target.z]; p.sculptMending = mend; p.sculptProgress = Math.min(100, Math.round(song.ticks / duration * 100));
     if (song.ticks < duration) return;
     // Completion follows combat so a same-tick death, hit or totem cancels the song.
     return () => {
       if (!p.alive || !p.connected || !p.sculpting || p.realm !== 'wilds' || !this.rested(p.id) || this.stoneSongs.get(p.id)?.key !== key) { this.clearSong(p); return; }
-      const current = sculptTarget(p, this.world, mend, [...this.players.values(), ...this.ecosystem.creatures.values()], this.mode === 'expedition' || p.id === this.host);
+      const current = sculptTarget(p, this.world, mend, [...this.players.values(), ...this.ecosystem.creatures.values()], isExplorationMode(this.mode) || p.id === this.host);
       if (!current?.valid || `${stoneKey(current.x, current.y, current.z)}:${mend}` !== key) { this.clearSong(p); return; }
       const cuts = this.world.excavation!, vein = current.stratum.vein, first = vein !== undefined && !cuts.claimed(current.x, current.y, current.z);
       const changed = mend ? cuts.mend(current.x, current.y, current.z) : cuts.dig({ x: current.x, y: current.y, z: current.z, owner: p.id }, vein !== undefined);
@@ -87,7 +89,7 @@ export class Simulation {
     if (!target?.valid) return false;
     const blocks = this.world.construction!;
     if (!erase && p.weaveKind === 6 && !((this.world.upgrades ?? 0) & HEARTHSTONE)) return false;
-    const ok = erase ? !!target.existing && (target.existing.owner === p.id || p.id === this.host || this.mode === 'expedition') && blocks.erase(target.x, target.y, target.z) : blocks.place({ x: target.x, y: target.y, z: target.z, kind: p.weaveKind ?? 0, owner: p.id });
+    const ok = erase ? !!target.existing && (target.existing.owner === p.id || p.id === this.host || isExplorationMode(this.mode)) && blocks.erase(target.x, target.y, target.z) : blocks.place({ x: target.x, y: target.y, z: target.z, kind: p.weaveKind ?? 0, owner: p.id });
     if (ok) this.event({ type: erase ? 'erase' : 'weave', actor: p.id, position: { x: target.x + .5, y: target.y + .5, z: target.z + .5 } });
     return ok;
   }
@@ -124,10 +126,11 @@ export class Simulation {
   flags: Flag[] = this.homeFlags();
   homeFlags(): Flag[] { return (['red', 'blue'] as Team[]).map(team => ({ team, state: 'home', x: TEAMS[team].x, z: TEAMS[team].z, y: 0, carrier: '', returnAt: 0 })); }
   resetFlags() { this.flags = this.homeFlags(); this.scores = { red: 0, blue: 0 }; this.winnerTeam = ''; }
-  teammates(a: Player, b: Player) { return this.mode === 'expedition' || (isTeamMode(this.mode) && a.team === b.team); }
+  teammates(a: Player, b: Player) { return isExplorationMode(this.mode) || (isTeamMode(this.mode) && a.team === b.team); }
   balanced() { const ps = [...this.players.values()]; const red = ps.filter(p => p.team === 'red').length; return red > 0 && red < ps.length && Math.abs(red - (ps.length - red)) <= 1; }
   selectMode(id: string, value: unknown) {
     if (id !== this.host || this.phase !== 'waiting' || typeof value !== 'string' || !Object.hasOwn(MODES, value)) return false;
+    if (this.mode !== value) this.resumePlaces.clear();
     this.mode = value as Mode; this.resetFlags(); for (const p of this.players.values()) p.ready = false; this.positionPlayers(); return true;
   }
   selectTeam(id: string, value: unknown) {
@@ -145,21 +148,36 @@ export class Simulation {
   arrows: Arrow[] = []; events: GameEvent[] = []; phase: Phase = 'waiting';
   tick = 0; round = 0; countdown = 0; result = ''; winner = ''; host = ''; practice = false;
   nextEvent = 0; nextArrow = 0; resultTime = 0;
+  resumePlaces = new Map<string, PlayerPlace>();
   rewindTicks = new Map<string, number>(); history: { tick: number; players: Map<string, { x: number; y: number; z: number; realm: Realm }> }[] = [];
-  add(id: string, name: string) {
-    if (this.players.size >= 5 || this.phase !== 'waiting') throw new Error('Room full or round in progress.');
+  add(id: string, name: string, place?: PlayerPlace) {
+    if (this.players.size >= 5 || this.phase !== 'waiting' && !(this.mode === 'creative' && this.phase === 'active')) throw new Error('Room full or round in progress.');
     const colors = new Set([...this.players.values()].map(p => p.color));
     const color = [0, 1, 2, 3, 4].find(c => !colors.has(c))!;
     const red = [...this.players.values()].filter(p => p.team === 'red').length;
     const team: Team = red <= this.players.size - red ? 'red' : 'blue';
     const p: Player = { relics: 0, realm: 'arena', team, respawnAt: 0, immuneUntil: 0, captures: 0, flagReturns: 0, id, name, color, x: 0, y: 0, z: 0, vy: 0, grounded: true, yaw: 0, pitch: 0, hp: 100, xp: 0, alive: true, connected: true, ready: false, weapon: 'sword', offhand: 'shield', block: false, ammo: 20, apples: APPLE.count, totems: TOTEM.count, kills: 0, damage: 0, assists: 0, wins: 0, ack: 0, cooldown: 0, charge: 0, loaded: false, shieldDisabled: 0, hurtTime: 0, lastDamage: 0, shieldRaise: 0, swingWait: 0, moveSpeed: 0, vx: 0, vz: 0, sprinting: false, sprintLocked: false, eliminatedAt: 0 };
-    this.players.set(id, p); this.inputs.set(id, idleInput()); if (!this.host) this.host = id; this.positionPlayers(); return p;
+    this.players.set(id, p); this.inputs.set(id, idleInput()); if (!this.host) this.host = id;
+    if (place && isExplorationMode(this.mode)) this.resumePlaces.set(id, placeOf(place));
+    if (this.phase === 'active') { this.spawn(p, this.players.size - 1); p.relics = 7; this.resumePlace(p); }
+    else this.positionPlayers();
+    return p;
   }
   spawn(p: Player, index: number) {
     const s = !isTeamMode(this.mode) ? SPAWNS[(index + this.round * 2) % SPAWNS.length] : [p.team === 'red' ? -43 : 43, (index - 1) * 5];
-    this.clearSong(p); Object.assign(p, { sculpting: false, glideTime: 0, glideCooldown: 0, glideHeld: false, gatherReadyAt: 0, craftReadyAt: 0, friendReadyAt: 0, weaving: false, weaveReadyAt: 0, warpTick: -1000, warpReadyAt: 0, dashTime: 0, dashHeld: false, dashCooldown: 0, realm: 'arena', x: s[0], z: s[1], y: 0, vy: 0, vx: 0, vz: 0, grounded: true, sprinting: false, sprintLocked: false, yaw: Math.atan2(s[0], s[1]), pitch: 0 });
+    this.clearSong(p); Object.assign(p, { flying: false, sculpting: false, glideTime: 0, glideCooldown: 0, glideHeld: false, gatherReadyAt: 0, craftReadyAt: 0, friendReadyAt: 0, weaving: false, weaveReadyAt: 0, warpTick: -1000, warpReadyAt: 0, dashTime: 0, dashHeld: false, dashCooldown: 0, realm: 'arena', x: s[0], z: s[1], y: 0, vy: 0, vx: 0, vz: 0, grounded: true, sprinting: false, sprintLocked: false, yaw: Math.atan2(s[0], s[1]), pitch: 0 });
+    if (this.mode === 'creative') Object.assign(p, { realm: 'wilds', x: (index - 2) * 2, z: -5, y: terrainHeight((index - 2) * 2, -5, this.world.seed), yaw: 0, pitch: 0 });
   }
-  positionPlayers() { let n = 0; const teams = { red: 0, blue: 0 }; for (const p of this.players.values()) this.spawn(p, !isTeamMode(this.mode) ? n++ : teams[p.team]++); }
+  resumePlace(p: Player, place = this.resumePlaces.get(p.id)) {
+    if (!place || !isExplorationMode(this.mode) || !validPlace(place)) return false;
+    const { x, y, z, realm } = place;
+    if (realm === 'arena' && z < -LIMIT && (!this.world.doorOpen || Math.abs(x - SECRET.x) > SECRET.halfWidth - RADIUS)) return false;
+    if (realm === 'wilds' && nativeBox(x - RADIUS, y + .001, z - RADIUS, x + RADIUS, y + HEIGHT - .001, z + RADIUS, this.world)) return false;
+    if (worldBoxes(x - RADIUS, z - RADIUS, x + RADIUS, z + RADIUS, realm, this.world).some(b => Math.abs(x - b.x) < b.w / 2 + RADIUS && Math.abs(z - b.z) < b.d / 2 + RADIUS && y + HEIGHT > (b.y ?? 0) + .001 && y < (b.y ?? 0) + b.h - .001)) return false;
+    Object.assign(p, placeOf(place), { flying: this.mode === 'creative' && place.flying, vx: 0, vy: 0, vz: 0, grounded: false, warpTick: this.tick, dashTime: 0, glideTime: 0, glideHeld: false, weaving: false, sculpting: false, block: false, charge: 0 });
+    this.inputs.set(p.id, { ...idleInput(), seq: p.ack, yaw: p.yaw, pitch: p.pitch, offhand: p.offhand }); this.lastInput.delete(p.id); return true;
+  }
+  positionPlayers() { let n = 0; const teams = { red: 0, blue: 0 }; for (const p of this.players.values()) { this.spawn(p, !isTeamMode(this.mode) ? n++ : teams[p.team]++); this.resumePlace(p); } }
   dropFlag(id: string) {
     const p = this.players.get(id); if (!p) return;
     for (const f of this.flags) if (f.carrier === id) {
@@ -209,23 +227,26 @@ export class Simulation {
   input(id: string, i: Input) { const p = this.players.get(id); if (p && i.seq > p.ack && i.seq > (this.inputs.get(id)?.seq ?? -1)) { const previous = this.inputs.get(id); if (i.attack && !previous?.attack) this.attackPress.add(id); if (!i.attack && previous?.attack) this.attackRelease.add(id); this.inputs.set(id, i); this.lastInput.set(id, this.tick); } }
   start(id: string, practice = false) {
     const ps = [...this.players.values()];
-    if (id !== this.host || this.phase !== 'waiting' || !ps.every(p => p.connected && p.ready) || (practice ? ps.length !== 1 : ps.length < (this.mode === 'expedition' ? 1 : 2))) return false;
+    if (id !== this.host || this.phase !== 'waiting' || !ps.every(p => p.connected && (p.ready || this.mode === 'creative')) || (practice ? ps.length !== 1 : ps.length < (isExplorationMode(this.mode) ? 1 : 2))) return false;
     if (!practice && isTeamMode(this.mode) && !this.balanced()) return false;
     this.resetFlags(); this.ecosystem.clear();
-    this.practice = practice && this.mode !== 'expedition'; this.round++; this.phase = 'countdown'; this.countdown = 5; this.result = ''; this.winner = ''; this.arrows = []; this.events = []; this.damageHistory.clear();
+    this.practice = practice && !isExplorationMode(this.mode); this.round++; this.phase = this.mode === 'creative' ? 'active' : 'countdown'; this.countdown = this.mode === 'creative' ? 0 : 5; this.result = ''; this.winner = ''; this.arrows = []; this.events = []; this.damageHistory.clear();
+    if (this.mode === 'creative') { this.world.doorOpen = true; this.world.waystones = 511; this.world.upgrades = 7; this.world.supplies = [999, 999, 999]; }
     for (const p of ps) { Object.assign(p, { relics: 0, respawnAt: 0, immuneUntil: 0, captures: 0, flagReturns: 0, hp: 100, xp: 0, alive: true, weapon: 'sword', offhand: 'shield', block: false, ammo: 20, apples: APPLE.count, totems: TOTEM.count, kills: 0, damage: 0, assists: 0, cooldown: 0, charge: 0, loaded: false, shieldDisabled: 0, hurtTime: 0, lastDamage: 0, shieldRaise: 0, swingWait: 0, moveSpeed: 0, vx: 0, vz: 0, sprinting: false, sprintLocked: false, eliminatedAt: 0, ack: 0 }); this.inputs.set(p.id, idleInput()); this.lastAttack.set(p.id, false); }
+    if (this.mode === 'creative') for (const p of ps) p.relics = 7;
     this.history = []; this.attackPress.clear(); this.attackRelease.clear(); this.positionPlayers(); return true;
   }
   disconnect(id: string) { this.dropFlag(id); const p = this.players.get(id); if (p) { this.clearSong(p); p.sculpting = false; p.connected = false; p.ready = false; p.charge = 0; p.glideTime = 0; p.glideHeld = false; this.inputs.set(id, { ...idleInput(), offhand: p.offhand }); this.lastAttack.set(id, false); } this.transferHost(); }
   transferHost() { if (!this.players.get(this.host)?.connected) this.host = [...this.players.values()].find(p => p.connected)?.id ?? ''; }
   removePlayer(id: string) {
     this.stoneSongs.delete(id);
-    this.departed.delete(id); this.players.delete(id); this.inputs.delete(id); this.lastInput.delete(id); this.lastAttack.delete(id);
+    this.resumePlaces.delete(id); this.departed.delete(id); this.players.delete(id); this.inputs.delete(id); this.lastInput.delete(id); this.lastAttack.delete(id);
     this.attackPress.delete(id); this.attackRelease.delete(id); this.rewindTicks.delete(id); this.damageHistory.delete(id);
     for (const damage of this.damageHistory.values()) damage.delete(id);
   }
   leave(id: string) {
     const p = this.players.get(id); if (!p) return;
+    if (this.mode === 'creative') { this.removePlayer(id); this.transferHost(); return; }
     if (this.phase === 'active' && p.alive) {
       const recent = [...(this.damageHistory.get(id) ?? [])].filter(([, at]) => this.tick - at <= 300).sort((a, b) => b[1] - a[1])[0];
       const actor = recent && this.players.get(recent[0]);
@@ -236,7 +257,7 @@ export class Simulation {
     this.transferHost(); this.checkWinner();
   }
   lobby(id: string) {
-    if (id !== this.host || (this.phase !== 'results' && !this.practice && !(this.mode === 'expedition' && this.phase === 'active'))) return;
+    if (id !== this.host || (this.phase !== 'results' && !this.practice && !(isExplorationMode(this.mode) && this.phase === 'active'))) return;
     if (this.phase === 'results' && this.tick - this.resultTime < 180) return;
     this.phase = 'waiting'; this.practice = false; this.arrows = []; this.ecosystem.clear(); this.resetFlags();
     for (const [key, p] of this.players) { if (this.departed.has(key)) this.removePlayer(key); else { p.ready = false; p.respawnAt = 0; p.immuneUntil = 0; p.captures = p.flagReturns = 0; p.xp = 0; p.apples = APPLE.count; p.totems = TOTEM.count; p.charge = 0; p.alive = true; p.hp = 100; p.hurtTime = 0; p.block = false; p.shieldRaise = 0; p.moveSpeed = 0; } }
@@ -244,6 +265,7 @@ export class Simulation {
   }
   checkWinner() {
     if (this.phase !== 'active') return;
+    if (this.mode === 'creative') return;
     if (this.mode === 'expedition') {
       const party = [...this.players.values()].filter(p => !this.departed.has(p.id));
       // A reconnecting explorer remains part of the party and cannot accidentally
@@ -286,6 +308,7 @@ export class Simulation {
     player.xp = ARMOR_TIERS[(level as number) - 1].xp; return true;
   }
   damage(target: Player, actor: Player | WorldActor, amount: number, axe = false, hit: { strength?: number; critical?: boolean; sprintHit?: boolean; sweep?: boolean; projectile?: boolean; source?: { x: number; z: number }; force?: boolean } = {}) {
+    if (this.mode === 'creative') return false;
     const enemy = 'worldEnemy' in actor;
     if (!target.alive || (!hit.force && ((!enemy && this.teammates(target, actor)) || target.realm !== actor.realm || target.immuneUntil > this.tick))) return false;
     const source = hit.source ?? actor, facing = direction(target.yaw);
@@ -363,7 +386,7 @@ export class Simulation {
     this.tick++;
     if (this.tick % 60 === 0) this.world.forage!.expire(this.tick);
     if (this.phase === 'countdown') {
-      if ([...this.players.values()].some(p => !p.connected) || this.players.size < (this.practice || this.mode === 'expedition' ? 1 : 2)) { this.phase = 'waiting'; return; }
+      if ([...this.players.values()].some(p => !p.connected) || this.players.size < (this.practice || isExplorationMode(this.mode) ? 1 : 2)) { this.phase = 'waiting'; return; }
       this.countdown = Math.max(0, this.countdown - DT);
       if (this.countdown <= .001) { this.phase = 'active'; this.event({ type: 'start' }); }
       return;
@@ -390,7 +413,8 @@ export class Simulation {
       p.offhand = i.offhand; p.block = !p.weaving && !p.sculpting && i.block && p.offhand === 'shield' && p.shieldDisabled <= 0;
       p.shieldRaise = p.block ? Math.min(.25, p.shieldRaise + DT) : 0;
       const oldX = p.x, oldZ = p.z, wasDashing = (p.dashTime ?? 0) > 0, wasGliding = (p.glideTime ?? 0) > 0, wasGrounded = p.grounded;
-      move(p, { ...i, block: p.block }, DT, p.charge > 0, this.world);
+      if (this.mode === 'creative') { p.hp = 100; p.ammo = 40; this.world.supplies = [999, 999, 999]; }
+      move(p, { ...i, block: p.block }, DT, p.charge > 0, this.world, this.mode === 'creative');
       if (wasGrounded && i.jump && !p.grounded && p.vy > 13) this.event({ type: 'windlift', actor: p.id, position: { x: p.x, y: p.y, z: p.z } });
       if (!wasDashing && (p.dashTime ?? 0) > 0) this.event({ type: 'dash', actor: p.id });
       if (!wasGliding && (p.glideTime ?? 0) > 0) { p.immuneUntil = 0; this.event({ type: 'glide', actor: p.id }); }

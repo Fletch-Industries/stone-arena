@@ -7,10 +7,12 @@ import type { CreatureWire } from './creatures.js';
 import type { Excavation } from './excavation.js';
 import { ceilingHeight, floorHeight, nativeBox, nativeRay } from './terrain-collision.js';
 export { BOXES, LIMIT, SPAWNS, ARENA_SIZE, type Box } from './arena.js';
-export const VERSION = 16;
-export type Mode = 'ffa' | 'teams' | 'ctf' | 'expedition';
+export const VERSION = 17;
+export type Mode = 'ffa' | 'teams' | 'ctf' | 'expedition' | 'creative';
 export type Team = 'red' | 'blue';
-export const MODES = { ffa: 'Free for all', teams: 'Team survival', ctf: 'Capture the flag', expedition: 'Co-op expedition' } as const;
+export const MODES = { ffa: 'Free for all', teams: 'Team survival', ctf: 'Capture the flag', expedition: 'Co-op expedition', creative: 'Creative exploration' } as const;
+export const isExplorationMode = (mode?: Mode) => mode === 'creative' || mode === 'expedition';
+export const CREATIVE = { speed: 12, sprint: 20, vertical: 10, ceiling: 128 } as const;
 export const isTeamMode = (mode?: Mode) => mode === 'teams' || mode === 'ctf';
 export const TEAMS = { red: { name: 'Red', color: '#ff7777', x: -40, z: 0 }, blue: { name: 'Blue', color: '#75baff', x: 40, z: 0 } } as const;
 export const CTF = { target: 3, respawnTicks: 300, returnTicks: 1800, protectionTicks: 120, radius: 1.4 } as const;
@@ -42,9 +44,9 @@ export type Weapon = 'sword' | 'axe' | 'bow' | 'crossbow' | 'apple';
 export const WEAPONS: Weapon[] = ['sword', 'axe', 'bow', 'crossbow', 'apple'];
 export const COLORS = ['#f3b85b', '#6adbc8', '#a8a0ff', '#f58f9c', '#8ece6b'];
 export type Phase = 'waiting' | 'countdown' | 'active' | 'results';
-export interface Input { seq: number; x: number; z: number; yaw: number; pitch: number; jump: boolean; dash?: boolean; glide?: boolean; weaving?: boolean; weaveKind?: number; sculpting?: boolean; sprint: boolean; block: boolean; attack: boolean; weapon: Weapon; offhand: Offhand }
+export interface Input { seq: number; x: number; z: number; yaw: number; pitch: number; jump: boolean; descend?: boolean; dash?: boolean; glide?: boolean; weaving?: boolean; weaveKind?: number; sculpting?: boolean; sprint: boolean; block: boolean; attack: boolean; weapon: Weapon; offhand: Offhand }
 export const idleInput = (): Input => ({ seq: 0, x: 0, z: 0, yaw: 0, pitch: 0, jump: false, dash: false, sprint: false, block: false, attack: false, weapon: 'sword', offhand: 'shield' });
-export interface Body { glideTime?: number; glideCooldown?: number; glideHeld?: boolean; hurtTime?: number; dashTime?: number; dashCooldown?: number; dashYaw?: number; dashHeld?: boolean; realm?: Realm; x: number; y: number; z: number; vy: number; grounded: boolean; vx?: number; vz?: number; sprinting?: boolean; sprintLocked?: boolean }
+export interface Body { flying?: boolean; glideTime?: number; glideCooldown?: number; glideHeld?: boolean; hurtTime?: number; dashTime?: number; dashCooldown?: number; dashYaw?: number; dashHeld?: boolean; realm?: Realm; x: number; y: number; z: number; vy: number; grounded: boolean; vx?: number; vz?: number; sprinting?: boolean; sprintLocked?: boolean }
 export interface Player extends Body {
   sculpting?: boolean; sculptProgress?: number; sculptCell?: [number, number, number]; sculptMending?: boolean;
   weaving?: boolean; weaveKind?: number; weaveReadyAt?: number; buildCount?: number; gatherReadyAt?: number; craftReadyAt?: number; friendReadyAt?: number;
@@ -64,7 +66,7 @@ export function validInput(a: unknown): a is Input {
   return Number.isSafeInteger(i.seq) && i.seq >= 0 && i.seq < 2 ** 31 &&
     [i.x, i.z, i.yaw, i.pitch].every(Number.isFinite) && Math.abs(i.x) <= 1 && Math.abs(i.z) <= 1 &&
     Math.abs(i.yaw) <= Math.PI * 2 && Math.abs(i.pitch) <= 1.5 && WEAPONS.includes(i.weapon) && ['shield', 'totem'].includes(i.offhand) &&
-    (i.dash === undefined || typeof i.dash === 'boolean') && (i.glide === undefined || typeof i.glide === 'boolean') && (i.weaving === undefined || typeof i.weaving === 'boolean') && (i.sculpting === undefined || typeof i.sculpting === 'boolean') && !(i.weaving && i.sculpting) && (i.weaveKind === undefined || validKind(i.weaveKind)) && [i.jump, i.sprint, i.block, i.attack].every(v => typeof v === 'boolean');
+    (i.descend === undefined || typeof i.descend === 'boolean') && (i.dash === undefined || typeof i.dash === 'boolean') && (i.glide === undefined || typeof i.glide === 'boolean') && (i.weaving === undefined || typeof i.weaving === 'boolean') && (i.sculpting === undefined || typeof i.sculpting === 'boolean') && !(i.weaving && i.sculpting) && (i.weaveKind === undefined || validKind(i.weaveKind)) && [i.jump, i.sprint, i.block, i.attack].every(v => typeof v === 'boolean');
 }
 export function direction(yaw: number, pitch = 0) { return { x: -Math.sin(yaw) * Math.cos(pitch), y: Math.sin(pitch), z: -Math.cos(yaw) * Math.cos(pitch) }; }
 // Velocity impulses share the same collision path as ordinary input on client/server.
@@ -74,24 +76,28 @@ export function knockback(body: Body, dx: number, dz: number, strength = 8) {
   body.vz = (body.vz ?? 0) / 2 + dz / length * strength;
   if (body.grounded) { body.vy = Math.min(8, body.vy / 2 + 8); body.grounded = false; }
 }
-export function move(body: Body, i: Input, dt = DT, slow = false, world?: WorldState) {
+export function move(body: Body, i: Input, dt = DT, slow = false, world?: WorldState, creative = false) {
   body.dashCooldown = Math.max(0, (body.dashCooldown ?? 0) - dt);
   body.dashTime = Math.max(0, (body.dashTime ?? 0) - dt);
   body.glideCooldown = Math.max(0, (body.glideCooldown ?? 0) - dt);
   body.glideTime = Math.max(0, (body.glideTime ?? 0) - dt);
   if (body.realm !== 'wilds' || slow || i.block || (body.hurtTime ?? 0) > 0) body.glideTime = 0;
   const sailPress = i.glide && !body.glideHeld;
-  const launch = sailPress && body.glideTime === 0 && body.realm === 'wilds' && !!((world?.upgrades ?? 0) & SKY_SAIL) && body.glideCooldown === 0 && !slow && !i.block && (body.hurtTime ?? 0) === 0;
-  if (sailPress && body.glideTime > 0) body.glideTime = 0;
+  if (!creative) body.flying = false;
+  else if (sailPress) { body.flying = !body.flying; body.vy = 0; }
+  const flying = creative && body.flying === true;
+  if (creative) { body.glideTime = 0; body.dashTime = 0; }
+  const launch = !creative && sailPress && body.glideTime === 0 && body.realm === 'wilds' && !!((world?.upgrades ?? 0) & SKY_SAIL) && body.glideCooldown === 0 && !slow && !i.block && (body.hurtTime ?? 0) === 0;
+  if (!creative && sailPress && body.glideTime > 0) body.glideTime = 0;
   else if (launch) { body.glideTime = SAIL.seconds; body.glideCooldown = SAIL.cooldown; body.dashTime = 0; }
   body.glideHeld = i.glide === true;
-  if (i.dash && !body.dashHeld && body.glideTime === 0 && body.realm === 'wilds' && body.dashCooldown === 0 && !slow && !i.block) { body.dashTime = WINDSTEP.duration; body.dashCooldown = WINDSTEP.cooldown; body.dashYaw = i.yaw; }
+  if (!flying && i.dash && !body.dashHeld && body.glideTime === 0 && body.realm === 'wilds' && body.dashCooldown === 0 && !slow && !i.block) { body.dashTime = WINDSTEP.duration; body.dashCooldown = WINDSTEP.cooldown; body.dashYaw = i.yaw; }
   body.dashHeld = i.dash === true;
   if (!i.sprint || i.z <= 0) body.sprintLocked = false;
-  body.sprinting = i.sprint && i.z > 0 && !slow && !i.block && !body.sprintLocked;
+  body.sprinting = i.sprint && (flying || i.z > 0) && !slow && !i.block && !body.sprintLocked;
   const length = Math.max(1, Math.hypot(i.x, i.z));
-  const speed = (body.sprinting ? SPRINT_SPEED : WALK_SPEED) * (i.block || slow ? .3 : 1);
-  if ((i.jump || launch) && body.grounded) {
+  const speed = (flying ? body.sprinting ? CREATIVE.sprint : CREATIVE.speed : body.sprinting ? SPRINT_SPEED : WALK_SPEED) * (i.block || slow ? .3 : 1);
+  if (!flying && (i.jump || launch) && body.grounded) {
     const wind = body.realm === 'wilds' && world?.construction?.boxes(body.x - RADIUS, body.z - RADIUS, body.x + RADIUS, body.z + RADIUS).some(b => b.runeKind === 5 && Math.abs(body.y - (b.y! + 1)) < .03);
     body.vy = Math.sqrt(2 * GRAVITY * (wind ? BUILD.windJump : JUMP_HEIGHT)); body.grounded = false;
     if (body.sprinting) { const d = direction(i.yaw); body.vx = (body.vx ?? 0) + d.x * 4; body.vz = (body.vz ?? 0) + d.z * 4; }
@@ -109,7 +115,8 @@ export function move(body: Body, i: Input, dt = DT, slow = false, world?: WorldS
   const ceiling = native ? Math.min(...probes(body.x, body.z).map(([x, z]) => ceilingHeight(x, z, oldY, world!))) : Infinity;
   if (gliding && body.vy < -SAIL.fall) body.vy = -SAIL.fall;
   const gravity = gliding && body.vy <= 0 ? body.vy > -SAIL.fall ? 4 : 0 : GRAVITY;
-  body.y += body.vy * dt - .5 * gravity * dt * dt; body.vy -= gravity * dt;
+  if (flying) { body.vy = (Number(i.jump) - Number(i.descend === true)) * CREATIVE.vertical; body.y = Math.min(CREATIVE.ceiling, body.y + body.vy * dt); if (body.y === CREATIVE.ceiling) body.vy = 0; }
+  else { body.y += body.vy * dt - .5 * gravity * dt * dt; body.vy -= gravity * dt; }
   if (gliding && body.vy < -SAIL.fall) body.vy = -SAIL.fall;
   body.grounded = false;
   if (body.y <= ground) { body.y = ground; body.vy = 0; body.grounded = true; }

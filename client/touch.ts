@@ -1,6 +1,7 @@
 /** Stable pointer-capture surfaces, separate from the frequently refreshed HUD. */
 export class TouchControls {
-  x = 0; z = 0; jump = false; jumpQueued = false; sprint = false;
+  x = 0; z = 0; jump = false; jumpQueued = false; descend = false; sprint = false;
+  private flightControls = false;
   private root = document.createElement('div');
   private resets: (() => void)[] = [];
   constructor(actions: { aim: (x: number, y: number) => void; attack: (down: boolean) => void; block: (down: boolean) => void; menu: () => void; scores: () => void; perspective: () => void; offhand: () => void }) {
@@ -23,7 +24,7 @@ export class TouchControls {
     let lx = 0, ly = 0;
     capture(find('.touch-look'), e => { lx = e.clientX; ly = e.clientY; }, e => { actions.aim(e.clientX - lx, e.clientY - ly); lx = e.clientX; ly = e.clientY; }, () => {});
     capture(find('.touch-attack'), () => actions.attack(true), () => {}, () => actions.attack(false));
-    capture(find('.touch-shield'), () => actions.block(true), () => {}, () => actions.block(false));
+    capture(find('.touch-shield'), () => { if (this.flightControls) this.descend = true; else actions.block(true); }, () => {}, () => { this.descend = false; actions.block(false); });
     capture(find('.touch-jump'), () => { this.jump = this.jumpQueued = true; }, () => {}, () => { this.jump = false; });
     find('.touch-sprint').addEventListener('click', () => { this.sprint = !this.sprint; find('.touch-sprint').setAttribute('aria-pressed', String(this.sprint)); });
     find('.touch-offhand').addEventListener('click', actions.offhand);
@@ -32,12 +33,14 @@ export class TouchControls {
     find('[aria-label="Open scoreboard"]').addEventListener('click', actions.scores);
   }
   item(apple: boolean, weaving = false, sculpting = false) { const button = this.root.querySelector('.touch-attack')!; const label = sculpting ? 'Mine' : weaving ? 'Weave' : apple ? 'Eat' : 'Attack'; if (button.textContent !== label) { button.textContent = label; button.setAttribute('aria-label', sculpting ? 'Hold to mine stone' : weaving ? 'Weave rune' : apple ? 'Eat golden apple' : 'Attack'); } }
-  offhand(totem: boolean, weaving = false, sculpting = false) {
+  offhand(totem: boolean, weaving = false, sculpting = false, flying = false) {
+    this.flightControls = flying && !weaving && !sculpting;
     const shield = this.root.querySelector<HTMLButtonElement>('.touch-shield')!;
-    shield.disabled = totem && !weaving && !sculpting; shield.textContent = sculpting ? 'Mend' : weaving ? 'Erase' : 'Shield'; shield.setAttribute('aria-label', sculpting ? 'Hold to mend an opening' : weaving ? 'Erase woven rune' : totem ? 'Shield unavailable while holding totem' : 'Hold shield');
+    shield.disabled = totem && !weaving && !sculpting && !this.flightControls; shield.textContent = this.flightControls ? 'Down ↓' : sculpting ? 'Mend' : weaving ? 'Erase' : 'Shield'; shield.setAttribute('aria-label', this.flightControls ? 'Hold to fly down' : sculpting ? 'Hold to mend an opening' : weaving ? 'Erase woven rune' : totem ? 'Shield unavailable while holding totem' : 'Hold shield');
+    const jump = this.root.querySelector<HTMLButtonElement>('.touch-jump')!; jump.textContent = this.flightControls ? 'Up ↑' : 'Jump ↑'; jump.setAttribute('aria-label', this.flightControls ? 'Hold to fly up' : 'Jump');
     this.root.querySelector('.touch-offhand')!.setAttribute('aria-label', `Swap left hand to ${totem ? 'shield' : 'totem'}`);
   }
   perspective(label: string) { const button = this.root.querySelector('.touch-view')!; button.setAttribute('aria-label', `Change perspective: ${label}`); button.setAttribute('title', label); }
-  reset() { for (const reset of this.resets) reset(); this.jumpQueued = false; this.sprint = false; this.root.querySelector('.touch-sprint')!.setAttribute('aria-pressed', 'false'); }
+  reset() { for (const reset of this.resets) reset(); this.descend = false; this.jumpQueued = false; this.sprint = false; this.root.querySelector('.touch-sprint')!.setAttribute('aria-pressed', 'false'); }
   show(visible: boolean) { if (this.root.hidden === !visible) return; this.root.hidden = !visible; if (!visible) this.reset(); }
 }
