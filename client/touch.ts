@@ -44,7 +44,8 @@ export class TouchControls {
   }
   perspective(view: Perspective) {
     const button = this.root.querySelector('.touch-view')!, label = PERSPECTIVE_LABELS[view];
-    button.textContent = { first: '1st', rear: 'Rear', front: 'Front' }[view];
+    const state = document.createElement('small'); state.textContent = { first: '1st', rear: 'Rear', front: 'Front' }[view];
+    button.replaceChildren(document.createTextNode('View'), state);
     button.setAttribute('aria-label', `Change perspective: ${label}`);
     button.setAttribute('aria-description', 'Attacks follow your character’s facing direction');
     button.setAttribute('title', label);

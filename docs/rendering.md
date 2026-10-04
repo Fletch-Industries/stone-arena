@@ -351,7 +351,7 @@ do not enqueue extra toggles. Jump holds and Windstep retain their existing inpu
 behavior. No protocol messages, server changes or render passes are added.
 
 Camera status shares the existing HUD surfaces instead of floating over the world.
-Desktop shows the full perspective in the player badge; touch View shows 1st,
+Desktop shows the full perspective in the player badge; touch View includes 1st,
 Rear or Front, with the full perspective and facing-direction guidance available
 to assistive tools. F5 / V, the View button and Settings keep the same camera cycle
 and persisted setting. Aiming, clipping and character preview are unchanged.
