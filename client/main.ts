@@ -27,7 +27,7 @@ import './style.css';
 import { totemNotice } from './totem.js';
 import { hotbar } from './hotbar.js';
 import { patchHUD } from './hud-patch.js';
-import { ControlPulse } from './control-pulse.js';
+import { ControlPulse, TogglePulse } from './control-pulse.js';
 import { PlayTimeDisplay } from './play-time.js';
 import type { PlayTimeStatus } from '../shared/play-time.js';
 import { exitPointerLock } from './pointer.js';
@@ -88,7 +88,7 @@ function worldsPanel() {
 let trackedWaystone: number | undefined;
 let privateArena = false, roomCode = new URLSearchParams(location.search).get('room') ?? '';
 let openArenas: OpenArena[] = [], arenaListState: 'loading' | 'ready' | 'error' = 'loading', refreshingArenas = false;
-const glidePulse = new ControlPulse(), dashPulse = new ControlPulse(), jumpPulse = new ControlPulse();
+const glidePulse = new TogglePulse(), dashPulse = new ControlPulse(), jumpPulse = new ControlPulse();
 let mouseAttack = false, mouseBlock = false, expectedUnlock = false, dragLook = false, attackQueued = false;
 let resultsEnteredAt = 0, lastForwardTap = -1000, doubleTapSprint = false;
 let seatKey: string = crypto.randomUUID();
@@ -491,7 +491,7 @@ function frame(now: number) {
     if (room && snapshot?.phase === 'active' && p?.alive && !disconnected && local && contentsReady()) {
       if (touch.jumpQueued) { jumpPulse.press(); touch.jumpQueued = false; }
       const inputSequence = ++seq;
-      const i: Input = { ...idleInput(), seq: inputSequence, x: Math.max(-1, Math.min(1, Number(keys.has('KeyD')) - Number(keys.has('KeyA')) + touch.x)), z: Math.max(-1, Math.min(1, Number(keys.has('KeyW')) - Number(keys.has('KeyS')) + touch.z)), yaw, pitch, dash: dashPulse.value(inputSequence) || keys.has('KeyQ'), glide: glidePulse.value(inputSequence) || keys.has('KeyG'), jump: jumpPulse.value(inputSequence) || keys.has('Space') || touch.jump, descend: touch.descend || snapshot.mode === 'creative' && (keys.has('ShiftLeft') || keys.has('ShiftRight')), sprint: doubleTapSprint || keys.has('ControlLeft') || keys.has('ControlRight') || (!(snapshot.mode === 'creative' && local.flying) && (keys.has('ShiftLeft') || keys.has('ShiftRight'))) || touch.sprint, attack: mouseAttack || attackQueued, block: mouseBlock && (weaving || sculpting || offhand === 'shield'), weaving, sculpting, weaveKind, weapon, offhand };
+      const i: Input = { ...idleInput(), seq: inputSequence, x: Math.max(-1, Math.min(1, Number(keys.has('KeyD')) - Number(keys.has('KeyA')) + touch.x)), z: Math.max(-1, Math.min(1, Number(keys.has('KeyW')) - Number(keys.has('KeyS')) + touch.z)), yaw, pitch, dash: dashPulse.value(inputSequence) || keys.has('KeyQ'), glide: glidePulse.value(inputSequence), jump: jumpPulse.value(inputSequence) || keys.has('Space') || touch.jump, descend: touch.descend || snapshot.mode === 'creative' && (keys.has('ShiftLeft') || keys.has('ShiftRight')), sprint: doubleTapSprint || keys.has('ControlLeft') || keys.has('ControlRight') || (!(snapshot.mode === 'creative' && local.flying) && (keys.has('ShiftLeft') || keys.has('ShiftRight'))) || touch.sprint, attack: mouseAttack || attackQueued, block: mouseBlock && (weaving || sculpting || offhand === 'shield'), weaving, sculpting, weaveKind, weapon, offhand };
       move(local, { ...i, block: !i.weaving && !i.sculpting && i.block && i.offhand === 'shield' && p.shieldDisabled <= 0 }, DT, (p.charge ?? 0) > 0, snapshot.world, snapshot.mode === 'creative'); pending.push(i); if (pending.length > 120) pending.shift(); room.send('input', i); attackQueued = false;
     }
   }

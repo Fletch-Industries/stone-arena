@@ -342,3 +342,10 @@ the palette from Invite/Fly and the movement controls, leaving the central view
 clear. Expedition guidance and its progress card retain their existing behavior.
 Atlas updates also patch the existing DOM, keeping its tabs and Resume game
 button attached during a press while positions and discoveries refresh.
+
+Flight toggles retain their final intent across taps in the same catch-up frame.
+A second edge waits for the authoritative release acknowledgment, so the server's
+latest-input rule cannot swallow it. Extra pairs cancel instead of building an
+unbounded action queue; menus and reconnects clear pending intent. G key repeats
+do not enqueue extra toggles. Jump holds and Windstep retain their existing input
+behavior. No protocol messages, server changes or render passes are added.

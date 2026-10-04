@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ControlPulse } from '../client/control-pulse.js';
+import { ControlPulse, TogglePulse } from '../client/control-pulse.js';
 import { Simulation } from '../server/simulation.js';
 import { idleInput } from '../shared/game.js';
 
@@ -55,4 +55,59 @@ test('brief jump and Windstep presses survive the same batch without altering se
   s.input(p.id, { ...idleInput(), seq: 7, jump: jump.value(7), dash: dash.value(7) }); s.step();
   dash.press(); s.input(p.id, { ...idleInput(), seq: 8, dash: dash.value(8) }); s.step();
   assert((p.dashCooldown ?? 0) < 4 && (p.dashCooldown ?? 0) > 3.9);
+});
+
+
+function flightBatch(pulse: TogglePulse, s: Simulation, p: ReturnType<Simulation['add']>, sequence: number) {
+  for (let n = 0; n < 6; n++) s.input(p.id, { ...idleInput(), seq: sequence + n, glide: pulse.value(sequence + n) });
+  s.step();
+}
+
+test('two flight taps before a catch-up frame both reach authoritative movement', () => {
+  const { simulation: s, player: p } = explorer(), pulse = new TogglePulse();
+  pulse.press(); pulse.press(); flightBatch(pulse, s, p, 1); assert(p.flying);
+  flightBatch(pulse, s, p, 7); assert(p.flying, 'Unacknowledged press is not replayed');
+  pulse.acknowledge(p.ack); flightBatch(pulse, s, p, 13); assert(p.flying);
+  flightBatch(pulse, s, p, 19); assert(p.flying, 'Wait for an authoritative release');
+  pulse.acknowledge(p.ack); flightBatch(pulse, s, p, 25); assert(!p.flying);
+  pulse.acknowledge(p.ack); flightBatch(pulse, s, p, 31); pulse.acknowledge(p.ack);
+  flightBatch(pulse, s, p, 37); assert(!p.flying, 'No third toggle');
+});
+
+test('a second flight tap after press acknowledgment cannot overwrite the release', () => {
+  const { simulation: s, player: p } = explorer(), pulse = new TogglePulse();
+  pulse.press(); flightBatch(pulse, s, p, 1); pulse.acknowledge(p.ack); pulse.press();
+  flightBatch(pulse, s, p, 7); assert(p.flying); assert(!p.glideHeld);
+  pulse.acknowledge(6); flightBatch(pulse, s, p, 13); assert(p.flying);
+  pulse.acknowledge(p.ack); flightBatch(pulse, s, p, 19); assert(!p.flying);
+});
+
+test('rapid flight bursts preserve final intent without replaying a long action queue', () => {
+  for (const taps of [1, 2, 3, 4, 7, 1000]) {
+    const { simulation: s, player: p } = explorer(), pulse = new TogglePulse();
+    for (let n = 0; n < taps; n++) pulse.press();
+    let transitions = 0, flying = p.flying;
+    for (let seq = 1; seq < 121; seq += 6) {
+      flightBatch(pulse, s, p, seq); if (p.flying !== flying) transitions++;
+      flying = p.flying; pulse.acknowledge(p.ack);
+    }
+    assert.equal(p.flying, taps % 2 === 1); assert(transitions <= 2);
+  }
+});
+
+test('delayed or repeated snapshots cannot release the next unsent flight edge', () => {
+  const { simulation: s, player: p } = explorer(), pulse = new TogglePulse();
+  pulse.press(); pulse.press(); pulse.acknowledge(900); flightBatch(pulse, s, p, 1); assert(p.flying);
+  pulse.acknowledge(6); pulse.acknowledge(6); flightBatch(pulse, s, p, 7); assert(p.flying);
+  pulse.acknowledge(12); pulse.acknowledge(12); flightBatch(pulse, s, p, 13); assert(!p.flying);
+});
+
+test('menus and reconnects discard all unprocessed flight intent', () => {
+  for (const clearAfterRelease of [false, true]) {
+    const { simulation: s, player: p } = explorer(), pulse = new TogglePulse();
+    pulse.press(); pulse.press(); flightBatch(pulse, s, p, 1);
+    if (clearAfterRelease) pulse.acknowledge(p.ack);
+    pulse.clear(); flightBatch(pulse, s, p, 7); assert(p.flying);
+    pulse.acknowledge(p.ack); flightBatch(pulse, s, p, 13); assert(p.flying);
+  }
 });
