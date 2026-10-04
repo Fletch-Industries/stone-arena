@@ -55,7 +55,7 @@ try {
   console.log('PASS: Creative starts immediately, allows late joins, never ends a round and stays connected while idle using connection replies alone');
   const token = guest.reconnectionToken, oldSession = guest.sessionId; guest.connection.close(1000);
   await until(() => states.get(host)?.players.find(p => p.id === oldSession)?.connected === false); await wait(18000);
-  guest = track(await client.reconnect(token)); await until(() => player(guest)?.connected === true); assert.equal(guest.sessionId, oldSession); samePosition(placeOf(player(guest)), guestSpot);
+  guest = track(await client.reconnect(token)); await until(() => states.get(guest)?.players.find(p => p.id === guest.sessionId)?.connected === true); assert.equal(guest.sessionId, oldSession); samePosition(placeOf(player(guest)), guestSpot);
   console.log('PASS: an explorer reconnects beyond the old 15-second window with the same identity and saved place');
   await host.leave(); await guest.leave(); await until(async () => (await (await fetch(`${endpoint}/health`)).json()).rooms === 0);
   const offline = await (await fetch(`${endpoint}/worlds/${id}`)).json(); assert.equal(offline.id, id); assert.equal(offline.roomId, undefined);
