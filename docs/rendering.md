@@ -162,6 +162,16 @@ authoritative hit rays and movement.
 for ambient wind, at most 32 transient voices, a master volume and a compressor.
 Transient sources disconnect when finished. Footsteps follow traveled distance,
 landings follow grounded transitions, and distant same-area events are quieter.
+Wilds footsteps distinguish low grass, rocky slopes/ridges and shallow shores
+with original rustle, dry stone-tap and soft wet-ground cues. Cave and Citadel
+steps retain their existing timbres. Surface queries occur only on a completed
+grounded stride and reuse the existing bounded terrain cache. Each footfall uses
+the same two transient voices, with no new ambience loops or downloaded samples.
+Stride remainder survives ordinary movement; at most one footfall plays per frame.
+Flying, jumps, realm changes, large position jumps, muting and inactivity clear
+unfinished strides so airborne distance cannot replay a walking sound on landing.
+Landing keeps its separate cue. The 32-voice ceiling and transient cleanup remain.
+
 A user gesture creates/resumes audio; background tabs fade ambience and stop
 scheduling music. There are no downloaded samples, always-running intervals or
 autoplay prompts. The development world preview includes sound/dash/rune/aura
