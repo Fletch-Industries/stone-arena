@@ -349,3 +349,9 @@ latest-input rule cannot swallow it. Extra pairs cancel instead of building an
 unbounded action queue; menus and reconnects clear pending intent. G key repeats
 do not enqueue extra toggles. Jump holds and Windstep retain their existing input
 behavior. No protocol messages, server changes or render passes are added.
+
+Camera status shares the existing HUD surfaces instead of floating over the world.
+Desktop shows the full perspective in the player badge; touch View shows 1st,
+Rear or Front, with the full perspective and facing-direction guidance available
+to assistive tools. F5 / V, the View button and Settings keep the same camera cycle
+and persisted setting. Aiming, clipping and character preview are unchanged.

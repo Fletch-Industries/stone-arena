@@ -29,7 +29,6 @@ button.slot{color:inherit}.screen,.overlay{overflow-y:auto;overscroll-behavior:c
 
 .center-message.armor-inspection{top:12%;font-size:11px}.armor-inspection .btn{padding:10px 16px}
 
-.perspective-hint{position:absolute;top:88px;left:50%;transform:translateX(-50%);text-align:center;color:#f5f0e5;font-size:11px;text-shadow:0 1px 3px #000;pointer-events:none}.perspective-hint small{display:block;font-size:9px;margin-top:5px;color:#d2dadd}.mobile .perspective-hint{top:112px;min-width:230px;font-size:10px}@media(max-height:500px){.mobile .perspective-hint{top:64px;font-size:9px}.mobile .perspective-hint small{font-size:8px}}
 
 /* Left-hand switching remains clickable on the HUD and stable touch menu. */
 button.offhand{background:#111d25bd;border:1px solid #ffffff38;padding:3px 6px;min-height:32px;border-radius:3px;font:inherit;touch-action:manipulation}
@@ -63,7 +62,6 @@ button.offhand{background:#111d25bd;border:1px solid #ffffff38;padding:3px 6px;m
 
 .ctf .feed,.mobile .ctf .feed { top:224px; }
 @media(max-height:500px) { .mobile .flag-hud { top:54px; } .mobile .ctf .feed { top:154px; max-width:220px; } }
-.mobile .hud.ctf ~ .perspective-hint { display:none; }
 
 .world-hint { position:absolute; top:220px; left:50%; transform:translateX(-50%); text-align:center; max-width:90vw; color:#f5dcac; font-size:12px; padding:8px 12px; border-radius:5px; background:#172b30bb; }
 .ctf .world-hint { top:262px; }
@@ -126,3 +124,5 @@ button.offhand{background:#111d25bd;border:1px solid #ffffff38;padding:3px 6px;m
 .mobile .hud .creative-tools{top:196px;left:10px;right:10px;max-width:none;width:auto}.mobile .creative-tools .trail-actions{margin:0}
 .mobile #app:has(.creative-tools){z-index:3}
 @media(max-height:500px){.mobile:has(.creative-tools) .play-time-badge{top:72px}.mobile .creative-invite{top:68px;max-width:160px}.mobile .hud .creative-tools{top:68px;left:180px;right:180px}}
+
+.badge .camera-status{display:block;margin-top:5px;font-size:10px;line-height:1.2;letter-spacing:0;text-transform:none;color:#d2dadd}

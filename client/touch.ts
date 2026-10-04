@@ -1,3 +1,5 @@
+import { PERSPECTIVE_LABELS, type Perspective } from './camera.js';
+
 /** Stable pointer-capture surfaces, separate from the frequently refreshed HUD. */
 export class TouchControls {
   x = 0; z = 0; jump = false; jumpQueued = false; descend = false; sprint = false;
@@ -40,7 +42,13 @@ export class TouchControls {
     const jump = this.root.querySelector<HTMLButtonElement>('.touch-jump')!; jump.textContent = this.flightControls ? 'Up ↑' : 'Jump ↑'; jump.setAttribute('aria-label', this.flightControls ? 'Hold to fly up' : 'Jump');
     this.root.querySelector('.touch-offhand')!.setAttribute('aria-label', `Swap left hand to ${totem ? 'shield' : 'totem'}`);
   }
-  perspective(label: string) { const button = this.root.querySelector('.touch-view')!; button.setAttribute('aria-label', `Change perspective: ${label}`); button.setAttribute('title', label); }
+  perspective(view: Perspective) {
+    const button = this.root.querySelector('.touch-view')!, label = PERSPECTIVE_LABELS[view];
+    button.textContent = { first: '1st', rear: 'Rear', front: 'Front' }[view];
+    button.setAttribute('aria-label', `Change perspective: ${label}`);
+    button.setAttribute('aria-description', 'Attacks follow your character’s facing direction');
+    button.setAttribute('title', label);
+  }
   reset() { for (const reset of this.resets) reset(); this.descend = false; this.jumpQueued = false; this.sprint = false; this.root.querySelector('.touch-sprint')!.setAttribute('aria-pressed', 'false'); }
   show(visible: boolean) { if (this.root.hidden === !visible) return; this.root.hidden = !visible; if (!visible) this.reset(); }
 }
