@@ -181,7 +181,29 @@ Damage pauses shaping for five seconds. Real cave floors and roofs block movemen
 jumps, dashes, arrows, melee and third-person cameras. This is bounded terrain
 shaping: water does not flow into excavations and stone has no collapse simulation.
 
-Open **Saved worlds** in the lobby or Settings. The host's browser automatically
+Open **Saved worlds** on the home screen, in the lobby, or in Settings. On hosts
+with online storage enabled, an arena automatically keeps its world online about
+every ten seconds when it changes, and when the arena closes normally. **Save
+online now** checkpoints it immediately. After a restart, choose a nickname and
+use **Online worlds → Continue** from the home screen to open a fresh lobby with
+the saved terrain, tunnels, runes, supplies, crafting, field guide, waystones and
+game mode. Friends can join its new arena normally. Health, equipment, personal
+skyshards and round results start fresh. A world can have one active arena at a
+time; an existing arena's invitations and reconnect tokens still handle live play.
+
+Online bookmarks use a private key retained in this browser. Keys stay out of
+invites, public listings, menu markup and downloaded world files.
+The current host receives the bookmark when hosting transfers to a friend.
+There are no accounts, and clearing browser storage removes these bookmarks:
+keep a download to move a world to another device or recover it without a bookmark.
+Each online checkpoint has a previous recovery copy; a damaged current copy
+falls back to it. A sudden crash may lose changes since the last completed
+checkpoint. **Remove this world's online copy** removes both checkpoints while
+your current arena and browser memory remain. **Keep this world online** enables
+saving again with a new bookmark. If storage is unavailable or full, the menu
+shows that clearly and downloads continue working.
+
+The host's browser also automatically
 keeps up to **three recent worlds**, saving changes about every ten seconds and
 when leaving normally. **Download this world** makes a portable JSON file that
 contains terrain seed, excavations, spent seams, buildings, shared supplies/upgrades, the open door,
@@ -195,8 +217,9 @@ Version-3 files keep the field guide. New version-4 files also retain mines and
 underground buildings; earlier files begin with intact native terrain.
 Restored structures belong to the world; the host and co-op friends
 can edit them. Browser storage can be cleared or unavailable: keep a downloaded
-file for anything you want to retain. Rooms are still temporary and server restarts
-do not restore them automatically.
+file for anything you want to retain. Live rooms and seats remain temporary;
+online worlds restore their landscapes into new lobbies rather than restoring
+an interrupted round automatically.
 
 ## Teams and capture the flag
 
@@ -448,7 +471,7 @@ sent at 60 Hz; simulation time always comes from the server, never the input rat
 Melee rewinds target history by up to 100 ms using server-measured round-trip timing.
 Arrows use swept projectile collision. Rendering runs independently of simulation.
 Eight rooms is the default hard server cap, with five participants per room. There
-are no accounts, databases, purchases, chat, or external assets. The public
+are no accounts, purchases, chat, or external assets. The public
 `/arenas` directory exposes only open waiting-room IDs, host nicknames, game modes and counts;
 invite-only rooms remain hidden. The directory returns 503 while the game is closed.
 
@@ -467,8 +490,18 @@ service after stripping the prefix, while preserving every other API route.
 | `ALLOWED_ORIGINS` | Comma-separated exact frontend origins |
 | `MAX_ROOMS` | Default 8; size after host load testing |
 | `ACME_CHALLENGE_DIR` | Optional explicit HTTP-01 challenge directory |
+| `ARENA_WORLD_STORE_DIR` | Optional absolute private directory outside releases for online world checkpoints |
 
 `/health` reports availability. `/config.json` provides the API URL without secrets.
+With `ARENA_WORLD_STORE_DIR` configured, private atomic files retain up to **128
+worlds**, each with a current checkpoint and previous recovery copy, bounded to
+about 95 MiB of checkpoint data plus temporary writes. The directory uses owner-only
+permissions; files contain portable world state, game mode and a hashed recovery
+key, without player names, live seats, chat or combat stats. Keep this directory
+across release switches and include it in host backups. Storage exhaustion leaves
+the game playable and explicitly directs hosts to download their world.
+Online saving is disabled when this variable is absent.
+
 Runtime matches are in memory. A restart aborts active rounds; reconnects recover
 only while the same process retains the room. Drain games before planned releases.
 Keep immutable release directories and a previous-release link for rollback.

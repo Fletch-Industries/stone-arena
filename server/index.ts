@@ -5,6 +5,9 @@ import { resolve } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { SeatRegistry } from './seats.js';
 import { WorldImport } from './world-import.js';
+import { WorldVault, KeepError } from './world-vault.js';
+import { WorldKeeper } from './world-keeper.js';
+import { KEEP, validHandle, type WorldHandle } from '../shared/world-keep.js';
 import { Simulation } from './simulation.js';
 import { DT, VERSION, validInput } from '../shared/game.js';
 import { stonePackets, STONE_SYNC, type StonePacket } from '../shared/excavation-sync.js';
@@ -14,6 +17,7 @@ const origins = new Set((process.env.ALLOWED_ORIGINS ?? 'http://127.0.0.1:5173,h
 const activeRooms = new Map<string, ArenaRoom>();
 let draining = false;
 const seats = new SeatRegistry();
+const worldVault = process.env.ARENA_WORLD_STORE_DIR ? await WorldVault.open(process.env.ARENA_WORLD_STORE_DIR) : undefined;
 const heartbeatMs = Math.max(1000, Number(process.env.ARENA_HEARTBEAT_MS ?? 30000));
 export class ArenaRoom extends Room {
   publicLobby = true;
@@ -27,16 +31,31 @@ export class ArenaRoom extends Room {
   stoneTransfers = new Map<string, Generator<StonePacket>>();
   stoneToken = 0;
   worldImports = new Map<string, WorldImport>();
+  keeper?: WorldKeeper;
+  lastKeepHost = '';
+  lastKeepRequest = -KEEP.messageMs;
+  sendKeep(c: Client) { if (c.sessionId === this.sim.host && this.keeper) c.send('worldKeep', this.keeper.status); }
+  checkpointWorld() { return this.keeper?.save(this.sim.world, this.sim.mode) ?? Promise.resolve(); }
   sendConstruction(c: Client, force = false) { const now = performance.now(); if (!force && now - (this.lastBuildSync.get(c.sessionId) ?? -1000) < 750) return; this.lastBuildSync.set(c.sessionId, now); c.send('construction', this.sim.world.construction!.state(this.sim.world.seed)); }
   sendForage(c: Client, force = false) { const now = performance.now(); if (!force && now - (this.lastForageSync.get(c.sessionId) ?? -1000) < 750) return; this.lastForageSync.set(c.sessionId, now); c.send('forage', this.sim.world.forage!.state(this.sim.world.seed)); }
   sendExcavation(c: Client, force = false) { const now = performance.now(); if (!force && (this.stoneTransfers.has(c.sessionId) || now - (this.lastExcavationSync.get(c.sessionId) ?? -2000) < 2000)) return; this.lastExcavationSync.set(c.sessionId, now); const state = this.sim.world.excavation!.state(this.sim.world.seed); this.stoneTransfers.delete(c.sessionId); if (state.cuts.length + state.veins.length <= STONE_SYNC.rows) c.send('excavation', state); else { const packets = stonePackets(state, ++this.stoneToken); c.send('excavationStream', packets.next().value!); this.stoneTransfers.set(c.sessionId, packets); } }
-  onCreate(options: { private?: boolean } = {}) {
+  async onCreate(options: { private?: boolean; keep?: WorldHandle } = {}) {
     if (options.private !== undefined && typeof options.private !== 'boolean') throw new ServerError(400, 'Invalid arena visibility.');
+    if (options.keep !== undefined && !validHandle(options.keep)) throw new ServerError(400, 'Choose a saved online world from this browser.');
     if (isUnavailable()) throw new ServerError(503, unavailableMessage);
     if (draining || activeRooms.size >= Number(process.env.MAX_ROOMS ?? 8)) throw new ServerError(503, 'Arena is busy. Please try again shortly.');
     this.roomId = randomBytes(5).toString('hex').toUpperCase();
     this.publicLobby = options.private !== true;
     activeRooms.set(this.roomId, this); this.autoDispose = true; this.maxClients = 5; this.maxMessagesPerSecond = 90;
+    this.keeper = new WorldKeeper(worldVault, this.roomId, () => { const host = this.clients.find(c => c.sessionId === this.sim.host); if (host) this.sendKeep(host); });
+    try {
+      if (options.keep) { const loaded = await this.keeper.load(options.keep); this.sim.world = loaded.world; this.sim.mode = loaded.mode; }
+      if (isUnavailable() || draining) throw new ServerError(503, 'The arena is temporarily unavailable.');
+    } catch (error) {
+      await this.keeper.abort(); activeRooms.delete(this.roomId);
+      if (error instanceof KeepError) throw new ServerError(error.code, error.message);
+      throw error;
+    }
     this.seatReservationTimeout = 10; this.setPrivate(true);
     this.onMessage('input', (c, input) => { this.lastSeen.set(c.sessionId, performance.now()); if (!validInput(input)) { c.leave(4002, 'Invalid controls'); return; } this.sim.input(c.sessionId, input); });
     this.onMessage('ready', (c, data) => { const p = this.sim.players.get(c.sessionId); this.lastSeen.set(c.sessionId, performance.now()); if (p?.connected && this.sim.phase === 'waiting') { p.ready = typeof data?.ready === 'boolean' ? data.ready : !p.ready; c.send('snapshot', this.sim.snapshot()); } else c.send('actionError', 'Ready is available in the lobby.'); });
@@ -52,7 +71,17 @@ export class ArenaRoom extends Room {
     this.onMessage('lobby', c => this.sim.lobby(c.sessionId));
     this.onMessage('ping', (c, n) => { if (typeof n === 'number' && Number.isFinite(n)) { this.lastSeen.set(c.sessionId, performance.now()); c.send('pong', n); } });
     this.onMessage('latencyAck', (c, n) => { if (n === this.latencySent.get(c.sessionId)) { this.sim.rewindTicks.set(c.sessionId, Math.min(6, Math.round((performance.now() - n) / 2 / (1000 / 60)))); this.latencySent.delete(c.sessionId); } });
-    this.onMessage('sync', c => { this.lastSeen.set(c.sessionId, performance.now()); this.sendConstruction(c); this.sendForage(c); this.sendExcavation(c); c.send('snapshot', this.sim.snapshot()); });
+    this.onMessage('sync', c => { this.lastSeen.set(c.sessionId, performance.now()); this.sendConstruction(c); this.sendForage(c); this.sendExcavation(c); this.sendKeep(c); c.send('snapshot', this.sim.snapshot()); });
+    this.onMessage('worldCheckpoint', c => {
+      if (c.sessionId !== this.sim.host || !this.sim.players.get(c.sessionId)?.connected) { c.send('actionError', 'The host keeps this world online.'); return; }
+      const now = performance.now(); if (now - this.lastKeepRequest < KEEP.messageMs) return; this.lastKeepRequest = now; this.lastSeen.set(c.sessionId, now);
+      void this.keeper?.save(this.sim.world, this.sim.mode, true);
+    });
+    this.onMessage('worldForget', async c => {
+      if (c.sessionId !== this.sim.host || !this.sim.players.get(c.sessionId)?.connected) { c.send('actionError', 'Only the host can remove the online copy.'); return; }
+      const now = performance.now(); if (now - this.lastKeepRequest < KEEP.messageMs) return; this.lastKeepRequest = now; this.lastSeen.set(c.sessionId, now);
+      const id = await this.keeper?.forget(); if (id) c.send('worldForgotten', { id });
+    });
     this.onMessage('constructionSync', c => { const now = performance.now(); if (now - (this.lastBuildSync.get(c.sessionId) ?? -1000) < 1000) return; this.sendConstruction(c); });
     this.onMessage('forageSync', c => { const now = performance.now(); if (now - (this.lastForageSync.get(c.sessionId) ?? -1000) < 1000) return; this.sendForage(c); });
     this.onMessage('excavationSync', c => { this.sendExcavation(c); });
@@ -62,7 +91,7 @@ export class ArenaRoom extends Room {
       let upload = this.worldImports.get(c.sessionId); if (!upload) { upload = new WorldImport(); this.worldImports.set(c.sessionId, upload); }
       const ok = data?.type === 'begin' ? upload.begin(data.header, data.count, now, data.cutsCount ?? 0, data.veinsCount ?? 0) : data?.type === 'chunk' ? upload.chunk(data.offset, data.blocks, now, data.kind ?? 'blocks') : data?.type === 'commit' ? this.sim.restore(c.sessionId, upload.finish(now)) : false;
       if (!ok) { this.worldImports.delete(c.sessionId); c.send('actionError', 'That world could not be restored. Choose a Stone Arena world save.'); return; }
-      if (data.type === 'commit') { this.worldImports.delete(c.sessionId); for (const player of this.clients) { this.sendConstruction(player, true); this.sendForage(player, true); this.sendExcavation(player, true); } this.broadcast('snapshot', this.sim.snapshot()); c.send('worldRestored'); }
+      if (data.type === 'commit') { this.worldImports.delete(c.sessionId); for (const player of this.clients) { this.sendConstruction(player, true); this.sendForage(player, true); this.sendExcavation(player, true); } this.broadcast('snapshot', this.sim.snapshot()); c.send('worldRestored'); void this.checkpointWorld(); }
     });
     this.setTimestep((elapsed) => {
       this.accumulator = Math.min(this.accumulator + elapsed / 1000, .1);
@@ -75,7 +104,9 @@ export class ArenaRoom extends Room {
       if (this.idleTicks > 60 * 30 * 60) void this.disconnect();
     }, 1000 / 60);
     this.setPatchRate(null);
+    this.clock.setInterval(() => { if (this.clients.length) void this.checkpointWorld(); }, KEEP.seconds * 1000);
     this.clock.setInterval(() => {
+      if (this.lastKeepHost !== this.sim.host) { this.lastKeepHost = this.sim.host; const host = this.clients.find(c => c.sessionId === this.sim.host); if (host) this.sendKeep(host); }
       if (isUnavailable()) { this.broadcast('maintenance'); void this.disconnect(); return; }
       for (const upload of this.worldImports.values()) upload.expire(performance.now());
       for (const c of this.clients) if (!this.expired.has(c.sessionId) && performance.now() - (this.lastSeen.get(c.sessionId) ?? 0) > heartbeatMs) {
@@ -108,17 +139,19 @@ export class ArenaRoom extends Room {
     if (opts.seatKey !== undefined && (typeof opts.seatKey !== 'string' || !/^[a-zA-Z0-9_-]{16,80}$/.test(opts.seatKey))) throw new ServerError(400, 'Invalid browser session. Refresh the page.');
     return true;
   }
-  onJoin(c: Client, opts: { name: string; seatKey?: string }) {
+  async onJoin(c: Client, opts: { name: string; seatKey?: string }) {
     if (isUnavailable()) throw new ServerError(503, unavailableMessage);
     if (!seats.claim(opts.seatKey ?? c.sessionId, this.roomId, c.sessionId)) throw new ServerError(409, 'This browser tab already has a seat. Return to the existing arena or close the duplicate tab. Abandoned connections expire within 30 seconds.');
     try { this.sim.add(c.sessionId, opts.name.trim().replace(/[\u0000-\u001f<>]/g, '').slice(0, 24) || 'Player'); }
     catch (e) { seats.releasePlayer(this.roomId, c.sessionId); throw e; }
-    this.lastSeen.set(c.sessionId, performance.now()); this.sendConstruction(c); this.sendExcavation(c); c.send('snapshot', this.sim.snapshot());
+    this.lastSeen.set(c.sessionId, performance.now());
+    if (c.sessionId === this.sim.host) await this.keeper?.save(this.sim.world, this.sim.mode, true);
+    this.sendConstruction(c); this.sendExcavation(c); this.sendKeep(c); c.send('snapshot', this.sim.snapshot());
   }
   async onDrop(c: Client) { this.sim.disconnect(c.sessionId); try { await this.allowReconnection(c, 15); } catch { /* onLeave finalizes the forfeit */ } }
-  onReconnect(c: Client) { this.lastSeen.set(c.sessionId, performance.now()); this.expired.delete(c.sessionId); const p = this.sim.players.get(c.sessionId); if (p) p.connected = true; this.sim.transferHost(); this.sendConstruction(c, true); this.sendForage(c, true); this.sendExcavation(c, true); c.send('snapshot', this.sim.snapshot()); }
+  onReconnect(c: Client) { this.lastSeen.set(c.sessionId, performance.now()); this.expired.delete(c.sessionId); const p = this.sim.players.get(c.sessionId); if (p) p.connected = true; this.sim.transferHost(); this.sendConstruction(c, true); this.sendForage(c, true); this.sendExcavation(c, true); this.sendKeep(c); c.send('snapshot', this.sim.snapshot()); }
   onLeave(c: Client) { this.sim.leave(c.sessionId); seats.releasePlayer(this.roomId, c.sessionId); this.lastSeen.delete(c.sessionId); this.expired.delete(c.sessionId); this.latencySent.delete(c.sessionId); this.lastBuildSync.delete(c.sessionId); this.lastForageSync.delete(c.sessionId); this.lastExcavationSync.delete(c.sessionId); this.stoneTransfers.delete(c.sessionId); this.worldImports.delete(c.sessionId); }
-  onDispose() { activeRooms.delete(this.roomId); seats.releaseRoom(this.roomId); }
+  async onDispose() { try { await this.keeper?.close(this.sim.world, this.sim.mode); } finally { activeRooms.delete(this.roomId); seats.releaseRoom(this.roomId); } }
 }
 
 const transport = new WebSocketTransport({
@@ -164,6 +197,6 @@ server.router = createRouter({}, { onRequest: () => {
   if (isUnavailable()) return Response.json({ code: 503, error: unavailableMessage }, { status: 503, headers: { 'Cache-Control': 'no-store', 'Retry-After': '300' } });
 } });
 server.define('arena', ArenaRoom);
-server.onBeforeShutdown(() => { draining = true; });
+server.onBeforeShutdown(async () => { draining = true; await Promise.all([...activeRooms.values()].map(room => room.checkpointWorld())); });
 await server.listen(Number(process.env.PORT ?? 3107), process.env.HOST ?? '127.0.0.1');
 console.log(`Stone Arena listening on ${process.env.HOST ?? '127.0.0.1'}:${process.env.PORT ?? 3107}`);

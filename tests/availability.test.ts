@@ -15,7 +15,7 @@ test('live availability switch blocks HTTP, matchmaking and sockets, clears room
   await new Promise<void>(resolve => portFinder.listen(0, '127.0.0.1', resolve));
   const port = (portFinder.address() as { port: number }).port;
   await new Promise<void>(resolve => portFinder.close(() => resolve()));
-  const env = { ...process.env, HOST: '127.0.0.1', PORT: String(port), ARENA_MAINTENANCE_FILE: join(directory, 'state', 'maintenance') };
+  const env = { ...process.env, HOST: '127.0.0.1', PORT: String(port), ARENA_WORLD_STORE_DIR: '', ARENA_MAINTENANCE_FILE: join(directory, 'state', 'maintenance') };
   const endpoint = `http://127.0.0.1:${port}`;
   mkdirSync(join(directory, 'dist', 'assets'), { recursive: true });
   copyFileSync(new URL('../public/maintenance.html', import.meta.url), join(directory, 'dist', 'maintenance.html'));

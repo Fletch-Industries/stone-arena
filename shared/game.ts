@@ -7,7 +7,7 @@ import type { CreatureWire } from './creatures.js';
 import type { Excavation } from './excavation.js';
 import { ceilingHeight, floorHeight, nativeBox, nativeRay } from './terrain-collision.js';
 export { BOXES, LIMIT, SPAWNS, ARENA_SIZE, type Box } from './arena.js';
-export const VERSION = 15;
+export const VERSION = 16;
 export type Mode = 'ffa' | 'teams' | 'ctf' | 'expedition';
 export type Team = 'red' | 'blue';
 export const MODES = { ffa: 'Free for all', teams: 'Team survival', ctf: 'Capture the flag', expedition: 'Co-op expedition' } as const;
