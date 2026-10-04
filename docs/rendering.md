@@ -107,6 +107,15 @@ its typed arrays. The renderer uploads at most one chunk each frame; queues,
 resident chunks (25/49/81) and height caches (4,096 vertices) remain bounded.
 Leaving an area disposes its geometry and instancing buffers. Trees share geometry
 and materials, with two or three instanced draws per chunk depending on the mixture of canopies; grass uses original pixel noise.
+Steep slopes and high ridges blend the existing original 32×32 fractured-shale
+color map into the ground material. Vertical bands follow world height, and the
+horizontal grain follows world X/Z, so adjacent chunks share their alignment.
+The blend increases gradually with slope and elevation; flat low ground keeps
+its grass texture and all habitats retain their vertex palettes. This applies
+to detailed terrain and the coarse horizon without changing geometry or collision.
+It adds at most one existing 32×32 GPU color map and one conditional texture
+sample per rocky fragment, with no extra draws, lights or render passes.
+
 Wilds renders without dynamic shadows, with quality-scaled fog masking the edge.
 Worker failure falls back to one small chunk per frame and the Low chunk limit.
 

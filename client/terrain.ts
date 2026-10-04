@@ -23,6 +23,26 @@ export class TerrainStreamer {
   constructor() {
     const textures = new TextureLibrary(); this.grass.map = textures.get('grass'); this.grass.normalMap=textures.normal('grass');this.grass.normalScale.set(.14,.14); this.bark.map = textures.get('bark'); this.leaves.map = textures.get('leaves');
     this.stone.map = textures.get('strata'); this.stone.normalMap = textures.normal('strata'); this.stone.normalScale.set(.18, .18);
+    // Expose the same original stone layers on cliffs, without new terrain meshes.
+    // Ground UVs already use world X/Z; height anchors the bands across chunks.
+    this.grass.onBeforeCompile = shader => {
+      shader.uniforms.terrainStrataMap = { value: this.stone.map };
+      const varyings = 'varying vec2 vTerrainStrataUv;\nvarying vec2 vTerrainShape;\n';
+      shader.vertexShader = varyings + shader.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
+        vTerrainStrataUv = vec2((uv.x + uv.y) * .70710678, position.y / 3.0);
+        vTerrainShape = vec2(normal.y, position.y);`);
+      const texturedGround = THREE.ShaderChunk.map_fragment.replace('diffuseColor *= sampledDiffuseColor;', `
+        float terrainRockFactor = max(
+          smoothstep(.10, .32, 1.0 - clamp(vTerrainShape.x, 0.0, 1.0)),
+          smoothstep(18.0, 24.0, vTerrainShape.y) * .65);
+        if (terrainRockFactor > .001) {
+          sampledDiffuseColor.rgb = mix(sampledDiffuseColor.rgb,
+            texture2D(terrainStrataMap, vTerrainStrataUv).rgb, terrainRockFactor);
+        }
+        diffuseColor *= sampledDiffuseColor;`);
+      shader.fragmentShader = 'uniform sampler2D terrainStrataMap;\n' + varyings + shader.fragmentShader.replace('#include <map_fragment>', texturedGround);
+    };
+    this.grass.customProgramCacheKey = () => 'stone-terrain-strata-v1';
     this.stone.onBeforeCompile = shader => { shader.vertexShader = 'attribute vec3 stoneGlow;\nvarying vec3 vStoneGlow;\n'+shader.vertexShader.replace('#include <begin_vertex>','#include <begin_vertex>\n vStoneGlow = stoneGlow;'); shader.fragmentShader = 'varying vec3 vStoneGlow;\n'+shader.fragmentShader.replace('#include <opaque_fragment>','outgoingLight += vStoneGlow;\n#include <opaque_fragment>'); }; this.stone.customProgramCacheKey = () => 'stone-seam-glow-v1';
     this.leaves.onBeforeCompile = shader => { shader.uniforms.windTime = this.time; shader.vertexShader = 'uniform float windTime;\n' + shader.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
       #ifdef USE_INSTANCING
