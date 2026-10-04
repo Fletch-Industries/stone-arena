@@ -317,3 +317,20 @@ desktop measurements at a phone viewport, not physical-phone benchmarks or a
 claim about playtesting with children. Separate ordinary two-client tests cover
 bonding, scouting, aim/cover, shields, defeating a Warden, reconnecting and saving
 progress; unit tests cover five explorers sharing the bounded actor pool.
+
+## Live HUD and brief controls
+
+The active HUD patches counters, labels, attributes and changed branches while
+retaining its existing action buttons. A held pointer and keyboard focus survive
+ordinary snapshots, so a tap is not canceled by a changed ping, coordinate or
+cooldown label. Menus and form preservation retain their existing lifecycle.
+
+Jump, Windstep and sail/Creative flight presses stay active in catch-up input
+batches until an authoritative snapshot acknowledges their first input sequence.
+A late snapshot cannot replay the toggle, and leaving, losing focus or resetting
+controls clears queued presses. A server input timeout stops movement without
+releasing the flight/Windstep edge latch; fresh release input resets that latch.
+This prevents a slow frame's trailing idle input from erasing a short press
+before a server tick processes it. There are no new
+network messages or extra render passes. Creative's Fly/Land action is available
+in the Citadel and Wilds, with a touch target of at least 44 CSS pixels.

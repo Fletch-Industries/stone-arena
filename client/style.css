@@ -117,3 +117,5 @@ button.offhand{background:#111d25bd;border:1px solid #ffffff38;padding:3px 6px;m
 
 .creative-invite{position:absolute;top:105px;left:20px;display:flex;flex-direction:column;gap:6px;max-width:240px}.creative-invite small{font-size:11px;color:#b8ccc5;text-shadow:0 1px 3px #000}
 @media(max-width:900px){.creative-invite{top:110px;left:10px;max-width:160px}.creative-invite small{font-size:10px}}
+
+.creative-actions{display:flex;flex-wrap:wrap;gap:8px}.creative-actions button{min-height:44px;min-width:44px;touch-action:manipulation}

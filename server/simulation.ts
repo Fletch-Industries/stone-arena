@@ -414,7 +414,11 @@ export class Simulation {
       p.shieldRaise = p.block ? Math.min(.25, p.shieldRaise + DT) : 0;
       const oldX = p.x, oldZ = p.z, wasDashing = (p.dashTime ?? 0) > 0, wasGliding = (p.glideTime ?? 0) > 0, wasGrounded = p.grounded;
       if (this.mode === 'creative') { p.hp = 100; p.ammo = 40; this.world.supplies = [999, 999, 999]; }
+      const glideHeld = p.glideHeld, dashHeld = p.dashHeld;
       move(p, { ...i, block: p.block }, DT, p.charge > 0, this.world, this.mode === 'creative');
+      // A transport pause stops motion, but is not a physical key release.
+      // Keep the edge latched until a fresh input explicitly releases it.
+      if (stale) { p.glideHeld = glideHeld; p.dashHeld = dashHeld; }
       if (wasGrounded && i.jump && !p.grounded && p.vy > 13) this.event({ type: 'windlift', actor: p.id, position: { x: p.x, y: p.y, z: p.z } });
       if (!wasDashing && (p.dashTime ?? 0) > 0) this.event({ type: 'dash', actor: p.id });
       if (!wasGliding && (p.glideTime ?? 0) > 0) { p.immuneUntil = 0; this.event({ type: 'glide', actor: p.id }); }
