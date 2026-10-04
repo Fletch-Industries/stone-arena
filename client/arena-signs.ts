@@ -9,7 +9,6 @@ export class ArenaSigns {
 
   add(sprite: THREE.Sprite) {
     this.entries.push({ sprite, aspect: sprite.scale.x / sprite.scale.y, order: this.entries.length, distance: 0, x: 0, y: 0, w: 0, h: 0 });
-    sprite.material.depthWrite = false;
   }
 
   update(camera: THREE.PerspectiveCamera, width: number, height: number) {

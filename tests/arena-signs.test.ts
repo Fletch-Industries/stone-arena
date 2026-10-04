@@ -12,7 +12,7 @@ function fixture() {
 }
 test('nearer arena signs win overlapping sightlines regardless of registration order', () => {
   const { signs, camera, add } = fixture(), far = add(0, 0, -20), near = add(0, 0, -10);
-  signs.update(camera, 1280, 720); assert(near.visible); assert(!far.visible); assert(!near.material.depthWrite);
+  signs.update(camera, 1280, 720); assert(near.visible); assert(!far.visible); assert(near.material.depthWrite && near.material.depthTest);
   near.position.x = 10; signs.update(camera, 1280, 720); assert(near.visible && far.visible);
 });
 test('place names keep their readable screen height across distance, FOV and viewport changes', () => {
