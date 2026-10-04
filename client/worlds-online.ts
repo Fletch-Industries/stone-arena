@@ -7,7 +7,7 @@ const labels: Record<KeepStatus['state'], string> = {
   off: 'Online saving is off for this arena. You can keep it online again.',
   saving: 'Keeping your world online…',
   saved: 'World kept online · Builds, tunnels and discoveries survive server restarts.',
-  error: 'Online saving did not finish. Your earlier checkpoint is kept. Download this world before leaving.',
+  error: 'Online saving did not finish. Download this world before leaving.',
   full: 'Online world storage is full. Download this world before leaving.',
 };
 export function onlineWorldsPanel(entries: WorldBookmark[], available: boolean, status: KeepStatus | undefined, isHost: boolean, canContinue: boolean, disabled: boolean) {

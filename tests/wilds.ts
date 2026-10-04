@@ -18,7 +18,13 @@ const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 async function until(check: () => boolean, seconds = 80) { const end = Date.now() + seconds * 1000; while (!check()) { if (Date.now() > end) throw Error('Wilds timed out: ' + JSON.stringify([...states.values()].map(s => ({ world: s.world, players: s.players.map(p => ({ id: p.id, realm: p.realm, x: p.x, y: p.y, z: p.z, hp: p.hp })) })))); await wait(25); } }
 function track(r: Room) { rooms.push(r); const blocks = new Construction(); constructions.set(r, blocks); const field = new Forage(); fields.set(r, field); r.onMessage('forage', (full: ForageState) => { assert(field.restore(full)); }); r.onMessage('forageChanges', (delta: ForageChanges) => { assert(field.apply(delta)); }); r.onMessage('excavation',()=>{}); r.onMessage('excavationStream',()=>{}); r.onMessage('excavationChanges',()=>{}); r.onMessage('construction', (full: ConstructionState) => { assert(blocks.restore(full)); }); r.onMessage('constructionChanges', (delta: ConstructionChanges) => { assert(blocks.apply(delta)); }); r.onMessage('worldRestored', () => {}); r.onMessage('snapshot', (s: Snapshot) => { s.world.construction = blocks; s.world.forage = field; states.set(r, s); }); r.onMessage('latency', (n: number) => r.send('latencyAck', n)); r.onMessage('pong', () => {}); r.onMessage('actionError', (message: string) => actionErrors.set(r,[...(actionErrors.get(r)??[]),message].slice(-50)));  r.reconnection.enabled = false; r.send('sync'); return r; }
 const me = (r: Room) => states.get(r)!.players.find(p => p.id === r.sessionId)!;
-function controls(r: Room, value = {}) { const seq = (sequences.get(r) ?? me(r).ack) + 1; sequences.set(r, seq); r.send('input', { ...idleInput(), seq, ...value }); }
+function controls(r: Room, value = {}) { const seq = (sequences.get(r) ?? me(r).ack) + 1; sequences.set(r, seq); r.send('input', { ...idleInput(), seq, ...value }); return seq; }
+async function stopMoving(r: Room) {
+  const seq = controls(r);
+  // Arrival snapshots can still precede the final movement packets. Aim only
+  // after the server acknowledges the stop and the explorer has landed.
+  await until(() => { const p = me(r); return p.ack >= seq && p.grounded && p.moveSpeed < .001 && (p.dashTime ?? 0) === 0 && (p.glideTime ?? 0) === 0; }, 5);
+}
 async function walk(r: Room, x: number, z: number, stop = () => Math.hypot(me(r).x - x, me(r).z - z) < .5, path = true) {
   const navigate = navigator(); timer = setInterval(() => {
     // Stop on the observed portal/arrival before issuing movement in its new realm.
@@ -31,6 +37,7 @@ async function walk(r: Room, x: number, z: number, stop = () => Math.hypot(me(r)
 async function followWildRoute(r:Room,target:{x:number;z:number},stop:()=>boolean=()=>Math.hypot(me(r).x-target.x,me(r).z-target.z)<1){const route=wildRoute(me(r),target,states.get(r)!.world.seed,states.get(r)!.world.construction);let point=0;timer=setInterval(()=>{const p=me(r);while(point<route.length-1&&Math.hypot(p.x-route[point][0],p.z-route[point][1])<.65)point++;const goal=point===route.length-1?[target.x,target.z]:route[point],d=Math.hypot(p.x-goal[0],p.z-goal[1]);controls(r,{yaw:Math.atan2(p.x-goal[0],p.z-goal[1]),z:1,sprint:true,dash:d>7&&(p.dashCooldown??0)<=0});for(const other of rooms)if(other!==r&&other.connection.isOpen)other.send('ping',Date.now());},33);try{await until(stop,100);}finally{clearInterval(timer);timer=undefined;controls(r);}}
 async function constructionChecks(host: Room, guest: Room) {
   const seed=states.get(host)!.world.seed;
+  await stopMoving(host);
   let aim:{yaw:number;pitch:number}|undefined;
   for(let n=0;n<48;n++){const candidate={yaw:n*Math.PI/24-Math.PI,pitch:-.7};const target=weaveTarget({...me(host),...candidate},states.get(host)!.world,false,states.get(host)!.players);if(target?.valid){aim=candidate;break;}}
   assert(aim,'Explorer must find clear ground to weave');
@@ -93,7 +100,7 @@ async function craftingChecks(host: Room, guest: Room) {
   await followWildRoute(host,{x:0,z:-5});await until(()=>states.get(host)!.tick>=(me(host).craftReadyAt??0),5);host.send('craft',{recipe:'hearth'});await until(()=>[host,guest].every(r=>!!((states.get(r)!.world.upgrades??0)&HEARTHSTONE)),5);
   await until(()=>states.get(host)!.tick>=(me(host).craftReadyAt??0),5);host.send('craft',{recipe:'arrows',id:guest.sessionId});await until(()=>[host,guest].every(r=>states.get(r)!.players.find(p=>p.id===host.sessionId)?.ammo===32),5);assert.equal(me(guest).ammo,20);assert.deepEqual(states.get(host)!.world.supplies,[1,2,0]);
   console.log('PASS: waystone crafting charged the shared pantry once, unlocked party sails/Hearthstone, and gave arrows only to the authenticated crafter; gliding replicated without moving the observer');
-  await followWildRoute(host,firstPatch!);let aim:{yaw:number;pitch:number}|undefined;
+  await followWildRoute(host,firstPatch!);await stopMoving(host);let aim:{yaw:number;pitch:number}|undefined;
   for(let n=0;n<48;n++){const candidate={yaw:n*Math.PI/24-Math.PI,pitch:-.7};if(weaveTarget({...me(host),...candidate},states.get(host)!.world,false,states.get(host)!.players)?.valid){aim=candidate;break;}}assert(aim);
   controls(host,{...aim,weaving:true,weaveKind:6,attack:true});await until(()=>[host,guest].every(r=>constructions.get(r)!.size===1),5);controls(host);assert.equal([...constructions.get(guest)!.values()][0].kind,6);
   const token=guest.reconnectionToken,id=guest.sessionId;guest.connection.close();await until(()=>states.get(host)!.players.find(p=>p.id===id)?.connected===false,5);guest=track(await client.reconnect(token));await until(()=>states.get(guest)?.players.some(p=>p.id===id&&p.connected)===true&&constructions.get(guest)!.size===1,5);

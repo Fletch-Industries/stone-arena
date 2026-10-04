@@ -35,6 +35,7 @@ jobs:
           npx tsx tests/wilds.ts --waystones
           npx tsx tests/wilds.ts --building
           npx tsx tests/wilds.ts --crafting
+          TEST_WORLD_SEED=1160079627 npx tsx tests/wilds.ts --crafting
           npx tsx tests/living-world.ts
           npx tsx tests/mining-world.ts
           npx tsx tests/world-capacity.ts
