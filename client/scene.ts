@@ -15,7 +15,7 @@ import * as THREE from 'three';
 import { TEAMS, isTeamMode, playerColor, type Mode, type Team, ARENA_SIZE, SPAWNS, BOXES, COLORS, EYE, armorTier, attackStrength, type Body, type GameEvent, type Player, type Snapshot, type Weapon } from '../shared/game.js';
 import { LANDMARKS } from '../shared/arena.js';
 import { ArenaSigns } from './arena-signs.js';
-import { locomotionPose } from './animation.js';
+import { isSailing, locomotionPose } from './animation.js';
 import { TextureLibrary, type Surface } from './textures.js';
 import { FlameAtlas, armorMaterial } from './effects.js';
 import { swordBlade, appleBody, totemBody } from './items.js';
@@ -304,9 +304,10 @@ export class ArenaScene {
     if (inRound && follow) {
       const pos = follow.id === me?.id && local ? local : follow;
       const distance = Math.hypot(pos.x - this.lastCamera.x, pos.z - this.lastCamera.z);
-      if (this.cameraTracking === follow.id && distance < 1 && pos.grounded) this.cameraDistance += distance;
+      const walking = pos.grounded && !isSailing(pos);
+      if (this.cameraTracking === follow.id && distance < 1 && walking) this.cameraDistance += distance;
       this.cameraTracking = follow.id; this.lastCamera.set(pos.x, pos.y, pos.z);
-      const bob = !thirdPerson && !this.reduced && pos.grounded && distance > .001 && distance < 1 ? Math.sin(this.cameraDistance * 5) * (pos.sprinting ? .045 : .025) : 0;
+      const bob = !thirdPerson && !this.reduced && walking && distance > .001 && distance < 1 ? Math.sin(this.cameraDistance * 5) * (pos.sprinting ? .045 : .025) : 0;
       this.camera.position.set(pos.x, pos.y + EYE + bob, pos.z);
       const lookYaw = follow.id === me?.id ? yaw : follow.yaw, lookPitch = follow.id === me?.id ? pitch : follow.pitch;
       this.camera.rotation.order = 'YXZ'; this.camera.rotation.set(lookPitch, lookYaw, 0);
@@ -336,7 +337,7 @@ export class ArenaScene {
     if (this.camera.fov !== fov) { this.camera.fov = fov; this.camera.updateProjectionMatrix(); }
     if (inspecting && me) { const angle = this.reduced ? Math.PI + me.yaw : this.time * .3; this.camera.position.copy(clipCamera({ x: me.x, y: me.y + EYE, z: me.z }, { x: me.x + Math.sin(angle) * 3.8, y: me.y + 1.8, z: me.z + Math.cos(angle) * 3.8 }, .22, me.realm, snapshot?.world)); this.camera.lookAt(me.x, me.y + .85, me.z); }
     this.weapon.visible = !thirdPerson && !inspecting && !!inRound && !!me?.alive && snapshot?.phase !== 'results' && (me.sculpting || me.weaving || me.weapon !== 'apple' || me.apples > 0);
-    if (me) { this.setWeapon(me.sculpting ? 'chisel' : me.weaving ? 'weaver' : me.weapon, me.xp); this.setOffhand(me); this.swing = Math.max(0, this.swing - dt * 5); const arc = Math.sin(this.swing * Math.PI), sway = this.reduced ? 0 : Math.max(-.16,Math.min(.16,yaw-this.lastWeaponYaw)); this.lastWeaponYaw=yaw; this.weapon.rotation.set(-arc * 1.25, -arc * .65-sway, -.2 - arc * .9); this.weapon.position.y = -.43 - (!me.weaving && !me.sculpting && (me.weapon === 'sword' || me.weapon === 'axe') ? (1 - attackStrength(me)) * .1 : 0) + (moving && local?.grounded && !this.reduced ? Math.sin(this.cameraDistance * 5) * .02 : 0); this.weapon.position.z = -.65 + me.charge * .035; if (me.sculpting) { this.weapon.rotation.x = -.24 + (this.reduced || !me.sculptProgress ? 0 : Math.sin(this.time * 22) * .035); this.weapon.rotation.z = -.08; }  }
+    if (me) { this.setWeapon(me.sculpting ? 'chisel' : me.weaving ? 'weaver' : me.weapon, me.xp); this.setOffhand(me); this.swing = Math.max(0, this.swing - dt * 5); const arc = Math.sin(this.swing * Math.PI), sway = this.reduced ? 0 : Math.max(-.16,Math.min(.16,yaw-this.lastWeaponYaw)); this.lastWeaponYaw=yaw; this.weapon.rotation.set(-arc * 1.25, -arc * .65-sway, -.2 - arc * .9); this.weapon.position.y = -.43 - (!me.weaving && !me.sculpting && (me.weapon === 'sword' || me.weapon === 'axe') ? (1 - attackStrength(me)) * .1 : 0) + (moving && local?.grounded && !isSailing(local) && !this.reduced ? Math.sin(this.cameraDistance * 5) * .02 : 0); this.weapon.position.z = -.65 + me.charge * .035; if (me.sculpting) { this.weapon.rotation.x = -.24 + (this.reduced || !me.sculptProgress ? 0 : Math.sin(this.time * 22) * .035); this.weapon.rotation.z = -.08; }  }
     if (local && !this.reduced) { if (!this.wasGrounded && local.grounded) this.landingKick = .08; this.wasGrounded=local.grounded; this.landingKick*=Math.exp(-dt*14); this.weapon.position.y-=this.landingKick; this.weapon.rotation.z+=(local.dashTime ?? 0)>0 ? -.22 : 0; if ((local.dashTime ?? 0)>0 && (this.dashTrailTime+=dt)>.025) { this.dashTrailTime=0; this.sparks.burst(local.x,local.y+.6,local.z,'#66e8df',3); } }
     this.leftHand.visible = !thirdPerson && !inspecting && !!inRound && !!me?.alive && snapshot?.phase !== 'results' && !me.weaving && !me.sculpting && (me.offhand === 'shield' || me.totems > 0);
     this.leftHand.position.set(me?.block ? -.2 : -.36, me?.block ? -.12 : this.weapon.position.y, me?.block ? -.5 : -.65);
@@ -357,9 +358,10 @@ export class ArenaScene {
       const body = p.id === me?.id && local && inRound ? local : p;
       const target = new THREE.Vector3(body.x, body.y, body.z); if (body === local || g.position.distanceTo(target) > 4) g.position.copy(target); else g.position.lerp(target, 1 - Math.exp(-dt * 18));
       const travelled = Math.hypot(g.position.x - oldX, g.position.z - oldZ);
-      if (travelled < 1 && body.grounded) rig.distance += travelled;
+      const sailing = isSailing(body);
+      if (travelled < 1 && body.grounded && !sailing) rig.distance += travelled;
       rig.speed += ((snapshot?.phase === 'active' ? p.moveSpeed : 0) - rig.speed) * (1 - Math.exp(-dt * 15));
-      const pose = locomotionPose(rig.distance, rig.speed, body.grounded, !!body.sprinting, body.vy);
+      const pose = locomotionPose(rig.distance, rig.speed, body.grounded, !!body.sprinting, body.vy, sailing);
       if (!rig.grounded && body.grounded) rig.landed = 1;
       rig.grounded = body.grounded; rig.landed = Math.max(0, rig.landed - dt * 6);
       g.position.y -= Math.sin(rig.landed * Math.PI) * .06;
@@ -370,7 +372,7 @@ export class ArenaScene {
       rig.swing = Math.max(0, rig.swing - dt / .3);
       rig.rightArm.rotation.x = p.sculpting && rig.swing === 0 ? -.5 + p.pitch * .65 + (this.reduced || !p.sculptProgress ? 0 : Math.sin(this.time * 22) * .035) : p.weaving && rig.swing === 0 ? -.35 + p.pitch * .65 : rig.swing > 0 ? -Math.sin(rig.swing * Math.PI) * 1.8 : p.weapon === 'apple' && p.charge > 0 ? 1.65 + (this.reduced ? 0 : Math.sin(this.time * 18) * .06) : p.charge > 0 || (p.weapon === 'crossbow' && p.loaded) ? -1.3 + p.pitch : pose.rightArm;
       rig.leftArm.rotation.z = p.block ? -.2 : Math.sin(rig.distance*1.3)*.04; rig.rightArm.rotation.z = rig.swing>0 ? -.4*Math.sin(rig.swing*Math.PI) : .04;
-      const sail = g.getObjectByName('sky-sail') as THREE.Group; sail.visible = (body.glideTime ?? 0) > 0 || body.flying === true;
+      const sail = g.getObjectByName('sky-sail') as THREE.Group; sail.visible = sailing;
       if (sail.visible) { this.sails.animate(sail, this.time + p.color, this.reduced); g.rotation.x = -.12; if (!p.block) rig.leftArm.rotation.z = -.55; if (!p.charge && rig.swing === 0) rig.rightArm.rotation.z = .55; }
       rig.tool.visible = !!p.sculpting || !!p.weaving || p.weapon !== 'apple' || p.apples > 0;
       rig.tool.rotation.x = !p.weaving && !p.sculpting && p.weapon === 'apple' && p.charge > 0 ? -1.65 : 0;

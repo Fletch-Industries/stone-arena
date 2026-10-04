@@ -157,6 +157,13 @@ First-person hands hold the tools; swing arcs combine rotation on three axes,
 small aim sway and landing motion. Third-person scarves move with running and
 wind. The Warden aura uses shared ring/crystal geometry. These effects preserve
 authoritative hit rays and movement.
+Creative flight and expedition gliding share a steady, slightly trailing kite
+stance, including flight that still touches a floor. Sailing does not advance
+walking limb phase or first-person camera/hand bob. Existing wing flex, scarf
+motion and shield/aim/swing priorities remain; reduced motion keeps the wings
+still. Ordinary walking and separate jump/fall poses retain their existing
+movement thresholds. This uses existing pivots and shared geometry/materials,
+with no new per-frame scene objects, textures, lights or render passes.
 
 `client/audio.ts` synthesizes original tones and filtered noise. It has one loop
 for ambient wind, at most 32 transient voices, a master volume and a compressor.
