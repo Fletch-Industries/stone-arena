@@ -334,3 +334,11 @@ This prevents a slow frame's trailing idle input from erasing a short press
 before a server tick processes it. There are no new
 network messages or extra render passes. Creative's Fly/Land action is available
 in the Citadel and Wilds, with a touch target of at least 44 CSS pixels.
+
+Creative uses a compact Atlas/build/sculpt tool palette instead of the expedition
+quest card. It skips quest-distance calculations and the Windstep prompt, since
+Creative flight replaces that ability. Portrait and landscape layouts separate
+the palette from Invite/Fly and the movement controls, leaving the central view
+clear. Expedition guidance and its progress card retain their existing behavior.
+Atlas updates also patch the existing DOM, keeping its tabs and Resume game
+button attached during a press while positions and discoveries refresh.
