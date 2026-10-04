@@ -93,7 +93,8 @@ Look for glowing **Lumen reeds, Gleamstone clusters and Emberblooms**. Aim at a
 nearby patch and press **E**, or tap **Gather**. Each patch adds up to four supplies
 to your party's shared pantry and regrows after two minutes. The pantry holds up
 to 999 of each supply. The server checks aim, reach and cover; collecting supplies
-does not alter the terrain.
+does not alter the terrain. Each supply has its own original chime and matching
+spark color: mint for reeds, lavender for Gleamstone and gold for Emberblooms.
 
 Press **C** or tap **Rune loom** beside an awakened waystone to craft:
 

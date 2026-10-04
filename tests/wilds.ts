@@ -86,8 +86,9 @@ async function craftingChecks(host: Room, guest: Room) {
     controls(host,aim);await until(()=>Math.abs(me(host).yaw-aim.yaw)<.01&&Math.abs(me(host).pitch-aim.pitch)<.01,5);
     await until(()=>states.get(host)!.tick>=(me(host).gatherReadyAt??0),5);
     const selected=gatherTarget(me(host),states.get(host)!.world,states.get(host)!.tick);assert(selected&&selected.cx===node.cx&&selected.cz===node.cz&&selected.kind===kind);
-    const before=states.get(host)!.world.supplies![kind];host.send('gather',{cx:999,cz:999,kind:999,id:guest.sessionId});
+    const before=states.get(host)!.world.supplies![kind], priorEvent=states.get(host)!.events.at(-1)?.id??0;host.send('gather',{cx:999,cz:999,kind:999,supplyKind:999,id:guest.sessionId});
     await until(()=>[host,guest].every(r=>states.get(r)!.world.supplies![kind]===before+4),5);
+    for(const r of [host,guest]){const event=states.get(r)!.events.find(e=>e.id>priorEvent&&e.type==='gather'&&e.actor===host.sessionId);assert(event);assert.equal(event.supplyKind,kind);assert.deepEqual(event.position,{x:selected.x,y:selected.y+.9,z:selected.z});}
     assert.deepEqual(fields.get(host)!.state(seed),fields.get(guest)!.state(seed));
   }
   console.log('PASS: ordinary movement and aim gathered 15 seeded patches into bounded party supplies; remote identity/stock claims were rejected');

@@ -64,7 +64,7 @@ export class Simulation {
     if (!node || !this.world.forage!.harvest(node, this.tick)) return false;
     const stock = this.world.supplies!; const amount = Math.min(FORAGE.yield, FORAGE.stockLimit - stock[node.kind]); stock[node.kind] += amount;
     p.gatherReadyAt = this.tick + 39; p.immuneUntil = 0;
-    this.event({ type: 'gather', actor: id, text: `+${amount} ${SUPPLIES[node.kind].name} · Party supplies`, position: { x: node.x, y: node.y + .9, z: node.z } }); return true;
+    this.event({ type: 'gather', actor: id, supplyKind: node.kind, text: `+${amount} ${SUPPLIES[node.kind].name} · Party supplies`, position: { x: node.x, y: node.y + .9, z: node.z } }); return true;
   }
   craft(id: string, choice: unknown) {
     const p = this.players.get(id), recipe = recipeFor(choice);

@@ -4,6 +4,7 @@ import type { GameEvent, Player, Body } from '../shared/game.js';
 import { BIOMES, biomeAt } from '../shared/biomes.js';
 import type { CreatureWire } from '../shared/creatures.js';
 import { FOOTSTEPS, footstepSurface } from './footsteps.js';
+import { gatheringFeedback } from './gathering.js';
 /** Original synthesized soundscape. One ambience loop and a capped transient voice pool. */
 export class ArenaAudio {
   context?:AudioContext; master?:GainNode; ambient?:GainNode; windFilter?:BiquadFilterNode; noiseBuffer?:AudioBuffer;
@@ -27,7 +28,11 @@ export class ArenaAudio {
     if(e.type==='creature_clear'){[262,392,523,784].forEach((f,n)=>this.tone(f,.65,.06*gain,n*.12));}
     if(e.type==='mine'){this.noise(.14,1800,.065*gain);this.tone(120,.17,.045*gain,0,'triangle',65);[440,660,880].forEach((f,n)=>this.tone(f,.23,.025*gain,n*.055));}
     if(e.type==='mend'){this.tone(330,.35,.045*gain,0,'sine',660);this.tone(990,.35,.03*gain,.08,'sine',440);this.noise(.15,850,.035*gain);}
-    if(e.type==='gather'){this.tone(440,.2,.04*gain,0,'triangle',880);this.tone(1174,.35,.03*gain,.08);this.noise(.08,2600,.025*gain);}
+    if(e.type==='gather'){
+      const sound=gatheringFeedback(e.supplyKind);
+      sound.tones.forEach(([hz,seconds,delay,type,end],n)=>this.tone(hz,seconds,(n===0?.04:.03)*gain,delay,type,end));
+      this.noise(sound.noise[0],sound.noise[1],.025*gain);
+    }
     if(e.type==='craft'){[330,440,660,880].forEach((f,n)=>this.tone(f,.4,.04*gain,n*.1));}
     if(e.type==='glide'){this.noise(.45,2100,.08*gain);this.tone(165,.45,.045*gain,0,'sine',660);}
     if(e.type==='hearth'&&local)this.tone(220,.5,.025,0,'sine',330);
