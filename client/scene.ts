@@ -33,6 +33,7 @@ export class ArenaScene {
   viewRealm = 'arena'; dashTrailTime = 0; lastWeaponYaw = 0; landingKick = 0; wasGrounded = true;
   bases = new Map<Team, THREE.Group>(); flags = new Map<Team, THREE.Group>();
   avatars = new Map<string, THREE.Group>(); arrowMeshes = new Map<number, THREE.Mesh>(); weapon = new THREE.Group(); leftHand = new THREE.Group();
+  weaverFocus?: THREE.Mesh;
   textures = new TextureLibrary(); construction = new RuneConstruction(this.textures); sculpture = new StoneSculpture(); sculptPreview = false; mendPreview = false; weavePreview = false; weaveKind = 0; erasePreview = false; surfaceMaterials = new Map<string, THREE.MeshLambertMaterial>();
   resources = new ForageRenderer(this.textures); sails = new SkySails(this.textures); flightTips = this.sails.make();
   creatures = new CreatureRenderer(this.textures);
@@ -246,6 +247,7 @@ export class ArenaScene {
   private clearHeld(group: THREE.Group) { group.traverse(o => { if (o instanceof THREE.Mesh && ![this.swordGeo, this.appleGeo, this.runeGeometry, this.totemGeo].includes(o.geometry)) o.geometry.dispose(); }); group.clear(); }
   buildWeapon(group: THREE.Group, name: Weapon | 'weaver' | 'chisel') {
     this.clearHeld(group);
+    if (group === this.weapon) this.weaverFocus = undefined;
     if (name === 'chisel') {
       this.box(group, [.1, .5, .1], [0, .1, 0], '#756796', 'wood');
       for (const x of [-.14, .14]) { const fork = this.box(group, [.05, .36, .08], [x, .49, 0], '#b6dcd5', 'metal'); fork.rotation.z = x > 0 ? -.18 : .18; }
@@ -257,6 +259,7 @@ export class ArenaScene {
       this.box(group, [.09, .62, .09], [0, .1, 0], '#8f6446', 'wood');
       for (const x of [-.13, .13]) { const prong = this.box(group, [.045, .26, .045], [x, .49, 0], '#d6be88', 'metal'); prong.rotation.z = x > 0 ? -.35 : .35; }
       const crystal = new THREE.Mesh(this.runeGeometry, this.auraMaterial); crystal.scale.set(.65, 1.2, .65); crystal.position.y = .57; group.add(crystal);
+      if (group === this.weapon) this.weaverFocus = crystal;
       this.box(group, [.16, .045, .12], [0, .34, 0], '#6ef4dc');
     }
     if (name === 'sword') {
@@ -343,6 +346,8 @@ export class ArenaScene {
     const handWeaving = localTools ? this.weavePreview : !!me?.weaving, handSculpting = localTools ? this.sculptPreview : !!me?.sculpting;
     this.weapon.visible = !thirdPerson && !inspecting && !!inRound && !!me?.alive && snapshot?.phase !== 'results' && (handSculpting || handWeaving || me.weapon !== 'apple' || me.apples > 0);
     if (me) { this.setWeapon(handSculpting ? 'chisel' : handWeaving ? 'weaver' : me.weapon, me.xp); this.setOffhand(me); this.swing = Math.max(0, this.swing - dt * 5); const arc = Math.sin(this.swing * Math.PI), sway = this.reduced ? 0 : Math.max(-.16,Math.min(.16,yaw-this.lastWeaponYaw)); this.lastWeaponYaw=yaw; this.weapon.rotation.set(-arc * 1.25, -arc * .65-sway, -.2 - arc * .9); this.weapon.position.y = -.43 - (!handWeaving && !handSculpting && (me.weapon === 'sword' || me.weapon === 'axe') ? (1 - attackStrength(me)) * .1 : 0) + (moving && local?.grounded && !isSailing(local) && !this.reduced ? Math.sin(this.cameraDistance * 5) * .02 : 0); this.weapon.position.z = -.65 + me.charge * .035; if (handSculpting) { this.weapon.rotation.x = -.24 + (this.reduced || !me.sculptProgress ? 0 : Math.sin(this.time * 22) * .035); this.weapon.rotation.z = -.08; }  }
+    // Reuse the selected rune's original surface on the local focus crystal.
+    if (this.weaverFocus) this.weaverFocus.material = localTools && handWeaving && !handSculpting ? this.construction.meshes[this.weaveKind]?.material ?? this.auraMaterial : this.auraMaterial;
     if (local && !this.reduced) { if (!this.wasGrounded && local.grounded) this.landingKick = .08; this.wasGrounded=local.grounded; this.landingKick*=Math.exp(-dt*14); this.weapon.position.y-=this.landingKick; this.weapon.rotation.z+=(local.dashTime ?? 0)>0 ? -.22 : 0; if ((local.dashTime ?? 0)>0 && (this.dashTrailTime+=dt)>.025) { this.dashTrailTime=0; this.sparks.burst(local.x,local.y+.6,local.z,'#66e8df',3); } }
     this.leftHand.visible = !thirdPerson && !inspecting && !!inRound && !!me?.alive && snapshot?.phase !== 'results' && !handWeaving && !handSculpting && (me.offhand === 'shield' || me.totems > 0);
     this.leftHand.position.set(me?.block ? -.2 : -.36, me?.block ? -.12 : this.weapon.position.y, me?.block ? -.5 : -.65);
