@@ -3,6 +3,7 @@ import { WorldKeeps } from './world-keeps.js';
 import { bindWorldContents, worldContentsReady } from './world-contents.js';
 import { WorldVisits, validInvite, type WorldInvite } from './world-visits.js';
 import { onlineWorldsPanel } from './worlds-online.js';
+import { joinError } from './join-error.js';
 import { KEEP, validHandle, validKeepSummary, type KeepStatus, type WorldHandle } from '../shared/world-keep.js';
 import { ECHO_CHISEL, Excavation, type ExcavationState, type ExcavationChanges } from '../shared/excavation.js';
 import { StoneReceiver, type StonePacket } from '../shared/excavation-sync.js';
@@ -303,7 +304,7 @@ async function connect(action: 'create' | 'join' | 'reconnect' | 'world', code =
       error = reason || 'You left the arena. Create or join a room to play again.'; renderUI();
     });
     joined.send('sync'); syncConstruction(); syncForage(); syncExcavation();
-  } catch (e) { error = e instanceof Error ? e.message : 'Could not connect. Check the room code and try again.'; if (action === 'reconnect') { try { sessionStorage.removeItem('stone-session'); } catch { /* optional */ } } }
+  } catch (e) { error = joinError(e); if (action === 'reconnect') { try { sessionStorage.removeItem('stone-session'); } catch { /* optional */ } } }
   finally { busy = false; renderUI(); if (!room) { void refreshArenas(); if (!nickname.trim()) document.querySelector<HTMLInputElement>('#nickname')?.focus(); } }
 }
 function footer() { return '<div class="footer"><span>Explore. Team up. Capture. Survive.</span><span><span>Browser multiplayer</span><span>© Fletch Industries</span></span></div>'; }
