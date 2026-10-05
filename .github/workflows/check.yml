@@ -16,6 +16,8 @@ jobs:
         run: npx tsx tests/world-keep-runtime.ts
       - name: Creative world joins, idle connections and saved player positions
         run: npx tsx tests/creative-world-runtime.ts
+      - name: Grounded hill checkpoint and restart recovery
+        run: npx tsx tests/slope-world-runtime.ts
       - name: Room lifecycle integration
         run: |
           run_arena_test() {

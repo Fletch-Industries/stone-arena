@@ -172,7 +172,11 @@ export class Simulation {
     if (!place || !isExplorationMode(this.mode) || !validPlace(place)) return false;
     const { x, y, z, realm } = place;
     if (realm === 'arena' && z < -LIMIT && (!this.world.doorOpen || Math.abs(x - SECRET.x) > SECRET.halfWidth - RADIUS)) return false;
-    if (realm === 'wilds' && nativeBox(x - RADIUS, y + .001, z - RADIUS, x + RADIUS, y + HEIGHT - .001, z + RADIUS, this.world)) return false;
+    if (realm === 'wilds') {
+      // Match movement's center-height contact on unedited hills; caves still require full-body clearance.
+      const edited = this.world.excavation?.near(x - RADIUS, z - RADIUS, x + RADIUS, z + RADIUS);
+      if (edited ? nativeBox(x - RADIUS, y + .001, z - RADIUS, x + RADIUS, y + HEIGHT - .001, z + RADIUS, this.world) : y < terrainHeight(x, z, this.world.seed) - .001) return false;
+    }
     if (worldBoxes(x - RADIUS, z - RADIUS, x + RADIUS, z + RADIUS, realm, this.world).some(b => Math.abs(x - b.x) < b.w / 2 + RADIUS && Math.abs(z - b.z) < b.d / 2 + RADIUS && y + HEIGHT > (b.y ?? 0) + .001 && y < (b.y ?? 0) + b.h - .001)) return false;
     Object.assign(p, placeOf(place), { flying: this.mode === 'creative' && place.flying, vx: 0, vy: 0, vz: 0, grounded: false, warpTick: this.tick, dashTime: 0, glideTime: 0, glideHeld: false, weaving: false, sculpting: false, block: false, charge: 0 });
     this.inputs.set(p.id, { ...idleInput(), seq: p.ack, yaw: p.yaw, pitch: p.pitch, offhand: p.offhand }); this.lastInput.delete(p.id); return true;
