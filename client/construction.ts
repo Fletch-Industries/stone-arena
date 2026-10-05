@@ -53,6 +53,8 @@ export class RuneConstruction {
         const map = surface?.map ?? null;
         if (material.map !== map) { material.map = map; material.needsUpdate = true; }
         material.wireframe = !surface;
+        // Keep selected glyphs clear of the terrain while leaving the cell translucent.
+        material.opacity = surface ? .55 : .35;
         if (surface) material.color.copy(surface.color);
         else material.color.set(this.target.valid ? erase ? '#f5c17b' : '#91ffdf' : '#ff9385');
       }
