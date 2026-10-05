@@ -160,6 +160,7 @@ try {
   await walk(host, -26, -65, () => rooms.every(r => states.get(r)?.players.some(p => p.id === host.sessionId && p.realm === 'wilds') === true), false);
   assert.equal(me(host).hp, 100); assert.equal(me(guest).realm, 'arena');
   console.log('PASS: both clients observed traversing the passage into the Wilds');
+  await stopMoving(host);
   const beforeDash = { ...me(host) }, guestBeforeDash = { ...me(guest) };
   controls(host, { dash: true });
   await until(() => rooms.every(r => (states.get(r)?.players.find(p => p.id === host.sessionId)?.dashCooldown ?? 0) > 0), 5);
@@ -168,12 +169,14 @@ try {
   for (const r of rooms) { const p = states.get(r)!.players.find(p => p.id === host.sessionId)!; assert(Math.hypot(p.x - beforeDash.x, p.z - beforeDash.z) > 6); assert(Math.hypot(p.x - beforeDash.x, p.z - beforeDash.z) < 7.5); assert.equal(p.hp, 100); }
   assert.equal(me(guest).x, guestBeforeDash.x); assert.equal(me(guest).z, guestBeforeDash.z);
   console.log('PASS: Windstep replicated its seven-block dash and cooldown to both clients without moving the observer');
-  // Pick a clear radial route from the spawn, avoiding generated trunk/foliage
-  // collisions through the same shared geometry used by ordinary movement.
+  // The dash moved the explorer away from spawn. Check the route we will
+  // actually walk, with the same trunk/foliage clearance as ordinary movement.
+  await stopMoving(host);
+  const radialStart = { x: me(host).x, z: me(host).z };
   let target = { x: 0, z: -38 };
   for (let n = 0; n < 32; n++) {
     const candidate = { x: Math.sin(n * Math.PI / 16) * 38, z: -Math.cos(n * Math.PI / 16) * 38 };
-    const clear = Array.from({ length: 38 }, (_, step) => ({ x: candidate.x * step / 38, z: candidate.z * step / 38 })).every(v => !worldBoxes(v.x, v.z, v.x, v.z, 'wilds', states.get(host)!.world).some(b => Math.abs(v.x - b.x) < b.w / 2 + .5 && Math.abs(v.z - b.z) < b.d / 2 + .5));
+    const clear = Array.from({ length: 38 }, (_, step) => ({ x: radialStart.x + (candidate.x - radialStart.x) * step / 38, z: radialStart.z + (candidate.z - radialStart.z) * step / 38 })).every(v => !worldBoxes(v.x, v.z, v.x, v.z, 'wilds', states.get(host)!.world).some(b => Math.abs(v.x - b.x) < b.w / 2 + .5 && Math.abs(v.z - b.z) < b.d / 2 + .5));
     if (clear && terrainHeight(candidate.x, candidate.z, states.get(host)!.world.seed) > .5) { target = candidate; break; }
   }
   await walk(host, target.x, target.z, undefined, false);
