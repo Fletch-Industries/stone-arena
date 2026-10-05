@@ -1,8 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Construction } from '../shared/construction.js';
-import { move, idleInput, DT, EYE, type Body } from '../shared/game.js';
+import { move, idleInput, DT, EYE, RADIUS, type Body } from '../shared/game.js';
 import { weaveTarget } from '../shared/weaving.js';
+import { rectangleHeight } from '../shared/terrain-collision.js';
+import { Simulation } from '../server/simulation.js';
 import { routeFollower, wildRoute } from './navigation.js';
 
 test('a test explorer visits the last detour around newly woven runes before approaching a friend', () => {
@@ -23,4 +25,20 @@ test('a test explorer visits the last detour around newly woven runes before app
   }
   assert(Math.hypot(explorer.x - host.x, explorer.z - host.z) < 1, 'Reach the friend through ordinary collision-respecting movement');
   assert.equal(world.construction.size, 2);
+});
+
+test('a test explorer crosses a clear natural lane missed by the coarse navigation grid', () => {
+  const seed = 3576917457, from = { x: 29.53905772335729, z: 25.18119316862725 };
+  const target = { x: 52.39703201139277, z: -84.19806490400761 };
+  const sim = new Simulation(seed); sim.mode = 'expedition'; sim.world.doorOpen = true;
+  const p = sim.add('explorer', 'Lane explorer');
+  const y = rectangleHeight(from.x - RADIUS, from.z - RADIUS, from.x + RADIUS, from.z + RADIUS, seed) + .002;
+  assert(sim.resumePlace(p, { ...from, y, realm: 'wilds', yaw: 0, pitch: 0, flying: false }), 'Start at a valid ordinary player location');
+  const route = wildRoute(p, target, seed), follow = routeFollower(route, target);
+  assert(route.some(point => point.some(v => v % 2 !== 0)), 'Use the finer fallback for this lane');
+  for (let tick = 0; tick < 2400 && Math.hypot(p.x - target.x, p.z - target.z) >= 1; tick++) {
+    const point = follow(p);
+    move(p, { ...idleInput(), yaw: Math.atan2(p.x - point[0], p.z - point[1]), z: 1, sprint: true }, DT, false, sim.world);
+  }
+  assert(Math.hypot(p.x - target.x, p.z - target.z) < 1, 'Reach the supply patch through unchanged gameplay collision');
 });
