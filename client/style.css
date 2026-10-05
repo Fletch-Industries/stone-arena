@@ -152,3 +152,12 @@ body:has(.trail-dock) .play-time-badge{top:104px}
 .mobile #app:has(.trail-dock)>.notice{top:calc(48% + 74px);width:min(270px,85vw)}
 .mobile:has(.trail-dock) .play-time-badge{top:56px;bottom:auto;left:12px;right:auto;width:100px;line-height:14px}
 @media(max-height:500px){.mobile .hud .trail-dock,.mobile .hud:has(.warden-hud) .trail-dock{top:58px;left:12px;width:240px}.mobile .trail-dock .trail-actions,.mobile .trail-dock .trail-actions:has([data-action=glide]){grid-template-columns:repeat(3,minmax(0,1fr))}.mobile .hud .trail-dock>small{display:block}.mobile .hud:has(.trail-dock) .gather-hint{top:32%;left:74%}.mobile .hud:has(.trail-dock) .warden-hud{top:58px}.mobile #app:has(.trail-dock)>.notice{top:184px;left:74%;width:230px}.mobile:has(.trail-dock) .play-time-badge{top:12px;bottom:auto;left:148px;right:auto;width:auto}}
+
+/* Keep the expedition entrance readable beside the view, with the roster in Party. */
+.hud .trail-entry>p{white-space:normal;overflow:visible;line-height:18px;margin:3px 0}
+.hud .trail-entry>small{line-height:14px}
+.hud .trail-entry>[data-action=interact]{min-width:44px;min-height:44px;width:100%;margin:5px 0 0;padding:6px;font-size:11px}
+.mobile .hud .trail-entry{padding:2px 8px}
+.mobile .hud .trail-entry>p{font-size:10px;line-height:14px;margin:0}
+.mobile .hud .trail-entry>small{display:block;font-size:9px}
+.mobile .hud .trail-entry>[data-action=interact]{margin-top:4px}
