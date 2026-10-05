@@ -5,6 +5,7 @@ import { BIOMES, biomeAt } from '../shared/biomes.js';
 import type { CreatureWire } from '../shared/creatures.js';
 import { FOOTSTEPS, footstepSurface } from './footsteps.js';
 import { gatheringFeedback } from './gathering.js';
+import { weavingFeedback } from './weaving-feedback.js';
 /** Original synthesized soundscape. One ambience loop and a capped transient voice pool. */
 export class ArenaAudio {
   context?:AudioContext; master?:GainNode; ambient?:GainNode; windFilter?:BiquadFilterNode; noiseBuffer?:AudioBuffer;
@@ -37,7 +38,7 @@ export class ArenaAudio {
     if(e.type==='glide'){this.noise(.45,2100,.08*gain);this.tone(165,.45,.045*gain,0,'sine',660);}
     if(e.type==='hearth'&&local)this.tone(220,.5,.025,0,'sine',330);
     if(e.type==='windlift'){this.tone(220,.38,.065*gain,0,'sine',880);this.noise(.22,2800,.055*gain);}
-    if(e.type==='weave'){this.tone(330,.17,.045*gain,0,'triangle',660);this.tone(990,.2,.018*gain,.04);this.noise(.06,2000,.035*gain);}
+    if(e.type==='weave'){const sound=weavingFeedback(e.weaveKind);this.tone(sound.hz,.17,.045*gain,0,'triangle',sound.end);this.tone(sound.chime,.2,.018*gain,.04);this.noise(.06,sound.cutoff,.035*gain);}
     if(e.type==='erase'){this.tone(660,.15,.035*gain,0,'sine',220);this.noise(.13,1500,.035*gain);}
     if(e.type==='swing')this.noise(.15,1800,.1*gain);
     if(e.type==='shot'){this.tone(180,.18,.13*gain,0,'triangle',65);this.noise(.07,2800,.06*gain);}

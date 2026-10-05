@@ -17,6 +17,7 @@ import { LANDMARKS } from '../shared/arena.js';
 import { ArenaSigns } from './arena-signs.js';
 import { advancePoseBlend, blendLocomotionPose, isSailing, locomotionPose } from './animation.js';
 import { gatheringFeedback } from './gathering.js';
+import { weavingFeedback } from './weaving-feedback.js';
 import { TextureLibrary, type Surface } from './textures.js';
 import { FlameAtlas, armorMaterial } from './effects.js';
 import { swordBlade, appleBody, totemBody } from './items.js';
@@ -291,7 +292,7 @@ export class ArenaScene {
     this.creatures.event(e);
     if(e.realm&&e.realm!==this.viewRealm)return;
     if (e.type === 'swing' || e.type === 'shot' || e.type === 'weave' || e.type === 'erase' || e.type === 'gather' || e.type === 'mine' || e.type === 'mend') { const rig = e.actor && this.rigs.get(e.actor); if (rig) rig.swing = 1; }
-    if (e.position && this.viewRealm === 'wilds' && !this.reduced && ['weave', 'erase', 'mine', 'mend', 'windlift', 'gather', 'craft', 'hearth', 'creature_bond', 'creature_blink', 'creature_clear', 'creature_hit'].includes(e.type)) this.sparks.burst(e.position.x, e.position.y, e.position.z, e.type === 'gather' ? gatheringFeedback(e.supplyKind).color : e.type === 'creature_hit' ? '#ddaeff' : e.type === 'weave' || e.type === 'mend' || e.type.startsWith('creature_') ? '#9affde' : '#ffd59d', e.type === 'hearth' ? 4 : e.type === 'creature_clear' ? 35 : 12);
+    if (e.position && this.viewRealm === 'wilds' && !this.reduced && ['weave', 'erase', 'mine', 'mend', 'windlift', 'gather', 'craft', 'hearth', 'creature_bond', 'creature_blink', 'creature_clear', 'creature_hit'].includes(e.type)) this.sparks.burst(e.position.x, e.position.y, e.position.z, e.type === 'gather' ? gatheringFeedback(e.supplyKind).color : e.type === 'weave' ? weavingFeedback(e.weaveKind).color : e.type === 'creature_hit' ? '#ddaeff' : e.type === 'mend' || e.type.startsWith('creature_') ? '#9affde' : '#ffd59d', e.type === 'hearth' ? 4 : e.type === 'creature_clear' ? 35 : 12);
     const g = this.avatars.get(e.target ?? e.actor ?? ''); if (g?.userData.realm === this.viewRealm && !this.reduced && ['hit','relic','totem','dash','level','flag_capture','waystone','warp'].includes(e.type)) this.sparks.burst(g.position.x,g.position.y+1,g.position.z,e.type === 'hit' ? e.blocked ? '#bdeaff' : '#ffcd83' : '#6dfff0',e.type === 'relic' ? 45 : 16);
   }
   render(dt: number, snapshot: Snapshot | undefined, me: Player | undefined, local: Body | undefined, yaw: number, pitch: number, playing: boolean, moving: boolean) {

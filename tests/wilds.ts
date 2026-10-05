@@ -73,9 +73,11 @@ async function constructionChecks(host: Room, guest: Room) {
   controls(host,{...aim,weaving:true,weaveKind:0,attack:true});
   await until(()=>[host,guest].every(r=>constructions.get(r)!.size===1),5);controls(host,{...aim,weaving:true,weaveKind:0});
   const block={...[...constructions.get(host)!.values()][0]}, beforeSupplies={hp:me(host).hp,ammo:me(host).ammo,apples:me(host).apples,totems:me(host).totems};
+  await until(()=>[host,guest].every(r=>states.get(r)!.events.some(e=>e.type==='weave'&&e.actor===host.sessionId&&e.weaveKind===0)),5);
   assert.deepEqual(constructions.get(host)!.state(seed),constructions.get(guest)!.state(seed));
   await wait(300);const dx=block.x+.5-me(host).x,dz=block.z+.5-me(host).z, face={yaw:Math.atan2(-dx,-dz),pitch:Math.atan2(block.y+.8-me(host).y-1.62,Math.hypot(dx,dz))};
   controls(host,{...face,weaving:true,weaveKind:5,attack:true});await until(()=>[host,guest].every(r=>constructions.get(r)!.size===2),5);controls(host,{...face,weaving:true,weaveKind:5});
+  await until(()=>[host,guest].every(r=>states.get(r)!.events.some(e=>e.type==='weave'&&e.actor===host.sessionId&&e.weaveKind===5)),5);
   assert([...constructions.get(guest)!.values()].some(b=>b.kind===5));assert.deepEqual({hp:me(host).hp,ammo:me(host).ammo,apples:me(host).apples,totems:me(host).totems},beforeSupplies);
   console.log('PASS: ordinary aim built two shared runes, including Windlift, without consuming combat supplies');
   await walk(guest,-26,-46);await walk(guest,-26,-65,()=>me(guest).realm==='wilds',false);
@@ -132,7 +134,7 @@ async function craftingChecks(host: Room, guest: Room) {
   console.log('PASS: waystone crafting charged the shared pantry once, unlocked party sails/Hearthstone, and gave arrows only to the authenticated crafter; gliding replicated without moving the observer');
   await followWildRoute(host,firstPatch!);await stopMoving(host);let aim:{yaw:number;pitch:number}|undefined;
   for(let n=0;n<48;n++){const candidate={yaw:n*Math.PI/24-Math.PI,pitch:-.7};if(weaveTarget({...me(host),...candidate},states.get(host)!.world,false,states.get(host)!.players)?.valid){aim=candidate;break;}}assert(aim);
-  controls(host,{...aim,weaving:true,weaveKind:6,attack:true});await until(()=>[host,guest].every(r=>constructions.get(r)!.size===1),5);controls(host);assert.equal([...constructions.get(guest)!.values()][0].kind,6);
+  controls(host,{...aim,weaving:true,weaveKind:6,attack:true});await until(()=>[host,guest].every(r=>constructions.get(r)!.size===1),5);controls(host);assert.equal([...constructions.get(guest)!.values()][0].kind,6);await until(()=>[host,guest].every(r=>states.get(r)!.events.some(e=>e.type==='weave'&&e.actor===host.sessionId&&e.weaveKind===6)),5);
   const token=guest.reconnectionToken,id=guest.sessionId;guest.connection.close();await until(()=>states.get(host)!.players.find(p=>p.id===id)?.connected===false,5);guest=track(await client.reconnect(token));await until(()=>states.get(guest)?.players.some(p=>p.id===id&&p.connected)===true&&constructions.get(guest)!.size===1&&forageReady(guest),5);
   assert.deepEqual(fields.get(guest)!.state(seed),fields.get(host)!.state(seed));assert.deepEqual(states.get(guest)!.world.supplies,[1,2,0]);assert.equal(states.get(guest)!.world.upgrades,3);
   const saved=saveWorld(states.get(host)!.world,'Wings and a warm camp');host.send('lobby');await until(()=>[host,guest].every(r=>states.get(r)?.phase==='waiting'));

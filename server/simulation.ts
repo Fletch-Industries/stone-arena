@@ -90,7 +90,7 @@ export class Simulation {
     const blocks = this.world.construction!;
     if (!erase && p.weaveKind === 6 && !((this.world.upgrades ?? 0) & HEARTHSTONE)) return false;
     const ok = erase ? !!target.existing && (target.existing.owner === p.id || p.id === this.host || isExplorationMode(this.mode)) && blocks.erase(target.x, target.y, target.z) : blocks.place({ x: target.x, y: target.y, z: target.z, kind: p.weaveKind ?? 0, owner: p.id });
-    if (ok) this.event({ type: erase ? 'erase' : 'weave', actor: p.id, position: { x: target.x + .5, y: target.y + .5, z: target.z + .5 } });
+    if (ok) this.event({ type: erase ? 'erase' : 'weave', actor: p.id, ...(erase ? {} : { weaveKind: blocks.get(target.x, target.y, target.z)!.kind }), position: { x: target.x + .5, y: target.y + .5, z: target.z + .5 } });
     return ok;
   }
   warp(id: string, destination: unknown) {
