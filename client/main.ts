@@ -501,7 +501,7 @@ function frame(now: number) {
   }
   rememberWorld();
   arenaAudio.update(dt,p,local,snapshot?.phase==='active'&&!disconnected,settings.volume,settings.music,snapshot?.world.seed ?? 0,snapshot?.creatures ?? [],snapshot?.world);
-  scene.weavePreview = weaving; scene.erasePreview = mouseBlock; scene.sculptPreview = sculpting; scene.mendPreview = mouseBlock;
+  scene.weavePreview = weaving; scene.weaveKind = weaveKind; scene.erasePreview = mouseBlock; scene.sculptPreview = sculpting; scene.mendPreview = mouseBlock;
   scene.render(dt, snapshot, p, local, yaw, pitch, controlling(), keys.size > 0 || Math.hypot(touch.x, touch.z) > .1);
   requestAnimationFrame(frame);
 }

@@ -33,7 +33,7 @@ export class ArenaScene {
   viewRealm = 'arena'; dashTrailTime = 0; lastWeaponYaw = 0; landingKick = 0; wasGrounded = true;
   bases = new Map<Team, THREE.Group>(); flags = new Map<Team, THREE.Group>();
   avatars = new Map<string, THREE.Group>(); arrowMeshes = new Map<number, THREE.Mesh>(); weapon = new THREE.Group(); leftHand = new THREE.Group();
-  textures = new TextureLibrary(); construction = new RuneConstruction(this.textures); sculpture = new StoneSculpture(); sculptPreview = false; mendPreview = false; weavePreview = false; erasePreview = false; surfaceMaterials = new Map<string, THREE.MeshLambertMaterial>();
+  textures = new TextureLibrary(); construction = new RuneConstruction(this.textures); sculpture = new StoneSculpture(); sculptPreview = false; mendPreview = false; weavePreview = false; weaveKind = 0; erasePreview = false; surfaceMaterials = new Map<string, THREE.MeshLambertMaterial>();
   resources = new ForageRenderer(this.textures); sails = new SkySails(this.textures); flightTips = this.sails.make();
   creatures = new CreatureRenderer(this.textures);
   flameAtlas = new FlameAtlas(); flames: THREE.MeshBasicMaterial[] = [];
@@ -326,7 +326,8 @@ export class ArenaScene {
     this.atmosphere.update(this.camera,this.time,this.reduced,dt,wild,snapshot?.world.seed ?? 0); this.sparks.update(dt,!this.reduced);
     if (snapshot && wild) { this.runeLandmarks.build(snapshot.world.seed); this.runeLandmarks.update(this.time,me?.relics ?? 0,this.reduced); }
     if (snapshot && wild) { this.waystoneLandmarks.build(snapshot.world.seed); this.waystoneLandmarks.update(this.camera.position.x,this.camera.position.z,this.time,snapshot.world.waystones ?? 1,this.reduced,vistaDistance(this.terrain.worker ? this.quality : 'low')); }
-    if (snapshot) this.construction.update(snapshot.world, me && local ? { ...local, id: me.id, weaveKind: me.weaveKind, yaw, pitch } : follow, this.quality, this.time, wild && this.weavePreview && playing && !!me?.alive, this.erasePreview, snapshot.players, snapshot.mode === 'expedition' || snapshot.host === me?.id);
+    // The local ghost follows the palette even before the server receives that choice.
+    if (snapshot) this.construction.update(snapshot.world, me && local ? { ...local, id: me.id, weaveKind: this.weaveKind, yaw, pitch } : follow, this.quality, this.time, wild && this.weavePreview && playing && !!me?.alive, this.erasePreview, snapshot.players, snapshot.mode === 'expedition' || snapshot.host === me?.id);
     if (snapshot) this.sculpture.update(snapshot.world, me && local ? { ...me, ...local, yaw, pitch } : follow, this.time, this.reduced, wild && this.sculptPreview && playing && !!me?.alive, this.mendPreview, [...snapshot.players, ...(snapshot.creatures ?? []).map(creatureView).map(c => ({ ...c, realm: 'wilds' as const }))], snapshot.mode === 'expedition' || snapshot.host === me?.id);
     if (snapshot && wild && follow) this.resources.update(snapshot.world, local && follow.id === me?.id ? { ...local, yaw, pitch } : follow, snapshot.tick, this.time, this.quality, this.reduced);
     if(snapshot)this.creatures.update(snapshot.creatures??[],snapshot.world,this.camera,me?.id??'',this.time,dt,this.reduced,wild);
