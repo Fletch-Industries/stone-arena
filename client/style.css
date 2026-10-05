@@ -127,3 +127,28 @@ button.offhand{background:#111d25bd;border:1px solid #ffffff38;padding:3px 6px;m
 
 .badge .camera-status{display:block;margin-top:5px;font-size:10px;line-height:1.2;letter-spacing:0;text-transform:none;color:#d2dadd}
 .touch-view small{display:block;font-size:9px;line-height:10px;color:#bbf5de}
+
+/* Expedition tools stay at the edge and above the touch aiming layer. */
+.hud .trail-dock{top:112px;left:20px;right:auto;transform:none;width:240px;min-width:0;max-width:none;padding:6px 10px;z-index:3;text-align:left}
+.trail-dock .trail-heading{display:flex;align-items:center;justify-content:space-between;gap:6px;min-height:44px}
+.trail-dock .trail-heading>b{font-size:10px;letter-spacing:.03em}
+.trail-dock .trail-heading button{min-width:44px;min-height:44px;padding:4px 7px;flex:none}
+.hud .trail-dock>p{margin:2px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hud .trail-dock>small{display:block;font-size:9px;line-height:14px}
+.trail-dock .trail-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px;margin-top:5px}
+.trail-dock .trail-actions button{min-width:44px;min-height:44px;margin:0;padding:4px 5px;border-radius:7px;font-size:10px}
+.hud:has(.trail-dock) .gather-hint{z-index:3}
+.hud:has(.trail-dock) .net{line-height:1.2}
+.hud:has(.trail-dock)~.overlay{z-index:6}
+body:has(.trail-dock) .play-time-badge{top:104px}
+.mobile #app:has(.trail-dock){z-index:3}
+.mobile .hud .trail-dock,.mobile .hud:has(.warden-hud) .trail-dock{top:108px;left:12px;transform:none;width:calc(100vw - 24px);min-width:0;max-width:none;padding:4px 8px;background:linear-gradient(135deg,#102632e8,#25363dd9);border:1px solid #5d9b9690;box-shadow:0 4px 24px #091d2750}
+.mobile .hud:has(.warden-hud) .trail-dock>p,.mobile .hud:has(.warden-hud) .trail-dock>small{display:block}
+.mobile .trail-dock .trail-actions{grid-template-columns:repeat(5,minmax(0,1fr));margin-top:5px}
+.mobile .trail-dock .trail-actions:has([data-action=glide]){grid-template-columns:repeat(6,minmax(0,1fr))}
+.mobile .hud .trail-dock>p{font-size:10px;line-height:18px;margin:0}
+.mobile .hud:has(.trail-dock) .gather-hint{top:48%}
+.mobile .hud:has(.trail-dock) .warden-hud{top:254px}
+.mobile #app:has(.trail-dock)>.notice{top:calc(48% + 74px);width:min(270px,85vw)}
+.mobile:has(.trail-dock) .play-time-badge{top:auto;bottom:126px;right:12px}
+@media(max-height:500px){.mobile .hud .trail-dock,.mobile .hud:has(.warden-hud) .trail-dock{top:58px;left:12px;width:240px}.mobile .trail-dock .trail-actions,.mobile .trail-dock .trail-actions:has([data-action=glide]){grid-template-columns:repeat(3,minmax(0,1fr))}.mobile .hud .trail-dock>small{display:block}.mobile .hud:has(.trail-dock) .gather-hint{top:32%;left:74%}.mobile .hud:has(.trail-dock) .warden-hud{top:58px}.mobile #app:has(.trail-dock)>.notice{top:184px;left:74%;width:230px}.mobile:has(.trail-dock) .play-time-badge{top:72px;bottom:auto}}

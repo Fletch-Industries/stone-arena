@@ -68,7 +68,8 @@ last until the arena closes. There are no accounts or permanent rewards.
 Choose **Co-op expedition** in the lobby for a shared adventure, solo or with up
 to five explorers. Player damage is off. Find the secret stone door together;
 each explorer collects all three skyshards and returns through the tunnel. The
-party wins when everyone is home, with a progress list and a shared result. A
+party wins when everyone is home, with a shared result. The compact Wilds trail
+dock keeps tools beside the view; **P / Party** opens everyone’s live progress. A
 reconnecting friend keeps their seat and progress; explicit departures remove
 that explorer from the party. Rematches preserve wins and the world's seed but
 start a fresh trail. The host can return the party to the lobby from Settings.
