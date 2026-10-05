@@ -11,12 +11,41 @@ import { waystoneSites } from '../shared/waystones.js';
 import { shardSites } from '../shared/expedition.js';
 import { navigator, wildRoute, routeFollower } from './navigation.js';
 const client = new Client(process.env.TEST_ENDPOINT ?? 'http://127.0.0.1:3107'), rooms: Room[] = [], states = new Map<Room, Snapshot>(), sequences = new Map<Room, number>();
-const building = process.argv.includes('--building'), crafting = process.argv.includes('--crafting'), constructions = new Map<Room, Construction>(), fields = new Map<Room, Forage>();
+const building = process.argv.includes('--building'), crafting = process.argv.includes('--crafting'), constructions = new Map<Room, Construction>(), fields = new Map<Room, Forage>(), fieldSeeds = new Map<Room, number>();
 const expedition = process.argv.includes('--expedition'), waystones = process.argv.includes('--waystones'), actionErrors = new Map<Room, string[]>();
 let timer: ReturnType<typeof setInterval> | undefined;
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 async function until(check: () => boolean, seconds = 80) { const end = Date.now() + seconds * 1000; while (!check()) { if (Date.now() > end) throw Error('Wilds timed out: ' + JSON.stringify([...states.values()].map(s => ({ world: s.world, players: s.players.map(p => ({ id: p.id, realm: p.realm, x: p.x, y: p.y, z: p.z, hp: p.hp })) })))); await wait(25); } }
-function track(r: Room) { rooms.push(r); const blocks = new Construction(); constructions.set(r, blocks); const field = new Forage(); fields.set(r, field); r.onMessage('forage', (full: ForageState) => { assert(field.restore(full)); }); r.onMessage('forageChanges', (delta: ForageChanges) => { assert(field.apply(delta)); }); r.onMessage('excavation',()=>{}); r.onMessage('excavationStream',()=>{}); r.onMessage('excavationChanges',()=>{}); r.onMessage('construction', (full: ConstructionState) => { assert(blocks.restore(full)); }); r.onMessage('constructionChanges', (delta: ConstructionChanges) => { assert(blocks.apply(delta)); }); r.onMessage('worldRestored', () => {}); r.onMessage('snapshot', (s: Snapshot) => { s.world.construction = blocks; s.world.forage = field; states.set(r, s); }); r.onMessage('latency', (n: number) => r.send('latencyAck', n)); r.onMessage('pong', () => {}); r.onMessage('actionError', (message: string) => actionErrors.set(r,[...(actionErrors.get(r)??[]),message].slice(-50)));  r.reconnection.enabled = false; r.send('sync'); return r; }
+function track(r: Room) {
+  rooms.push(r); const blocks = new Construction(), field = new Forage();
+  constructions.set(r, blocks); fields.set(r, field);
+  let lastFieldSync = -1000;
+  function syncField() { const now = performance.now(); if (now - lastFieldSync >= 1000) { lastFieldSync = now; r.send('forageSync'); } }
+  r.onMessage('forage', (full: ForageState) => { assert(field.restore(full)); fieldSeeds.set(r, full.seed); });
+  r.onMessage('forageChanges', (delta: ForageChanges) => {
+    // Admission can queue a regrowth delta before the initial full state.
+    // The game client requests a resync and waits for that full state, too.
+    if (!fieldSeeds.has(r)) { syncField(); return; }
+    const before = field.revision;
+    assert(field.apply(delta), 'Supply delta rejected: ' + JSON.stringify({ seed: delta.seed, before, delta }));
+  });
+  r.onMessage('excavation', () => {}); r.onMessage('excavationStream', () => {}); r.onMessage('excavationChanges', () => {});
+  r.onMessage('construction', (full: ConstructionState) => { assert(blocks.restore(full)); });
+  r.onMessage('constructionChanges', (delta: ConstructionChanges) => { assert(blocks.apply(delta)); });
+  r.onMessage('worldRestored', () => {});
+  r.onMessage('snapshot', (s: Snapshot) => {
+    s.world.construction = blocks; s.world.forage = field; states.set(r, s);
+    if (!fieldSeeds.has(r)) syncField();
+  });
+  r.onMessage('latency', (n: number) => r.send('latencyAck', n)); r.onMessage('pong', () => {});
+  r.onMessage('actionError', (message: string) => actionErrors.set(r, [...(actionErrors.get(r) ?? []), message].slice(-50)));
+  r.reconnection.enabled = false; r.send('sync'); return r;
+}
+function forageReady(r: Room) {
+  const s = states.get(r);
+  return !!s && fieldSeeds.get(r) === s.world.seed && fields.get(r)!.revision === s.world.forageRevision;
+}
+
 const me = (r: Room) => states.get(r)!.players.find(p => p.id === r.sessionId)!;
 function controls(r: Room, value = {}) { const seq = (sequences.get(r) ?? me(r).ack) + 1; sequences.set(r, seq); r.send('input', { ...idleInput(), seq, ...value }); return seq; }
 async function stopMoving(r: Room) {
@@ -59,7 +88,7 @@ async function constructionChecks(host: Room, guest: Room) {
   console.log('PASS: a co-op friend erased a shared rune through ordinary aim; erase did not become shield protection');
   const saved=saveWorld(states.get(host)!.world,'Multiplayer rune garden'), token=guest.reconnectionToken, oldId=guest.sessionId;
   guest.connection.close();await until(()=>states.get(host)?.players.some(p=>p.id===oldId&&!p.connected)===true,5);
-  guest=track(await client.reconnect(token));await until(()=>states.get(guest)?.players.find(p=>p.id===guest.sessionId)?.connected===true&&constructions.get(guest)!.size===1,5);assert.equal(guest.sessionId,oldId);assert.deepEqual(constructions.get(guest)!.state(seed),constructions.get(host)!.state(seed));
+  guest=track(await client.reconnect(token));await until(()=>states.get(guest)?.players.find(p=>p.id===guest.sessionId)?.connected===true&&constructions.get(guest)!.size===1&&forageReady(guest),5);assert.equal(guest.sessionId,oldId);assert.deepEqual(constructions.get(guest)!.state(seed),constructions.get(host)!.state(seed));
   host.send('lobby');await until(()=>[host,guest].every(r=>states.get(r)?.phase==='waiting'));assert.equal(constructions.get(host)!.size,1);
   const {blocks,...header}=saved, errors=actionErrors.get(guest)?.length??0;
   guest.send('worldRestore',{type:'begin',header,count:blocks.length});await until(()=>(actionErrors.get(guest)?.length??0)>errors,5);assert.equal(constructions.get(host)!.size,1);
@@ -81,7 +110,7 @@ async function craftingChecks(host: Room, guest: Room) {
     assert(attempts<25,'Enough clear supply patches should grow nearby');
     const kind=goal.findIndex((need,n)=>(states.get(host)!.world.supplies?.[n]??0)<need), p=me(host);
     const node=suppliesNear(p.x,p.z,seed,192).filter(n=>n.kind===kind&&fields.get(host)!.available(n,states.get(host)!.tick)).sort((a,b)=>Math.hypot(a.x-p.x,a.z-p.z)-Math.hypot(b.x-p.x,b.z-p.z))[0];assert(node);
-    firstPatch??={x:node.x,z:node.z}; await followWildRoute(host,node);
+    firstPatch??={x:node.x,z:node.z}; await followWildRoute(host,node); await stopMoving(host);
     const here=me(host),dx=node.x-here.x,dz=node.z-here.z,aim={yaw:Math.atan2(-dx,-dz),pitch:Math.max(-1.45,Math.min(1.45,Math.atan2(node.y+.9-here.y-1.62,Math.hypot(dx,dz))))};
     controls(host,aim);await until(()=>Math.abs(me(host).yaw-aim.yaw)<.01&&Math.abs(me(host).pitch-aim.pitch)<.01,5);
     await until(()=>states.get(host)!.tick>=(me(host).gatherReadyAt??0),5);
@@ -104,7 +133,7 @@ async function craftingChecks(host: Room, guest: Room) {
   await followWildRoute(host,firstPatch!);await stopMoving(host);let aim:{yaw:number;pitch:number}|undefined;
   for(let n=0;n<48;n++){const candidate={yaw:n*Math.PI/24-Math.PI,pitch:-.7};if(weaveTarget({...me(host),...candidate},states.get(host)!.world,false,states.get(host)!.players)?.valid){aim=candidate;break;}}assert(aim);
   controls(host,{...aim,weaving:true,weaveKind:6,attack:true});await until(()=>[host,guest].every(r=>constructions.get(r)!.size===1),5);controls(host);assert.equal([...constructions.get(guest)!.values()][0].kind,6);
-  const token=guest.reconnectionToken,id=guest.sessionId;guest.connection.close();await until(()=>states.get(host)!.players.find(p=>p.id===id)?.connected===false,5);guest=track(await client.reconnect(token));await until(()=>states.get(guest)?.players.some(p=>p.id===id&&p.connected)===true&&constructions.get(guest)!.size===1,5);
+  const token=guest.reconnectionToken,id=guest.sessionId;guest.connection.close();await until(()=>states.get(host)!.players.find(p=>p.id===id)?.connected===false,5);guest=track(await client.reconnect(token));await until(()=>states.get(guest)?.players.some(p=>p.id===id&&p.connected)===true&&constructions.get(guest)!.size===1&&forageReady(guest),5);
   assert.deepEqual(fields.get(guest)!.state(seed),fields.get(host)!.state(seed));assert.deepEqual(states.get(guest)!.world.supplies,[1,2,0]);assert.equal(states.get(guest)!.world.upgrades,3);
   const saved=saveWorld(states.get(host)!.world,'Wings and a warm camp');host.send('lobby');await until(()=>[host,guest].every(r=>states.get(r)?.phase==='waiting'));
   const {blocks,...header}=saved;host.send('worldRestore',{type:'begin',header,count:blocks.length});host.send('worldRestore',{type:'chunk',offset:0,blocks});host.send('worldRestore',{type:'commit'});
