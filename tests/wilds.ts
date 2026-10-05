@@ -9,7 +9,7 @@ import { VERSION, idleInput, type Snapshot } from '../shared/game.js';
 import { terrainHeight, worldBoxes } from '../shared/world.js';
 import { waystoneSites } from '../shared/waystones.js';
 import { shardSites } from '../shared/expedition.js';
-import { navigator, wildRoute, routeFollower } from './navigation.js';
+import { navigator, wildRoute, wildRouteWithBacktrack, routeFollower } from './navigation.js';
 const client = new Client(process.env.TEST_ENDPOINT ?? 'http://127.0.0.1:3107'), rooms: Room[] = [], states = new Map<Room, Snapshot>(), sequences = new Map<Room, number>();
 const building = process.argv.includes('--building'), crafting = process.argv.includes('--crafting'), constructions = new Map<Room, Construction>(), fields = new Map<Room, Forage>(), fieldSeeds = new Map<Room, number>();
 const expedition = process.argv.includes('--expedition'), waystones = process.argv.includes('--waystones'), actionErrors = new Map<Room, string[]>();
@@ -63,7 +63,7 @@ async function walk(r: Room, x: number, z: number, stop = () => Math.hypot(me(r)
   }, 33);
   try { await until(stop); } finally { clearInterval(timer); timer = undefined; if (r.connection.isOpen) controls(r); }
 }
-async function followWildRoute(r:Room,target:{x:number;z:number},stop:()=>boolean=()=>Math.hypot(me(r).x-target.x,me(r).z-target.z)<1){const route=wildRoute(me(r),target,states.get(r)!.world.seed,states.get(r)!.world.construction);const follow=routeFollower(route,target);timer=setInterval(()=>{const p=me(r),goal=follow(p),d=Math.hypot(p.x-goal[0],p.z-goal[1]);controls(r,{yaw:Math.atan2(p.x-goal[0],p.z-goal[1]),z:1,sprint:true,dash:d>7&&(p.dashCooldown??0)<=0});for(const other of rooms)if(other!==r&&other.connection.isOpen)other.send('ping',Date.now());},33);try{await until(stop,100);}finally{clearInterval(timer);timer=undefined;controls(r);}}
+async function followWildRoute(r:Room,target:{x:number;z:number},stop:()=>boolean=()=>Math.hypot(me(r).x-target.x,me(r).z-target.z)<1,backtrack?:()=>Promise<void>){const world=states.get(r)!.world;const route=backtrack?await wildRouteWithBacktrack(()=>me(r),target,world.seed,world.construction,backtrack):wildRoute(me(r),target,world.seed,world.construction);const follow=routeFollower(route,target);timer=setInterval(()=>{const p=me(r),goal=follow(p),d=Math.hypot(p.x-goal[0],p.z-goal[1]);controls(r,{yaw:Math.atan2(p.x-goal[0],p.z-goal[1]),z:1,sprint:true,dash:d>7&&(p.dashCooldown??0)<=0});for(const other of rooms)if(other!==r&&other.connection.isOpen)other.send('ping',Date.now());},33);try{await until(stop,100);}finally{clearInterval(timer);timer=undefined;controls(r);}}
 async function constructionChecks(host: Room, guest: Room) {
   const seed=states.get(host)!.world.seed;
   await stopMoving(host);
@@ -185,7 +185,11 @@ try {
   for (const r of rooms) { const s = states.get(r)!, p = s.players.find(p => p.id === host.sessionId)!; assert.equal(p.realm, 'wilds'); assert(Math.abs(p.y - terrainHeight(p.x, p.z, s.world.seed)) < .03); assert.equal(p.hp, 100); }
   console.log('PASS: shared procedural hills match authoritative footing for both clients');
   if (building) { await constructionChecks(host,guest); } else if (crafting) { await craftingChecks(host,guest); } else {
-  const site=shardSites(states.get(host)!.world.seed)[0]; await followWildRoute(host,site,()=>rooms.filter(r=>r.connection.isOpen).every(r=>states.get(r)?.players.some(p=>p.id===host.sessionId&&(p.relics&1)!==0)===true));
+  const site=shardSites(states.get(host)!.world.seed)[0]; await followWildRoute(host,site,()=>rooms.filter(r=>r.connection.isOpen).every(r=>states.get(r)?.players.some(p=>p.id===host.sessionId&&(p.relics&1)!==0)===true),async()=>{
+    // Only this approach has a known, already traversed radial lane to retrace.
+    console.log('DIAG retrace visited radial lane',JSON.stringify({seed:states.get(host)!.world.seed,from:{x:me(host).x,z:me(host).z},anchor:radialStart,target:site}));
+    await walk(host,radialStart.x,radialStart.z,undefined,false);await stopMoving(host);
+  });
   assert.equal(me(host).relics,1);assert.equal(me(guest).relics,0);console.log('PASS: ordinary exploration discovered the Dawn skyshard for its explorer in both snapshots');
   if (waystones) {
     const seed = states.get(host)!.world.seed;

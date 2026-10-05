@@ -5,7 +5,9 @@ import { move, idleInput, DT, EYE, RADIUS, type Body } from '../shared/game.js';
 import { weaveTarget } from '../shared/weaving.js';
 import { rectangleHeight } from '../shared/terrain-collision.js';
 import { Simulation } from '../server/simulation.js';
-import { routeFollower, wildRoute } from './navigation.js';
+import { terrainHeight, worldBoxes } from '../shared/world.js';
+import { shardSites } from '../shared/expedition.js';
+import { routeFollower, wildRoute, wildRouteWithBacktrack } from './navigation.js';
 
 test('a test explorer visits the last detour around newly woven runes before approaching a friend', () => {
   const world = { seed: 391399180, doorOpen: true, construction: new Construction() };
@@ -41,4 +43,45 @@ test('a test explorer crosses a clear natural lane missed by the coarse navigati
     move(p, { ...idleInput(), yaw: Math.atan2(p.x - point[0], p.z - point[1]), z: 1, sprint: true }, DT, false, sim.world);
   }
   assert(Math.hypot(p.x - target.x, p.z - target.z) < 1, 'Reach the supply patch through unchanged gameplay collision');
+});
+
+test('a canopy-trapped test explorer retraces its visited lane before planning to Dawn', async () => {
+  const seed = 545922004, from = { x: 0, z: -37.60179499999997 }, anchor = { x: 0, z: -12 };
+  const target = shardSites(seed)[0], sim = new Simulation(seed);
+  sim.mode = 'expedition'; sim.world.doorOpen = true;
+  const p = sim.add('explorer', 'Canopy explorer');
+  assert(sim.resumePlace(p, { ...from, y: terrainHeight(from.x, from.z, seed) + .002, realm: 'wilds', yaw: 0, pitch: 0, flying: false }));
+  assert.throws(() => wildRoute(p, target, seed), /No test route: .*"clearance":1,"margin":24/);
+  const columnBlocked = (x: number, z: number) => worldBoxes(x, z, x, z, 'wilds', sim.world)
+    .some(b => Math.abs(x - b.x) < b.w / 2 + 1 && Math.abs(z - b.z) < b.d / 2 + 1);
+  assert([[1, -38], [-1, -38], [0, -37], [0, -39]].every(([x, z]) => columnBlocked(x, z)), 'Reproduce the conservative grid trap');
+  const walkTo = (goal: number[], tolerance: number) => {
+    for (let tick = 0; tick < 2400 && Math.hypot(p.x - goal[0], p.z - goal[1]) >= tolerance; tick++)
+      move(p, { ...idleInput(), yaw: Math.atan2(p.x - goal[0], p.z - goal[1]), z: 1, sprint: true }, DT, false, sim.world);
+    assert(Math.hypot(p.x - goal[0], p.z - goal[1]) < tolerance, 'Travel by unchanged authoritative collision');
+  };
+  // First traverse the lane as the real test client does, then retrace it.
+  walkTo([anchor.x, anchor.z], .4); walkTo([from.x, from.z], .4);
+  let backtracks = 0;
+  const route = await wildRouteWithBacktrack(() => p, target, seed, sim.world.construction, async () => {
+    backtracks++; walkTo([anchor.x, anchor.z], .4);
+  });
+  assert.equal(backtracks, 1);
+  const follow = routeFollower(route, target);
+  for (let tick = 0; tick < 2400 && Math.hypot(p.x - target.x, p.z - target.z) >= 1; tick++) {
+    const goal = follow(p);
+    move(p, { ...idleInput(), yaw: Math.atan2(p.x - goal[0], p.z - goal[1]), z: 1, sprint: true }, DT, false, sim.world);
+  }
+  assert(Math.hypot(p.x - target.x, p.z - target.z) < 1, 'Reach Dawn without changing obstacle columns or player collision');
+  assert.equal(p.realm, 'wilds'); assert.equal(p.hp, 100);
+  assert(sim.world.construction); assert.equal(sim.world.construction.size, 0);
+});
+
+test('normal test routes skip backtracking and an unresolved trap still fails once', async () => {
+  const seed = 545922004, target = shardSites(seed)[0], clear = { x: 0, z: -12 };
+  let backtracks = 0;
+  const route = await wildRouteWithBacktrack(() => clear, target, seed, undefined, async () => { backtracks++; });
+  assert.deepEqual(route, wildRoute(clear, target, seed)); assert.equal(backtracks, 0);
+  await assert.rejects(wildRouteWithBacktrack(() => ({ x: 0, z: -37.60179499999997 }), target, seed, undefined, async () => { backtracks++; }), /No test route: .*"clearance":1,"margin":24/);
+  assert.equal(backtracks, 1, 'Do not loop, lower clearance or bypass an unresolved route failure');
 });

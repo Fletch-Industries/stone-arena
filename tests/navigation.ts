@@ -80,3 +80,16 @@ export function wildRoute(from: Point, target: Point, seed: number, construction
   if (!route) throw Error('No test route: ' + JSON.stringify({ seed, from: { x: from.x, z: from.z }, target: { x: target.x, z: target.z }, clearance: 1, margin: 24 }));
   return route;
 }
+
+/** Retrace a visited lane once when conservative obstacle columns trap the grid. */
+export async function wildRouteWithBacktrack(position: () => Point, target: Point, seed: number, construction: Construction | undefined, backtrack: () => Promise<void>) {
+  try {
+    return wildRoute(position(), target, seed, construction);
+  } catch (error) {
+    if (!(error instanceof Error) || !error.message.startsWith('No test route: ')) throw error;
+    await backtrack();
+    // Replan from the actual arrival, with the original clearance and margin.
+    // A second failure propagates instead of retrying or relaxing obstacles.
+    return wildRoute(position(), target, seed, construction);
+  }
+}
