@@ -6,7 +6,7 @@ import { vistaDistance } from '../shared/horizon.js';
 import { TextureLibrary } from './textures.js';
 import { HEARTHSTONE } from '../shared/sailing.js';
 
-/** Six shared draws, one preview cube, no per-block lights or animation objects. */
+/** Seven shared rune meshes, one preview cube, no per-block lights or animation objects. */
 export class RuneConstruction {
   group = new THREE.Group();
   meshes: THREE.InstancedMesh[];
@@ -46,7 +46,16 @@ export class RuneConstruction {
       if (this.target?.valid && !erase && p!.weaveKind === 6 && !((world.upgrades ?? 0) & HEARTHSTONE)) { this.target.valid = false; this.target.reason = 'Craft Hearthstone at a waystone loom first'; }
       if (this.target?.valid && !erase && (blocks!.size >= BUILD.roomLimit || p!.id && blocks!.count(p!.id) >= BUILD.playerLimit)) { this.target.valid = false; this.target.reason = blocks!.size >= BUILD.roomLimit ? 'This world is full · Erase a rune to make room' : 'Your rune pouch is full · Erase one of your runes'; }
       if (this.target?.valid && erase && this.target.existing?.owner !== p!.id && !allowErase) { this.target.valid = false; this.target.reason = 'This rune belongs to another explorer'; }
-      if (this.target) { this.ghost.position.set(this.target.x + .5, this.target.y + .5, this.target.z + .5); (this.ghost.material as THREE.MeshBasicMaterial).color.set(this.target.valid ? erase ? '#f5c17b' : '#91ffdf' : '#ff9385'); }
+      if (this.target) {
+        this.ghost.position.set(this.target.x + .5, this.target.y + .5, this.target.z + .5);
+        const material = this.ghost.material as THREE.MeshBasicMaterial;
+        const surface = this.target.valid && !erase ? this.meshes[p!.weaveKind ?? 0]?.material as THREE.MeshLambertMaterial | undefined : undefined;
+        const map = surface?.map ?? null;
+        if (material.map !== map) { material.map = map; material.needsUpdate = true; }
+        material.wireframe = !surface;
+        if (surface) material.color.copy(surface.color);
+        else material.color.set(this.target.valid ? erase ? '#f5c17b' : '#91ffdf' : '#ff9385');
+      }
     }
     this.ghost.visible = !!this.target;
   }
