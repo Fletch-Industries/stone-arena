@@ -261,6 +261,7 @@ export class ArenaScene {
       for (const x of [-.13, .13]) { const prong = this.box(group, [.045, .26, .045], [x, .49, 0], '#d6be88', 'metal'); prong.rotation.z = x > 0 ? -.35 : .35; }
       const crystal = new THREE.Mesh(this.runeGeometry, this.auraMaterial); crystal.scale.set(.65, 1.2, .65); crystal.position.y = .57; group.add(crystal);
       if (group === this.weapon) this.weaverFocus = crystal;
+      else crystal.userData.avatarWeaver = true;
       this.box(group, [.16, .045, .12], [0, .34, 0], '#6ef4dc');
     }
     if (name === 'sword') {
@@ -400,7 +401,10 @@ export class ArenaScene {
       const shield = g.getObjectByName('shield')!; shield.visible = !p.weaving && !p.sculpting && p.offhand === 'shield';
       g.getObjectByName('totem')!.visible = !p.weaving && !p.sculpting && p.offhand === 'totem' && p.totems > 0;
       const toolName = p.sculpting ? 'chisel' : p.weaving ? 'weaver' : p.weapon; if (rig.toolName !== toolName) { rig.toolName = toolName; this.buildWeapon(rig.tool, toolName); }
-      g.traverse(o => { if (o instanceof THREE.Mesh) { o.userData.baseMaterial ??= o.material; if (o.userData.armor) { const level = armorTier(p.xp).level; o.visible = level > 1; o.material = p.hurtTime > 0 ? this.material('#e77979') : this.armorMaterials[Math.max(0, level - 2)]; } else o.material = p.hurtTime > 0 ? this.material('#e77979') : o.userData.baseMaterial; } });
+      g.traverse(o => { if (o instanceof THREE.Mesh) {
+        if (o.userData.avatarWeaver) o.userData.baseMaterial = p.alive && p.realm === 'wilds' && p.weaving && !p.sculpting ? this.construction.meshes[p.weaveKind ?? 0]?.material ?? this.auraMaterial : this.auraMaterial;
+        o.userData.baseMaterial ??= o.material; if (o.userData.armor) { const level = armorTier(p.xp).level; o.visible = level > 1; o.material = p.hurtTime > 0 ? this.material('#e77979') : this.armorMaterials[Math.max(0, level - 2)]; } else o.material = p.hurtTime > 0 ? this.material('#e77979') : o.userData.baseMaterial;
+      } });
     }
     const arrowIds = new Set(snapshot?.arrows.map(a => a.id));
     for (const [id, m] of this.arrowMeshes) if (!arrowIds.has(id)) { this.scene.remove(m); this.arrowMeshes.delete(id); }
