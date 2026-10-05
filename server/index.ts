@@ -184,7 +184,13 @@ export class ArenaRoom extends Room {
     if (c.sessionId === this.sim.host) await this.keeper?.save(this.sim.world, this.sim.mode, true);
     this.sendConstruction(c); this.sendExcavation(c); this.sendKeep(c); this.sendWorldInvite(c); c.send('snapshot', this.sim.snapshot());
   }
-  async onDrop(c: Client) { await this.detachPlay(c).catch(() => {}); this.rememberPlaces(); this.sim.disconnect(c.sessionId); void this.checkpointWorld(); if (this.expired.has(c.sessionId)) return; try { await this.allowReconnection(c, isExplorationMode(this.sim.mode) ? 300 : 15); } catch { /* onLeave finalizes the departure */ } }
+  async onDrop(c: Client) {
+    this.rememberPlaces(); this.sim.disconnect(c.sessionId); void this.checkpointWorld();
+    // Reserve synchronously: a fast refresh can arrive while durable detach waits.
+    const returning = this.expired.has(c.sessionId) ? undefined : this.allowReconnection(c, isExplorationMode(this.sim.mode) ? 300 : 15).catch(() => {});
+    await this.detachPlay(c).catch(() => {});
+    await returning; // onLeave finalizes an expired or abandoned reservation.
+  }
   async onReconnect(c: Client) { this.lastSeen.set(c.sessionId, performance.now()); const playKey = socketKey(c), status = await playTime.join(playKey, `${this.roomId}:${c.sessionId}`); this.playKeys.set(c.sessionId, playKey); c.send('playTime', status); this.lastSeen.set(c.sessionId, performance.now()); this.expired.delete(c.sessionId); const p = this.sim.players.get(c.sessionId), key = this.playerKeys.get(c.sessionId); if (p) { p.connected = true; if (key && isExplorationMode(this.sim.mode)) this.sim.resumePlace(p, this.keeper?.place(key)); } this.sim.transferHost(); this.sendConstruction(c, true); this.sendForage(c, true); this.sendExcavation(c, true); this.sendKeep(c); this.sendWorldInvite(c); c.send('snapshot', this.sim.snapshot()); }
   async onLeave(c: Client) { await this.detachPlay(c).catch(() => {}); this.rememberPlaces(); this.sim.leave(c.sessionId); void this.checkpointWorld(); seats.releasePlayer(this.roomId, c.sessionId); this.playerKeys.delete(c.sessionId); this.lastSeen.delete(c.sessionId); this.expired.delete(c.sessionId); this.latencySent.delete(c.sessionId); this.lastBuildSync.delete(c.sessionId); this.lastForageSync.delete(c.sessionId); this.lastExcavationSync.delete(c.sessionId); this.sendExcavationAfterStall.delete(c.sessionId); this.stoneTransfers.delete(c.sessionId); this.worldImports.delete(c.sessionId); }
   async onDispose() { this.rememberPlaces(); try { await this.keeper?.close(this.sim.world, this.sim.mode); } finally { activeRooms.delete(this.roomId); seats.releaseRoom(this.roomId); } }
