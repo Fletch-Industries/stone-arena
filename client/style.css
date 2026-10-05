@@ -164,3 +164,10 @@ body:has(.trail-dock) .play-time-badge{top:104px}
 .hud:has(.trail-entry) .feed{top:140px}
 .mobile .hud:has(.trail-entry) .feed{top:264px}
 @media(max-height:500px){.mobile .hud:has(.trail-entry) .feed{top:68px}}
+
+/* Keep world navigation clear of touch menus; diagnostics live in Settings. */
+.net .world-mode,.net .location-label{display:block}
+.mobile .net{position:absolute;top:12px;right:12px;margin:0;max-width:calc(100vw - 144px);font-size:10px;line-height:14px}
+.mobile .net .world-mode{display:none}
+.mobile .net .location-label{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.connection-details{font-variant-numeric:tabular-nums}
