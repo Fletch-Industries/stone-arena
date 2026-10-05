@@ -420,7 +420,7 @@ app.addEventListener('click', async e => {
   if (action === 'offhand' && e.detail === 0) swapOffhand();
   if (action === 'worlds') { rememberWorld(true); releasePointer(); modal = 'worlds'; renderUI(); }
   if (action === 'export-world') exportWorld();
-  if (action === 'continue-world' && !room) { const bookmark = worldKeeps.entries.find(b => b.handle.id === target?.dataset.keep); if (bookmark) void connect('create', '', bookmark.handle); }
+  if (action === 'continue-world' && !room) { const bookmark = worldKeeps.entries.find(b => b.handle.id === target?.dataset.keep); if (bookmark) void (bookmark.summary.mode === 'creative' ? connect('world', bookmark.handle.id) : connect('create', '', bookmark.handle)); }
   if ((action === 'checkpoint-world' || action === 'forget-online-world') && room && !disconnected && performance.now() >= keepCooldown) { keepCooldown = performance.now() + KEEP.messageMs; room.send(action === 'checkpoint-world' ? 'worldCheckpoint' : 'worldForget'); renderUI(); }
   if (action === 'restore-memory') { const saved = worldBook.entries.find(m => m.world.seed === Number(target?.dataset.seed)); if (saved) void importWorld(saved.world); }
   if (action === 'forget-world') { worldBook.forget(Number(target?.dataset.seed)); renderUI(); }

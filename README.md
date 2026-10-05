@@ -189,9 +189,11 @@ Open **Saved worlds** on the home screen, in the lobby, or in Settings. On hosts
 with online storage enabled, an arena automatically keeps its world online about
 every ten seconds when it changes, and when the arena closes normally. **Save
 online now** checkpoints it immediately. After a restart, choose a nickname and
-use **Online worlds → Continue** from the home screen to open a fresh lobby with
-the saved terrain, tunnels, runes, supplies, crafting, field guide, waystones and
-game mode. Friends can join its new arena normally. Health, equipment, personal
+use **Online worlds → Continue** from the home screen. Creative worlds join friends
+already exploring the same world, or reopen it when empty. Other modes open a fresh
+lobby when everyone has left, with the saved terrain, tunnels, runes, supplies,
+crafting, field guide, waystones and game mode. Friends can join its new arena
+normally. Health, equipment, personal
 skyshards and round results start fresh. A world can have one active arena at a
 time; an existing arena's invitations and reconnect tokens still handle live play.
 
