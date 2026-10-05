@@ -161,3 +161,6 @@ body:has(.trail-dock) .play-time-badge{top:104px}
 .mobile .hud .trail-entry>p{font-size:10px;line-height:14px;margin:0}
 .mobile .hud .trail-entry>small{display:block;font-size:9px}
 .mobile .hud .trail-entry>[data-action=interact]{margin-top:4px}
+.hud:has(.trail-entry) .feed{top:140px}
+.mobile .hud:has(.trail-entry) .feed{top:264px}
+@media(max-height:500px){.mobile .hud:has(.trail-entry) .feed{top:68px}}
