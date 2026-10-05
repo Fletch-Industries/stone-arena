@@ -150,5 +150,5 @@ body:has(.trail-dock) .play-time-badge{top:104px}
 .mobile .hud:has(.trail-dock) .gather-hint{top:48%}
 .mobile .hud:has(.trail-dock) .warden-hud{top:254px}
 .mobile #app:has(.trail-dock)>.notice{top:calc(48% + 74px);width:min(270px,85vw)}
-.mobile:has(.trail-dock) .play-time-badge{top:auto;bottom:126px;right:12px}
-@media(max-height:500px){.mobile .hud .trail-dock,.mobile .hud:has(.warden-hud) .trail-dock{top:58px;left:12px;width:240px}.mobile .trail-dock .trail-actions,.mobile .trail-dock .trail-actions:has([data-action=glide]){grid-template-columns:repeat(3,minmax(0,1fr))}.mobile .hud .trail-dock>small{display:block}.mobile .hud:has(.trail-dock) .gather-hint{top:32%;left:74%}.mobile .hud:has(.trail-dock) .warden-hud{top:58px}.mobile #app:has(.trail-dock)>.notice{top:184px;left:74%;width:230px}.mobile:has(.trail-dock) .play-time-badge{top:72px;bottom:auto}}
+.mobile:has(.trail-dock) .play-time-badge{top:56px;bottom:auto;left:12px;right:auto;width:100px;line-height:14px}
+@media(max-height:500px){.mobile .hud .trail-dock,.mobile .hud:has(.warden-hud) .trail-dock{top:58px;left:12px;width:240px}.mobile .trail-dock .trail-actions,.mobile .trail-dock .trail-actions:has([data-action=glide]){grid-template-columns:repeat(3,minmax(0,1fr))}.mobile .hud .trail-dock>small{display:block}.mobile .hud:has(.trail-dock) .gather-hint{top:32%;left:74%}.mobile .hud:has(.trail-dock) .warden-hud{top:58px}.mobile #app:has(.trail-dock)>.notice{top:184px;left:74%;width:230px}.mobile:has(.trail-dock) .play-time-badge{top:12px;bottom:auto;left:148px;right:auto;width:auto}}
