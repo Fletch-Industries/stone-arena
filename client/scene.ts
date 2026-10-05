@@ -51,7 +51,7 @@ export class ArenaScene {
   arrowGeo = new THREE.BoxGeometry(.055, .055, .7); lastWeapon = ''; lastOffhand = ''; swing = 0; time = 0; quality = 'medium'; inspectArmor = false; configuredFov = 120; perspective: Perspective = 'first';
   cameraDistance = 0; lastCamera = new THREE.Vector3(); cameraTracking = '';
   arenaSigns = new ArenaSigns();
-  rigs = new Map<string, { head: THREE.Group; leftArm: THREE.Group; rightArm: THREE.Group; leftLeg: THREE.Group; rightLeg: THREE.Group; tool: THREE.Group; toolName: string; distance: number; speed: number; swing: number; landed: number; grounded: boolean; sailing?: boolean; pose?: ReturnType<typeof locomotionPose>; fromPose?: ReturnType<typeof locomotionPose>; poseBlend?: number; leftArmZ?: number; rightArmZ?: number; fromLeftArmZ?: number; fromRightArmZ?: number }>();
+  rigs = new Map<string, { head: THREE.Group; leftArm: THREE.Group; rightArm: THREE.Group; leftLeg: THREE.Group; rightLeg: THREE.Group; tool: THREE.Group; toolName: string; distance: number; speed: number; swing: number; weaveCast?: boolean; landed: number; grounded: boolean; sailing?: boolean; pose?: ReturnType<typeof locomotionPose>; fromPose?: ReturnType<typeof locomotionPose>; poseBlend?: number; leftArmZ?: number; rightArmZ?: number; fromLeftArmZ?: number; fromRightArmZ?: number }>();
   frames = 0; fps = 60; fpsTime = 0; spectator = 0; reduced = false; renderScale = 1;
   constructor(canvas: HTMLCanvasElement) {
     this.swordMaterial.color.set('#a88abf');
@@ -292,7 +292,7 @@ export class ArenaScene {
   event(e: GameEvent) {
     this.creatures.event(e);
     if(e.realm&&e.realm!==this.viewRealm)return;
-    if (e.type === 'swing' || e.type === 'shot' || e.type === 'weave' || e.type === 'erase' || e.type === 'gather' || e.type === 'mine' || e.type === 'mend') { const rig = e.actor && this.rigs.get(e.actor); if (rig) rig.swing = 1; }
+    if (e.type === 'swing' || e.type === 'shot' || e.type === 'weave' || e.type === 'erase' || e.type === 'gather' || e.type === 'mine' || e.type === 'mend') { const rig = e.actor && this.rigs.get(e.actor); if (rig) { rig.swing = 1; rig.weaveCast = e.type === 'weave'; } }
     if (e.position && this.viewRealm === 'wilds' && !this.reduced && ['weave', 'erase', 'mine', 'mend', 'windlift', 'gather', 'craft', 'hearth', 'creature_bond', 'creature_blink', 'creature_clear', 'creature_hit'].includes(e.type)) this.sparks.burst(e.position.x, e.position.y, e.position.z, e.type === 'gather' ? gatheringFeedback(e.supplyKind).color : e.type === 'weave' ? weavingFeedback(e.weaveKind).color : e.type === 'creature_hit' ? '#ddaeff' : e.type === 'mend' || e.type.startsWith('creature_') ? '#9affde' : '#ffd59d', e.type === 'hearth' ? 4 : e.type === 'creature_clear' ? 35 : 12);
     const g = this.avatars.get(e.target ?? e.actor ?? ''); if (g?.userData.realm === this.viewRealm && !this.reduced && ['hit','relic','totem','dash','level','flag_capture','waystone','warp'].includes(e.type)) this.sparks.burst(g.position.x,g.position.y+1,g.position.z,e.type === 'hit' ? e.blocked ? '#bdeaff' : '#ffcd83' : '#6dfff0',e.type === 'relic' ? 45 : 16);
   }
@@ -393,6 +393,12 @@ export class ArenaScene {
       rig.swing = Math.max(0, rig.swing - dt / .3);
       rig.rightArm.rotation.x = p.sculpting && rig.swing === 0 ? -.5 + p.pitch * .65 + (this.reduced || !p.sculptProgress ? 0 : Math.sin(this.time * 22) * .035) : p.weaving && rig.swing === 0 ? -.35 + p.pitch * .65 : rig.swing > 0 ? -Math.sin(rig.swing * Math.PI) * 1.8 : p.weapon === 'apple' && p.charge > 0 ? 1.65 + (this.reduced ? 0 : Math.sin(this.time * 18) * .06) : p.charge > 0 || (p.weapon === 'crossbow' && p.loaded) ? -1.3 + p.pitch : pose.rightArm;
       rig.leftArm.rotation.z = p.block ? -.2 : rig.leftArmZ; rig.rightArm.rotation.z = rig.swing>0 ? -.4*Math.sin(rig.swing*Math.PI) : p.charge ? .04 : rig.rightArmZ;
+      // A successful rune casts from the staff's resting aim, with a small outward flourish.
+      if (rig.weaveCast && rig.swing > 0 && !this.reduced && snapshot?.phase === 'active' && p.alive && p.realm === 'wilds' && p.weaving && !p.sculpting && !p.block && !p.charge && !sailing) {
+        const cast = Math.sin(rig.swing * Math.PI);
+        rig.rightArm.rotation.x = -.35 + p.pitch * .65 - cast * .45;
+        rig.rightArm.rotation.z = (rig.rightArmZ ?? .04) + cast * .22;
+      }
       const sail = g.getObjectByName('sky-sail') as THREE.Group; sail.visible = sailing;
       if (sail.visible) this.sails.animate(sail, this.time + p.color, this.reduced);
       if (rig.poseBlend === 1) { rig.fromPose = undefined; rig.fromLeftArmZ = rig.fromRightArmZ = undefined; }
